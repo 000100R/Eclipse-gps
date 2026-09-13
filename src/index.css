@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@layer utilities {
+  /* Safe paddings for mobile screens */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Custom micro scrollbars */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 99px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Hide leaflet controls and borders */
+.leaflet-container {
+  background: #09090b !important;
+  font-family: inherit;
+}
+
+.leaflet-bar {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(0, 0, 0, 0.6) !important;
+  color: #737373 !important;
+  font-size: 8px !important;
+  border-radius: 4px;
+  padding: 0 4px !important;
+}
+
+/* Premium Dark Theme Filter for free OpenStreetMap Tiles */
+.map-tiles-dark {
+  filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(100%) saturate(75%);
+}
+

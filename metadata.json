@@ -1,0 +1,6 @@
+{
+  "name": "Eclipse GPS",
+  "description": "A real-time location intelligence and navigation platform featuring interactive maps, crowd intelligence, routing, and an AI map co-pilot.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
