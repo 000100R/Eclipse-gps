@@ -15,7 +15,9 @@ app.use(express.json());
 // Initialize Google Gen AI securely on the server
 const apiKey = process.env.GEMINI_API_KEY;
 const rawModelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-const modelName = rawModelName.startsWith('models/') ? rawModelName.substring(7) : rawModelName;
+// If rawModelName starts with 'AQ.', it is an internal or tuned model ID not supported by generateContent, so we fallback to gemini-3.8-flash
+const actualModel = rawModelName.startsWith('AQ.') ? 'gemini-3.8-flash' : rawModelName;
+const modelName = actualModel.startsWith('models/') ? actualModel.substring(7) : actualModel;
 
 let ai: GoogleGenAI | null = null;
 if (apiKey) {

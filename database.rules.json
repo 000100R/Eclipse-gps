@@ -1,0 +1,73 @@
+{
+  "rules": {
+    "users": {
+      ".read": "true",
+      "$userId": {
+        ".write": "auth != null ? auth.uid === $userId : newData.child('userId').val() === $userId"
+      }
+    },
+    "friend_requests": {
+      "$senderId": {
+        ".read": "auth != null ? auth.uid === $senderId : true",
+        "$receiverId": {
+          ".write": "auth != null ? auth.uid === $senderId : true",
+          ".validate": "newData.hasChildren(['senderId', 'senderName', 'receiverId', 'receiverName', 'status', 'timestamp'])"
+        }
+      }
+    },
+    "friend_requests_received": {
+      "$receiverId": {
+        ".read": "auth != null ? auth.uid === $receiverId : true",
+        "$senderId": {
+          ".write": "auth != null ? (auth.uid === $senderId || auth.uid === $receiverId) : true",
+          ".validate": "newData.hasChildren(['senderId', 'senderName', 'receiverId', 'receiverName', 'status', 'timestamp'])"
+        }
+      }
+    },
+    "friends": {
+      "$userId": {
+        ".read": "auth != null ? auth.uid === $userId : true",
+        "$friendId": {
+          ".write": "auth != null ? auth.uid === $userId : true",
+          ".validate": "newData.hasChildren(['friendId', 'friendName', 'timestamp'])"
+        }
+      }
+    },
+    "locations": {
+      "$userId": {
+        ".read": "true",
+        ".write": "auth != null ? auth.uid === $userId : true"
+      }
+    },
+    "groups": {
+      "$groupId": {
+        ".read": "auth != null ? root.child('groupMembers').child($groupId).child(auth.uid).exists() : true",
+        ".write": "auth != null ? (!data.exists() || data.child('ownerId').val() === auth.uid) : true"
+      }
+    },
+    "groupMembers": {
+      "$groupId": {
+        ".read": "auth != null ? root.child('groupMembers').child($groupId).child(auth.uid).exists() : true",
+        "$memberId": {
+          ".write": "auth != null ? (root.child('groups').child($groupId).child('ownerId').val() === auth.uid || auth.uid === $memberId) : true"
+        }
+      }
+    },
+    "groupInvites": {
+      "$userId": {
+        ".read": "auth != null ? auth.uid === $userId : true",
+        "$groupId": {
+          ".write": "auth != null ? (root.child('groups').child($groupId).child('ownerId').val() === auth.uid || auth.uid === $userId) : true"
+        }
+      }
+    },
+    "groupLocations": {
+      "$groupId": {
+        ".read": "auth != null ? root.child('groupMembers').child($groupId).child(auth.uid).exists() : true",
+        "$memberId": {
+          ".write": "auth != null ? (auth.uid === $memberId && root.child('groupMembers').child($groupId).child(auth.uid).child('sharingEnabled').val() === true) : true"
+        }
+      }
+    }
+  }
+}

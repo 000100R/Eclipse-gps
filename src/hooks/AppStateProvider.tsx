@@ -6,6 +6,37 @@ import { routingService } from '../services/routing/routingService';
 import { alertService } from '../services/realtime/alertService';
 import { ref, set, remove, onDisconnect, serverTimestamp, onValue, off } from 'firebase/database';
 import { isFirebaseConfigured, getFirebaseDatabase } from '../services/firebase';
+import {
+  FriendRelation,
+  FriendRequest,
+  FriendLocation,
+  listenToIncomingRequests,
+  listenToOutgoingRequests,
+  listenToFriends,
+  listenToFriendLocation,
+  publishLiveLocation,
+  clearLiveLocation
+} from '../services/realtime/friendsService';
+import {
+  PujaGroup,
+  GroupMember,
+  GroupInvite,
+  GroupLocation,
+  createPujaGroup as createPujaGroupFb,
+  inviteFriendToGroup as inviteFriendToGroupFb,
+  respondToGroupInvite as respondToGroupInviteFb,
+  removeGroupMember as removeGroupMemberFb,
+  leavePujaGroup as leavePujaGroupFb,
+  renamePujaGroup as renamePujaGroupFb,
+  deletePujaGroup as deletePujaGroupFb,
+  updateGroupSharingState as updateGroupSharingStateFb,
+  publishGroupLocation as publishGroupLocationFb,
+  clearGroupLocation as clearGroupLocationFb,
+  listenToUserGroupInvites,
+  listenToMyGroups,
+  listenToGroupMembers,
+  listenToGroupLocations
+} from '../services/realtime/groupService';
 
 interface AppStateContextType {
   // GPS State
@@ -86,7 +117,27 @@ interface AppStateContextType {
   setDisplayName: (name: string) => void;
   sharingLocation: boolean;
   setSharingLocation: (sharing: boolean) => void;
+  shareLocationWithFriends: boolean;
+  setShareLocationWithFriends: (share: boolean) => void;
+  friendsList: FriendRelation[];
+  friendsLocations: Record<string, FriendLocation>;
+  incomingRequests: FriendRequest[];
+  outgoingRequests: FriendRequest[];
   activeGroup: any | null;
+  setActiveGroup: (group: any | null) => void;
+  groupsList: PujaGroup[];
+  groupInvites: GroupInvite[];
+  groupMembers: GroupMember[];
+  groupLocations: Record<string, GroupLocation>;
+  groupSharingEnabled: boolean;
+  createPujaGroup: (name: string) => Promise<string>;
+  inviteFriendToGroup: (friendId: string, friendName: string) => Promise<void>;
+  respondToGroupInvite: (groupId: string, accept: boolean) => Promise<void>;
+  removeGroupMember: (memberId: string) => Promise<void>;
+  leavePujaGroup: () => Promise<void>;
+  renamePujaGroup: (newName: string) => Promise<void>;
+  deletePujaGroup: () => Promise<void>;
+  updateGroupSharingState: (sharingEnabled: boolean) => Promise<void>;
   createGroup: (name: string) => Promise<string>;
   joinGroup: (code: string) => Promise<boolean>;
   leaveGroup: () => Promise<void>;
@@ -95,6 +146,7 @@ interface AppStateContextType {
   updateMeetingPoint: (lat: number, lng: number, name?: string) => Promise<void>;
   speed: number;
   heading: number;
+  calculateDistanceInMeters: (loc1: Location, loc2: Location) => number;
   helpImproveCrowd: boolean;
   setHelpImproveCrowd: (enabled: boolean) => void;
   pandalGeofenceMeters: number;
@@ -117,6 +169,8 @@ interface AppStateContextType {
   triggerDiscovery: () => void;
   submitUserPandal: (pandal: Partial<Pandal>) => void;
   userPandals: Pandal[];
+  isLostInCrowdActive: boolean;
+  setIsLostInCrowdActive: (active: boolean) => void;
 }
 
 const AppStateContext = createContext<AppStateContextType | undefined>(undefined);
@@ -201,7 +255,64 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
 
   const [sharingLocation, setSharingLocation] = useState<boolean>(false); // Explicit opt-out!
-  const [activeGroup, setActiveGroup] = useState<any | null>(null);
+  const [shareLocationWithFriends, setShareLocationWithFriendsState] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('eclipse_gps_shareLocationWithFriends') === 'true';
+  });
+
+  const [friendsList, setFriendsList] = useState<FriendRelation[]>([]);
+  const [friendsLocations, setFriendsLocations] = useState<Record<string, FriendLocation>>({});
+  const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([]);
+  const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([]);
+
+  const setShareLocationWithFriends = (share: boolean) => {
+    if (share) {
+      if (typeof window !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          () => {
+            setWatchLocation(true);
+            setShareLocationWithFriendsState(true);
+            localStorage.setItem('eclipse_gps_shareLocationWithFriends', 'true');
+          },
+          (err) => {
+            console.warn('Geolocation permission error:', err);
+          }
+        );
+      } else {
+        setShareLocationWithFriendsState(true);
+        localStorage.setItem('eclipse_gps_shareLocationWithFriends', 'true');
+      }
+    } else {
+      setShareLocationWithFriendsState(false);
+      localStorage.setItem('eclipse_gps_shareLocationWithFriends', 'false');
+    }
+  };
+
+  const [activeGroupState, setActiveGroup] = useState<any | null>(null);
+  const [isLostInCrowdActive, setIsLostInCrowdActive] = useState<boolean>(false);
+  const [groupsList, setGroupsList] = useState<PujaGroup[]>([]);
+  const [groupInvites, setGroupInvites] = useState<GroupInvite[]>([]);
+  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
+  const [groupLocations, setGroupLocations] = useState<Record<string, GroupLocation>>({});
+
+  const activeGroup = activeGroupState ? {
+    ...activeGroupState,
+    members: groupMembers.map(member => {
+      const loc = groupLocations[member.userId];
+      return {
+        userId: member.userId,
+        displayName: member.userName,
+        userName: member.userName,
+        sharingEnabled: member.sharingEnabled,
+        latitude: loc ? loc.lat : undefined,
+        longitude: loc ? loc.lng : undefined,
+        speed: 0,
+        heading: 0,
+        accuracy: loc ? loc.accuracy : 0,
+        lastUpdated: loc ? loc.timestamp : member.joinedAt,
+      };
+    })
+  } : null;
   const [speed, setSpeed] = useState<number>(0);
   const [heading, setHeading] = useState<number>(0);
 
@@ -526,77 +637,90 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem('eclipse_gps_displayName', name);
   };
 
-  const createGroup = async (name: string): Promise<string> => {
+  // Puja Group Handlers
+  const createPujaGroup = async (name: string): Promise<string> => {
     try {
-      const response = await fetch('/api/groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
-      if (!response.ok) throw new Error('Failed to create group');
-      const group = await response.json();
-      
-      const joinResponse = await fetch(`/api/groups/${group.id}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          displayName,
-          sharingEnabled: sharingLocation,
-          latitude: currentLocation.lat,
-          longitude: currentLocation.lng,
-          speed,
-          heading,
-          accuracy: gpsAccuracy,
-        }),
-      });
-      if (!joinResponse.ok) throw new Error('Failed to join created group');
-      const joinedGroup = await joinResponse.json();
-      
-      setActiveGroup(joinedGroup);
-      localStorage.setItem('eclipse_gps_activeGroupId', joinedGroup.id);
-      return joinedGroup.id;
+      const gid = await createPujaGroupFb(name, userId, displayName);
+      // Select the newly created group as active
+      localStorage.setItem('eclipse_gps_activeGroupId', gid);
+      // Fetch details immediately to transition UI smoothly
+      if (!isFirebaseConfigured()) {
+        try {
+          const localGroups = JSON.parse(localStorage.getItem('local_groups') || '{}');
+          const val = localGroups[gid];
+          if (val) setActiveGroup(val);
+        } catch (e) {
+          console.error('Local fallback fetch failed:', e);
+        }
+      } else {
+        const groupRef = ref(getFirebaseDatabase(), `groups/${gid}`);
+        onValue(groupRef, (snap) => {
+          const val = snap.val();
+          if (val) setActiveGroup(val);
+        }, { onlyOnce: true });
+      }
+      return gid;
     } catch (err) {
-      console.error('Error creating group:', err);
+      console.error('Error in createPujaGroup handler:', err);
       throw err;
     }
   };
 
-  const joinGroup = async (code: string): Promise<boolean> => {
+  const inviteFriendToGroup = async (friendId: string, friendName: string): Promise<void> => {
+    if (!activeGroup) return;
     try {
-      const response = await fetch(`/api/groups/${code.toUpperCase()}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          displayName,
-          sharingEnabled: sharingLocation,
-          latitude: currentLocation.lat,
-          longitude: currentLocation.lng,
-          speed,
-          heading,
-          accuracy: gpsAccuracy,
-        }),
-      });
-      if (!response.ok) return false;
-      const group = await response.json();
-      setActiveGroup(group);
-      localStorage.setItem('eclipse_gps_activeGroupId', group.id);
-      return true;
+      await inviteFriendToGroupFb(
+        activeGroup.id,
+        activeGroup.name,
+        userId,
+        displayName,
+        friendId,
+        friendName
+      );
     } catch (err) {
-      console.error('Error joining group:', err);
-      return false;
+      console.error('Error in inviteFriendToGroup handler:', err);
     }
   };
 
-  const leaveGroup = async () => {
+  const respondToGroupInvite = async (groupId: string, accept: boolean): Promise<void> => {
+    try {
+      await respondToGroupInviteFb(userId, displayName, groupId, accept);
+      if (accept) {
+        localStorage.setItem('eclipse_gps_activeGroupId', groupId);
+        if (!isFirebaseConfigured()) {
+          try {
+            const localGroups = JSON.parse(localStorage.getItem('local_groups') || '{}');
+            const val = localGroups[groupId];
+            if (val) setActiveGroup(val);
+          } catch (e) {
+            console.error('Local fallback fetch failed:', e);
+          }
+        } else {
+          const groupRef = ref(getFirebaseDatabase(), `groups/${groupId}`);
+          onValue(groupRef, (snap) => {
+            const val = snap.val();
+            if (val) setActiveGroup(val);
+          }, { onlyOnce: true });
+        }
+      }
+    } catch (err) {
+      console.error('Error responding to group invitation:', err);
+    }
+  };
+
+  const removeGroupMember = async (memberId: string): Promise<void> => {
     if (!activeGroup) return;
     try {
-      await fetch(`/api/groups/${activeGroup.id}/leave`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      });
+      await removeGroupMemberFb(activeGroup.id, memberId);
+    } catch (err) {
+      console.error('Error removing group member:', err);
+    }
+  };
+
+  const leavePujaGroup = async (): Promise<void> => {
+    if (!activeGroup) return;
+    try {
+      await leavePujaGroupFb(activeGroup.id, userId);
     } catch (err) {
       console.error('Error leaving group:', err);
     } finally {
@@ -605,114 +729,355 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const renameGroup = async (name: string) => {
+  const renamePujaGroup = async (newName: string): Promise<void> => {
     if (!activeGroup) return;
     try {
-      const response = await fetch(`/api/groups/${activeGroup.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
-      if (response.ok) {
-        const group = await response.json();
-        setActiveGroup(group);
-      }
+      await renamePujaGroupFb(activeGroup.id, newName);
+      setActiveGroup((prev: any) => prev ? { ...prev, name: newName } : null);
     } catch (err) {
-      console.error('Error renaming group:', err);
+      console.error('Error renaming puja group:', err);
     }
   };
 
-  const endGroupSession = async () => {
+  const deletePujaGroup = async (): Promise<void> => {
     if (!activeGroup) return;
     try {
-      await fetch(`/api/groups/${activeGroup.id}`, {
-        method: 'DELETE',
-      });
+      await deletePujaGroupFb(activeGroup.id);
     } catch (err) {
-      console.error('Error ending group session:', err);
+      console.error('Error deleting puja group:', err);
     } finally {
       setActiveGroup(null);
       localStorage.removeItem('eclipse_gps_activeGroupId');
     }
   };
 
-  const updateMeetingPoint = async (lat: number, lng: number, name?: string) => {
+  const updateGroupSharingState = async (sharingEnabled: boolean): Promise<void> => {
     if (!activeGroup) return;
     try {
-      const response = await fetch(`/api/groups/${activeGroup.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meetingPoint: { lat, lng, name } }),
-      });
-      if (response.ok) {
-        const group = await response.json();
-        setActiveGroup(group);
-      }
+      await updateGroupSharingStateFb(activeGroup.id, userId, sharingEnabled);
     } catch (err) {
-      console.error('Error updating meeting point:', err);
+      console.error('Error updating group sharing state:', err);
     }
   };
 
-  // Restore group and telemetry effects
-  useEffect(() => {
-    const savedGroupId = localStorage.getItem('eclipse_gps_activeGroupId');
-    if (savedGroupId) {
-      const fetchGroup = async () => {
+  // Re-map legacy wrappers for absolute backward-compatibility safety
+  const createGroup = createPujaGroup;
+  const joinGroup = async (code: string): Promise<boolean> => {
+    localStorage.setItem('eclipse_gps_activeGroupId', code);
+    if (!isFirebaseConfigured()) {
+      try {
+        const localGroups = JSON.parse(localStorage.getItem('local_groups') || '{}');
+        const val = localGroups[code];
+        if (val) {
+          setActiveGroup(val);
+          const members = JSON.parse(localStorage.getItem('local_members') || '{}');
+          if (!members[code]) members[code] = {};
+          members[code][userId] = {
+            userId,
+            userName: displayName,
+            role: 'member',
+            joinedAt: Date.now(),
+            sharingEnabled: true
+          };
+          localStorage.setItem('local_members', JSON.stringify(members));
+          return true;
+        }
+      } catch (e) {
+        console.error('Local fallback join failed:', e);
+      }
+      return false;
+    }
+    try {
+      const groupRef = ref(getFirebaseDatabase(), `groups/${code}`);
+      onValue(groupRef, async (snap) => {
+        const val = snap.val();
+        if (val) {
+          setActiveGroup(val);
+          const memberRef = ref(getFirebaseDatabase(), `groupMembers/${code}/${userId}`);
+          const memberData: GroupMember = {
+            userId,
+            userName: displayName,
+            role: 'member',
+            joinedAt: Date.now(),
+            sharingEnabled: false
+          };
+          await set(memberRef, memberData);
+        }
+      }, { onlyOnce: true });
+      return true;
+    } catch (err) {
+      console.error('Error joining group legacy code:', err);
+      return false;
+    }
+  };
+  const leaveGroup = leavePujaGroup;
+  const renameGroup = renamePujaGroup;
+  const endGroupSession = deletePujaGroup;
+  const updateMeetingPoint = async (lat: number, lng: number, name?: string) => {
+    if (!activeGroup) return;
+    try {
+      if (!isFirebaseConfigured()) {
         try {
-          const response = await fetch(`/api/groups/${savedGroupId}`);
-          if (response.ok) {
-            const group = await response.json();
-            const inGroup = group.members.some((m: any) => m.userId === userId);
-            if (!inGroup) {
-              await joinGroup(savedGroupId);
-            } else {
-              setActiveGroup(group);
-            }
-          } else {
-            localStorage.removeItem('eclipse_gps_activeGroupId');
+          const localGroups = JSON.parse(localStorage.getItem('local_groups') || '{}');
+          if (localGroups[activeGroup.id]) {
+            localGroups[activeGroup.id].meetingPoint = { lat, lng, name: name || '' };
+            localStorage.setItem('local_groups', JSON.stringify(localGroups));
+            setActiveGroup(localGroups[activeGroup.id]);
           }
         } catch (e) {
-          console.error('Failed to restore active group:', e);
+          console.error('Local fallback meeting point failed:', e);
         }
-      };
-      fetchGroup();
+        return;
+      }
+      const mpRef = ref(getFirebaseDatabase(), `groups/${activeGroup.id}/meetingPoint`);
+      await set(mpRef, { lat, lng, name });
+    } catch (err) {
+      console.error('Error updating meeting point on Firebase:', err);
     }
-  }, [userId]);
+  };
 
+  // Listen to Puja Groups list
   useEffect(() => {
-    if (!activeGroup) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const telemetryResponse = await fetch(`/api/groups/${activeGroup.id}/telemetry`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId,
-            sharingEnabled: sharingLocation,
-            latitude: currentLocation.lat,
-            longitude: currentLocation.lng,
-            speed,
-            heading,
-            accuracy: gpsAccuracy,
-            status: sharingLocation ? 'ACTIVE' : 'LOCATION PAUSED',
-          }),
-        });
-
-        if (telemetryResponse.ok) {
-          const updatedGroup = await telemetryResponse.json();
-          setActiveGroup(updatedGroup);
-        } else if (telemetryResponse.status === 404) {
+    if (!isFirebaseConfigured() || !userId) return;
+    return listenToMyGroups(userId, (groups) => {
+      setGroupsList(groups);
+      
+      const savedActiveGroupId = localStorage.getItem('eclipse_gps_activeGroupId');
+      if (savedActiveGroupId) {
+        const found = groups.find(g => g.id === savedActiveGroupId);
+        if (found) {
+          setActiveGroup(found);
+        } else {
           setActiveGroup(null);
           localStorage.removeItem('eclipse_gps_activeGroupId');
         }
-      } catch (e) {
-        console.warn('Group polling error:', e);
       }
-    }, 5000);
+    });
+  }, [userId]);
 
-    return () => clearInterval(interval);
-  }, [activeGroup, userId, sharingLocation, currentLocation, speed, heading, gpsAccuracy]);
+  // Listen to user group invites
+  useEffect(() => {
+    if (!isFirebaseConfigured() || !userId) return;
+    return listenToUserGroupInvites(userId, (invites) => {
+      setGroupInvites(invites);
+    });
+  }, [userId]);
+
+  // Listen to active group members and active group locations
+  useEffect(() => {
+    if (!isFirebaseConfigured() || !activeGroup) {
+      setGroupMembers([]);
+      setGroupLocations({});
+      return;
+    }
+
+    const unsubMembers = listenToGroupMembers(activeGroup.id, (members) => {
+      setGroupMembers(members);
+    });
+
+    const unsubLocations = listenToGroupLocations(activeGroup.id, (locs) => {
+      setGroupLocations(locs);
+    });
+
+    return () => {
+      unsubMembers();
+      unsubLocations();
+    };
+  }, [activeGroup]);
+
+  // Keep route updated if navigating to a moving group member in Lost-in-Crowd mode
+  useEffect(() => {
+    if (!isNavigating || routeStops.length !== 1) return;
+    const dest = routeStops[0];
+    if (!dest.id || !dest.id.startsWith('member-')) return;
+    
+    const targetUserId = dest.id.replace('member-', '');
+    const currentLoc = groupLocations[targetUserId];
+    if (!currentLoc) return;
+    
+    const isStale = Date.now() - currentLoc.timestamp > 120000;
+    if (isStale) return; // do not use stale location for navigation
+    
+    const currentLat = currentLoc.lat;
+    const currentLng = currentLoc.lng;
+    
+    // If different from what we are currently routing to, recalculate the route!
+    if (dest.location.lat !== currentLat || dest.location.lng !== currentLng) {
+      const updatedMemberItem: any = {
+        ...dest,
+        location: { lat: currentLat, lng: currentLng },
+        latitude: currentLat,
+        longitude: currentLng,
+      };
+      
+      const osrmProfile = routePreference === 'WALKING' ? 'foot' : 'driving';
+      routingService.calculateRoute(
+        currentLocation,
+        { lat: currentLat, lng: currentLng },
+        [],
+        false,
+        osrmProfile
+      ).then(calculatedRoute => {
+        setRouteStops([updatedMemberItem]);
+        setActiveRoute(calculatedRoute);
+      }).catch(err => {
+        console.error('Failed to update live member route:', err);
+      });
+    }
+  }, [groupLocations, isNavigating, routeStops, currentLocation, routePreference]);
+
+  // Synchronize custom local identity with public user registry in Firebase RTDB
+  useEffect(() => {
+    if (isFirebaseConfigured() && userId && displayName) {
+      import('../services/realtime/friendsService').then(({ syncUserProfile }) => {
+        syncUserProfile(userId, displayName).catch((err) => {
+          console.error('Failed to sync user profile with Firebase:', err);
+        });
+      });
+    }
+  }, [userId, displayName]);
+
+  // Listen to incoming requests, outgoing requests, and friends
+  useEffect(() => {
+    if (!isFirebaseConfigured() || !userId) return;
+
+    const unsubIncoming = listenToIncomingRequests(userId, (requests) => {
+      setIncomingRequests(requests);
+    });
+    const unsubOutgoing = listenToOutgoingRequests(userId, (requests) => {
+      setOutgoingRequests(requests);
+    });
+    const unsubFriends = listenToFriends(userId, (friends) => {
+      setFriendsList(friends);
+    });
+
+    return () => {
+      unsubIncoming();
+      unsubOutgoing();
+      unsubFriends();
+    };
+  }, [userId]);
+
+  // Listen to live locations of friends
+  useEffect(() => {
+    if (!isFirebaseConfigured() || !userId || friendsList.length === 0) {
+      setFriendsLocations({});
+      return;
+    }
+
+    const unsubscribes: (() => void)[] = [];
+
+    friendsList.forEach((friend) => {
+      const unsub = listenToFriendLocation(friend.friendId, (loc) => {
+        setFriendsLocations((prev) => {
+          if (!loc) {
+            const copy = { ...prev };
+            delete copy[friend.friendId];
+            return copy;
+          }
+          return {
+            ...prev,
+            [friend.friendId]: loc,
+          };
+        });
+      });
+      unsubscribes.push(unsub);
+    });
+
+    return () => {
+      unsubscribes.forEach((unsub) => unsub());
+    };
+  }, [friendsList, userId]);
+
+  const lastPublishedFriendLocRef = useRef<Location | null>(null);
+
+  // Publish our live location to friends
+  useEffect(() => {
+    const handleFriendLocationPublishing = async () => {
+      if (!isFirebaseConfigured() || !userId) return;
+
+      if (!shareLocationWithFriends) {
+        // Stop sharing / Clear location immediately
+        await clearLiveLocation(userId);
+        lastPublishedFriendLocRef.current = null;
+        return;
+      }
+
+      if (!currentLocation || (currentLocation.lat === KOLKATA_CENTER.lat && currentLocation.lng === KOLKATA_CENTER.lng && gpsStatus !== 'tracking')) {
+        return;
+      }
+
+      // Movement threshold check: 5 meters
+      let shouldPublish = false;
+      if (!lastPublishedFriendLocRef.current) {
+        shouldPublish = true;
+      } else {
+        const dist = calculateDistanceInMeters(lastPublishedFriendLocRef.current, currentLocation);
+        if (dist >= 5) {
+          shouldPublish = true;
+        }
+      }
+
+      if (shouldPublish) {
+        try {
+          await publishLiveLocation(userId, currentLocation.lat, currentLocation.lng, gpsAccuracy, true);
+          lastPublishedFriendLocRef.current = currentLocation;
+        } catch (err) {
+          console.error('Error publishing live location to friends:', err);
+        }
+      }
+    };
+
+    handleFriendLocationPublishing();
+
+    // Clean up on unmount or when userId / shareLocationWithFriends changes
+    return () => {
+      if (isFirebaseConfigured() && userId) {
+        clearLiveLocation(userId).catch((err) => {
+          console.error('Failed to clean up location on unmount:', err);
+        });
+      }
+    };
+  }, [shareLocationWithFriends, currentLocation, userId, gpsAccuracy, gpsStatus]);
+
+  // Publish live location to group if sharing is enabled
+  const myMemberRecord = groupMembers.find(m => m.userId === userId);
+  const groupSharingEnabled = myMemberRecord ? !!myMemberRecord.sharingEnabled : false;
+
+  useEffect(() => {
+    if (!isFirebaseConfigured() || !userId || !activeGroup || !groupSharingEnabled) {
+      if (activeGroup) {
+        clearGroupLocationFb(activeGroup.id, userId).catch(err => {
+          console.error('Failed to clear group location on pause:', err);
+        });
+      }
+      return;
+    }
+
+    if (!currentLocation || (currentLocation.lat === KOLKATA_CENTER.lat && currentLocation.lng === KOLKATA_CENTER.lng && gpsStatus !== 'tracking')) {
+      return;
+    }
+
+    // Publish to group locations
+    publishGroupLocationFb(
+      activeGroup.id,
+      userId,
+      currentLocation.lat,
+      currentLocation.lng,
+      gpsAccuracy,
+      groupSharingEnabled
+    ).catch(err => {
+      console.error('Failed to publish group location:', err);
+    });
+
+    return () => {
+      if (activeGroup) {
+        clearGroupLocationFb(activeGroup.id, userId).catch(err => {
+          console.error('Failed to clear group location on cleanup:', err);
+        });
+      }
+    };
+  }, [activeGroup, groupSharingEnabled, currentLocation, userId, gpsAccuracy, gpsStatus]);
 
   const watchIdRef = useRef<number | null>(null);
 
@@ -1461,7 +1826,27 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setDisplayName,
         sharingLocation,
         setSharingLocation,
+        shareLocationWithFriends,
+        setShareLocationWithFriends,
+        friendsList,
+        friendsLocations,
+        incomingRequests,
+        outgoingRequests,
         activeGroup,
+        setActiveGroup,
+        groupsList,
+        groupInvites,
+        groupMembers,
+        groupLocations,
+        groupSharingEnabled,
+        createPujaGroup,
+        inviteFriendToGroup,
+        respondToGroupInvite,
+        removeGroupMember,
+        leavePujaGroup,
+        renamePujaGroup,
+        deletePujaGroup,
+        updateGroupSharingState,
         createGroup,
         joinGroup,
         leaveGroup,
@@ -1470,6 +1855,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         updateMeetingPoint,
         speed,
         heading,
+        calculateDistanceInMeters,
         helpImproveCrowd,
         setHelpImproveCrowd,
         pandalGeofenceMeters,
@@ -1492,6 +1878,8 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         triggerDiscovery,
         submitUserPandal,
         userPandals,
+        isLostInCrowdActive,
+        setIsLostInCrowdActive,
       }}
     >
       {children}

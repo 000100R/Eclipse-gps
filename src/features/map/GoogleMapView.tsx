@@ -19,6 +19,7 @@ export const GoogleMapView: React.FC = () => {
   const gpsAccuracyCircleRef = useRef<google.maps.Circle | null>(null);
   const streetViewPanoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
   const groupMarkersRef = useRef<google.maps.Marker[]>([]);
+  const friendMarkersRef = useRef<google.maps.Marker[]>([]);
 
   const {
     currentLocation,
@@ -48,12 +49,15 @@ export const GoogleMapView: React.FC = () => {
     mapProvider,
     setMapProvider,
     activeGroup,
+    friendsList,
+    friendsLocations,
     userId,
     pandalCrowdCounts,
     pandalCrowdTrends,
     mapStyle,
     setMapStyle,
     setMapCenter,
+    isLostInCrowdActive,
   } = useAppState();
 
   const [activeInstruction, setActiveInstruction] = useState<any>(null);
@@ -405,6 +409,42 @@ export const GoogleMapView: React.FC = () => {
     });
 
   }, [activeGroup, googleLoaded, userId]);
+
+  // Sync Friend Markers on Google Map
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !googleLoaded) return;
+
+    // Clear old friend markers
+    friendMarkersRef.current.forEach(m => m.setMap(null));
+    friendMarkersRef.current = [];
+
+    if (isLostInCrowdActive) return;
+
+    friendsList.forEach((friend) => {
+      const loc = friendsLocations[friend.friendId];
+      if (!loc || !loc.sharingEnabled) return;
+
+      // Filter out stale locations (> 120 seconds old)
+      const isStale = Date.now() - loc.timestamp > 120000;
+      if (isStale) return;
+
+      const friendSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="%2310b981" stroke="white" stroke-width="2"/><text x="18" y="22" font-family="sans-serif" font-size="10" font-weight="bold" fill="white" text-anchor="middle">${encodeURIComponent(friend.friendName.slice(0, 2).toUpperCase())}</text></svg>`;
+
+      const fMarker = new google.maps.Marker({
+        position: { lat: loc.lat, lng: loc.lng },
+        map,
+        title: `🟢 Friend: ${friend.friendName}`,
+        icon: {
+          url: friendSvg,
+          size: new google.maps.Size(36, 36),
+          anchor: new google.maps.Point(18, 18),
+        }
+      });
+      friendMarkersRef.current.push(fMarker);
+    });
+
+  }, [friendsList, friendsLocations, googleLoaded, isLostInCrowdActive]);
 
   // Render OSRM Polyline Path on Google Map
   useEffect(() => {

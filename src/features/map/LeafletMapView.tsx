@@ -16,6 +16,7 @@ export const LeafletMapView: React.FC = () => {
   const gpsMarkerRef = useRef<L.Marker | null>(null);
   const gpsAccuracyCircleRef = useRef<L.Circle | null>(null);
   const groupMarkersRef = useRef<L.LayerGroup | null>(null);
+  const friendMarkersRef = useRef<L.LayerGroup | null>(null);
 
   const {
     currentLocation,
@@ -43,12 +44,15 @@ export const LeafletMapView: React.FC = () => {
     rerouteSuggestion,
     setRerouteSuggestion,
     activeGroup,
+    friendsList,
+    friendsLocations,
     userId,
     pandalCrowdCounts,
     pandalCrowdTrends,
     mapStyle,
     setMapStyle,
     setMapCenter,
+    isLostInCrowdActive,
   } = useAppState();
 
   const [activeInstruction, setActiveInstruction] = useState<any>(null);
@@ -92,6 +96,10 @@ export const LeafletMapView: React.FC = () => {
     // Layer group to hold live group safety markers
     const groupMarkers = L.layerGroup().addTo(map);
     groupMarkersRef.current = groupMarkers;
+
+    // Layer group to hold live friend location markers
+    const friendMarkers = L.layerGroup().addTo(map);
+    friendMarkersRef.current = friendMarkers;
 
     // Resize observer handling
     const resizeObserver = new ResizeObserver(() => {
@@ -343,6 +351,48 @@ export const LeafletMapView: React.FC = () => {
     });
 
   }, [activeGroup, userId]);
+
+  // Draw live friend markers
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const friendMarkers = friendMarkersRef.current;
+    if (!map || !friendMarkers) return;
+
+    friendMarkers.clearLayers();
+    if (isLostInCrowdActive) return;
+
+    friendsList.forEach((friend) => {
+      const loc = friendsLocations[friend.friendId];
+      if (!loc || !loc.sharingEnabled) return;
+
+      // Filter out stale locations (> 120 seconds old)
+      const isStale = Date.now() - loc.timestamp > 120000;
+      if (isStale) return;
+
+      const friendHtml = `
+        <div class="relative flex flex-col items-center justify-center">
+          <div class="absolute w-12 h-12 rounded-full bg-emerald-500/20 animate-ping duration-1000"></div>
+          <div class="absolute -top-7 bg-emerald-950/95 text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-md border border-emerald-800/80 shadow-md whitespace-nowrap z-[1000]">
+            🟢 ${friend.friendName}
+          </div>
+          <div class="w-7 h-7 rounded-full bg-emerald-500 border-2 border-neutral-950 flex items-center justify-center shadow-lg shadow-emerald-500/50 font-bold text-white text-[10px] relative z-20">
+            ${friend.friendName.slice(0, 2).toUpperCase()}
+          </div>
+        </div>
+      `;
+
+      const friendIcon = L.divIcon({
+        html: friendHtml,
+        className: '',
+        iconSize: [48, 48],
+        iconAnchor: [24, 24],
+      });
+
+      const marker = L.marker([loc.lat, loc.lng], { icon: friendIcon });
+      friendMarkers.addLayer(marker);
+    });
+
+  }, [friendsList, friendsLocations, isLostInCrowdActive]);
 
   // Handle activeRoute Polyline Draw and flyBounds
   useEffect(() => {

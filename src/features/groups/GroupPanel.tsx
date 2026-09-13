@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import {
@@ -15,8 +15,31 @@ import {
   CheckCircle,
   Play,
   RotateCw,
-  HelpCircle
+  HelpCircle,
+  Search,
+  UserPlus,
+  UserCheck,
+  UserX,
+  Clock,
+  Check,
+  X,
+  UserMinus,
+  Trash2
 } from 'lucide-react';
+import { isFirebaseConfigured } from '../../services/firebase';
+import {
+  searchUsers,
+  sendFriendRequest,
+  rejectFriendRequest,
+  acceptFriendRequest,
+  removeFriend,
+  listenToIncomingRequests,
+  listenToOutgoingRequests,
+  listenToFriends,
+  UserProfile,
+  FriendRequest,
+  FriendRelation
+} from '../../services/realtime/friendsService';
 
 export const GroupPanel: React.FC = () => {
   const {
@@ -25,64 +48,162 @@ export const GroupPanel: React.FC = () => {
     setDisplayName,
     sharingLocation,
     setSharingLocation,
+    shareLocationWithFriends,
+    setShareLocationWithFriends,
+    friendsList,
+    friendsLocations,
+    incomingRequests,
+    outgoingRequests,
+    calculateDistanceInMeters,
     activeGroup,
-    createGroup,
-    joinGroup,
-    leaveGroup,
-    renameGroup,
-    endGroupSession,
-    updateMeetingPoint,
+    setActiveGroup,
+    groupsList,
+    groupInvites,
+    groupMembers,
+    groupLocations,
+    groupSharingEnabled,
+    createPujaGroup,
+    inviteFriendToGroup,
+    respondToGroupInvite,
+    removeGroupMember,
+    leavePujaGroup,
+    renamePujaGroup,
+    deletePujaGroup,
+    updateGroupSharingState,
     currentLocation,
     speed,
     heading,
     mapRef,
     helpImproveCrowd,
-    setHelpImproveCrowd
+    setHelpImproveCrowd,
+    addStop,
+    setActiveTab,
+    updateMeetingPoint,
+    isLostInCrowdActive,
+    setIsLostInCrowdActive,
+    calculateRouteToItem,
+    setIsNavigating
   } = useAppState();
 
-  const [groupNameInput, setGroupNameInput] = useState('');
-  const [inviteCodeInput, setInviteCodeInput] = useState('');
-  const [editingName, setEditingName] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Navigation sub-tab inside Friends Tab: 'friends' or 'groups'
+  const [subTab, setSubTab] = useState<'friends' | 'groups'>('friends');
 
-  const handleCreate = async (e: React.FormEvent) => {
+  // Friends Foundation state
+  const [friendSearchQuery, setFriendSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
+  
+  const [isCopiedId, setIsCopiedId] = useState(false);
+  const [copiedGroup, setCopiedGroup] = useState(false);
+  const [groupNameInput, setGroupNameInput] = useState('');
+  const [editingGroupName, setEditingGroupName] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [invitedFriends, setInvitedFriends] = useState<Record<string, boolean>>({});
+
+  // Real-time user searching as typing
+  useEffect(() => {
+    if (!isFirebaseConfigured() || !userId || !friendSearchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const unsubscribe = searchUsers(friendSearchQuery, userId, (results) => {
+      setSearchResults(results);
+    });
+    return unsubscribe;
+  }, [friendSearchQuery, userId]);
+
+  // Copy local ID
+  const copyUserId = () => {
+    navigator.clipboard.writeText(userId);
+    setIsCopiedId(true);
+    setTimeout(() => setIsCopiedId(false), 2000);
+  };
+
+  // Friends Actions
+  const handleSendRequest = async (targetUser: UserProfile) => {
+    try {
+      setErrorMsg(null);
+      await sendFriendRequest(userId, displayName, targetUser.userId, targetUser.displayName);
+    } catch (err: any) {
+      setErrorMsg('Failed to send friend request. Please try again.');
+    }
+  };
+
+  const handleAcceptRequest = async (request: FriendRequest) => {
+    try {
+      setErrorMsg(null);
+      await acceptFriendRequest(userId, displayName, request.senderId, request.senderName);
+    } catch (err: any) {
+      setErrorMsg('Failed to accept request.');
+    }
+  };
+
+  const handleRejectRequest = async (request: FriendRequest) => {
+    try {
+      setErrorMsg(null);
+      await rejectFriendRequest(userId, request.senderId);
+    } catch (err: any) {
+      setErrorMsg('Failed to decline request.');
+    }
+  };
+
+  const handleCancelOutgoing = async (request: FriendRequest) => {
+    try {
+      setErrorMsg(null);
+      await rejectFriendRequest(userId, request.receiverId);
+    } catch (err: any) {
+      setErrorMsg('Failed to cancel request.');
+    }
+  };
+
+  const handleRemoveFriend = async (friendId: string) => {
+    if (!window.confirm('Are you sure you want to remove this friend?')) return;
+    try {
+      setErrorMsg(null);
+      await removeFriend(userId, friendId);
+    } catch (err: any) {
+      setErrorMsg('Failed to remove friend.');
+    }
+  };
+
+  // Puja Groups Handlers
+  const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!groupNameInput.trim()) return;
     setErrorMsg(null);
     try {
-      await createGroup(groupNameInput);
+      await createPujaGroup(groupNameInput);
       setGroupNameInput('');
     } catch (err) {
       setErrorMsg('Failed to create group. Please check your connection.');
     }
   };
 
-  const handleJoin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inviteCodeInput.trim()) return;
-    setErrorMsg(null);
-    const success = await joinGroup(inviteCodeInput);
-    if (success) {
-      setInviteCodeInput('');
-    } else {
-      setErrorMsg('Invalid or expired invite code. Please try again.');
+  const handleInviteFriend = async (friendId: string, friendName: string) => {
+    try {
+      await inviteFriendToGroup(friendId, friendName);
+      setInvitedFriends(prev => ({ ...prev, [friendId]: true }));
+      setTimeout(() => {
+        setInvitedFriends(prev => ({ ...prev, [friendId]: false }));
+      }, 3000);
+    } catch (err) {
+      console.error('Invite friend error:', err);
     }
   };
 
-  const copyCode = () => {
+  const copyGroupCode = () => {
     if (!activeGroup) return;
     navigator.clipboard.writeText(activeGroup.id);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedGroup(true);
+    setTimeout(() => setCopiedGroup(false), 2000);
   };
 
-  const handleRenameSubmit = async (e: React.FormEvent) => {
+  const handleRenameGroupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newGroupName.trim()) return;
-    await renameGroup(newGroupName);
-    setEditingName(false);
+    await renamePujaGroup(newGroupName);
+    setEditingGroupName(false);
   };
 
   const setMeetingPointToCurrent = async () => {
@@ -99,32 +220,121 @@ export const GroupPanel: React.FC = () => {
     }
   };
 
-  const formatLastUpdated = (timestamp: number) => {
-    const diff = Date.now() - timestamp;
-    if (diff < 10000) return 'Just now';
-    const secs = Math.floor(diff / 1000);
-    if (secs < 60) return `${secs}s ago`;
-    const mins = Math.floor(secs / 60);
-    return `${mins}m ago`;
+  const getMemberStatus = (member: any) => {
+    const loc = groupLocations[member.userId];
+    const isLocationStale = !loc || !loc.timestamp || (Date.now() - loc.timestamp > 120000);
+    const isLive = member.sharingEnabled && loc && !isLocationStale;
+
+    if (isLive) {
+      let distanceStr = '';
+      if (loc) {
+        const dist = calculateDistanceInMeters(currentLocation, { lat: loc.lat, lng: loc.lng });
+        distanceStr = dist < 1000 ? `${Math.round(dist)}m away` : `${(dist / 1000).toFixed(1)}km away`;
+      }
+      return {
+        text: `Live • ${distanceStr}`,
+        badgeClass: 'text-emerald-400 bg-emerald-950/20 border-emerald-900/50',
+        dotClass: 'bg-emerald-500 animate-pulse',
+        isLive: true,
+        lat: loc?.lat,
+        lng: loc?.lng
+      };
+    } else if (!member.sharingEnabled) {
+      return {
+        text: 'Location unavailable',
+        badgeClass: 'text-neutral-500 bg-neutral-900 border-neutral-800',
+        dotClass: 'bg-neutral-600',
+        isLive: false
+      };
+    } else {
+      return {
+        text: 'Offline',
+        badgeClass: 'text-neutral-500 bg-neutral-950 border-neutral-900',
+        dotClass: 'bg-neutral-800',
+        isLive: false
+      };
+    }
+  };
+
+  const getProcessedMembers = () => {
+    if (!activeGroup || !activeGroup.members) return [];
+    
+    return (activeGroup.members as any[])
+      .filter((m) => m.userId !== userId)
+      .map((member) => {
+        const loc = groupLocations[member.userId];
+        const isLocationStale = !loc || !loc.timestamp || (Date.now() - loc.timestamp > 120000);
+        const isLive = member.sharingEnabled && loc && !isLocationStale;
+        
+        let distance = Infinity;
+        if (isLive && loc) {
+          distance = calculateDistanceInMeters(currentLocation, {
+            lat: loc.lat,
+            lng: loc.lng,
+          });
+        }
+        
+        return {
+          ...member,
+          isLive,
+          distance,
+          latitude: loc?.lat,
+          longitude: loc?.lng,
+        };
+      })
+      .sort((a, b) => a.distance - b.distance);
+  };
+
+  const handleNavigateToMember = async (member: any) => {
+    if (!member.latitude || !member.longitude) return;
+    
+    const virtualPandal: any = {
+      id: `member-${member.userId}`,
+      name: member.displayName,
+      location: { lat: member.latitude, lng: member.longitude },
+      latitude: member.latitude,
+      longitude: member.longitude,
+      address: 'Live Puja Group Member',
+      area: 'Group Mode',
+      crowdLevel: 'LOW',
+      images: [],
+      source: 'GROUP_MEMBER',
+    };
+    
+    await calculateRouteToItem(virtualPandal);
+    setIsNavigating(true);
+    setActiveTab('home');
+  };
+
+  const handleShowOnMap = (member: any) => {
+    centerOnMember(member);
+    setActiveTab('home');
   };
 
   return (
     <div id="eclipse-friends-panel" className="space-y-4 max-w-lg mx-auto pb-24">
-      {/* Title */}
+      {/* Page Title */}
       <div className="flex items-center space-x-2">
-        <div className="w-1.5 h-6 rounded-full bg-emerald-500" />
+        <div className="w-1.5 h-6 rounded-full bg-indigo-500 animate-pulse" />
         <h2 className="text-lg font-bold text-neutral-100 tracking-wide uppercase">Eclipse Friends</h2>
       </div>
 
       {/* User Settings Header */}
-      <GlassPanel className="p-3.5 space-y-3 bg-neutral-950/40">
+      <GlassPanel className="p-3.5 space-y-3 bg-neutral-950/40 border-neutral-900">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Your Profile Settings</span>
-          <span className="text-[9px] text-neutral-600 font-mono">ID: {userId.slice(0, 8)}...</span>
+          <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Your Eclipse Identity</span>
+          <button
+            onClick={copyUserId}
+            className="flex items-center space-x-1 text-[9px] text-neutral-400 hover:text-white font-mono bg-neutral-900/60 hover:bg-neutral-900 px-1.5 py-0.5 rounded transition-all"
+            title="Click to copy full Eclipse ID"
+          >
+            {isCopiedId ? <CheckCircle size={10} className="text-emerald-400" /> : <Copy size={10} />}
+            <span>ID: {userId.slice(0, 10)}...</span>
+          </button>
         </div>
         <div className="flex items-center space-x-2">
           <div className="relative">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-600 to-indigo-600 flex items-center justify-center font-bold text-white text-sm">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-600 to-emerald-600 flex items-center justify-center font-bold text-white text-sm">
               {displayName.slice(0, 2).toUpperCase()}
             </div>
             <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-neutral-950 bg-emerald-500" />
@@ -136,13 +346,13 @@ export const GroupPanel: React.FC = () => {
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="Enter your name"
-              className="bg-transparent border-b border-transparent hover:border-neutral-800 focus:border-indigo-500 text-xs font-bold text-neutral-100 w-full focus:outline-none py-0.5"
+              className="bg-transparent border-b border-neutral-800 hover:border-neutral-700 focus:border-indigo-500 text-xs font-bold text-neutral-100 w-full focus:outline-none py-0.5"
             />
-            <p className="text-[9px] text-neutral-500 mt-0.5">Click directly on your name to change it</p>
+            <p className="text-[9px] text-neutral-500 mt-0.5">Edit username directly above — updates in real-time</p>
           </div>
         </div>
 
-        {/* Location Sharing Opt-in Lock */}
+        {/* Location Broadcast settings */}
         <div className="p-3 bg-neutral-950/80 rounded-xl border border-neutral-900 space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
@@ -162,36 +372,9 @@ export const GroupPanel: React.FC = () => {
           </div>
           <p className="text-[10px] text-neutral-400 leading-relaxed">
             {sharingLocation ? (
-              <span className="text-emerald-400 font-semibold">✓ Location broadcasting active! Friends in your group can see your real-time path, speed, and status.</span>
+              <span className="text-emerald-400 font-semibold">✓ Location broadcasting active! Friends can locate you on map overlays.</span>
             ) : (
-              "Continuous location broadcast is strictly opt-in. Enable the toggle above to securely share your live telemetry with group members."
-            )}
-          </p>
-        </div>
-
-        {/* Help Improve Live Crowd Information Toggle */}
-        <div className="p-3 bg-neutral-950/80 rounded-xl border border-neutral-900 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <HelpCircle size={14} className={helpImproveCrowd ? 'text-indigo-400 animate-pulse' : 'text-neutral-500'} />
-              <span className="text-xs font-semibold text-neutral-200">Help improve live crowd info</span>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                id="toggle-help-improve-crowd"
-                type="checkbox"
-                checked={helpImproveCrowd}
-                onChange={(e) => setHelpImproveCrowd(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-neutral-300 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500"></div>
-            </label>
-          </div>
-          <p className="text-[10px] text-neutral-400 leading-relaxed">
-            {helpImproveCrowd ? (
-              <span className="text-indigo-400 font-semibold">✓ Active anonymous presence sharing. Thank you for contributing to aggregated live crowd intelligence!</span>
-            ) : (
-              "Anonymously share location telemetry to help generate real-time crowd metrics. Strictly private — no personal details are ever sent or exposed."
+              "Continuous location broadcast is strictly opt-in. Enable the toggle above to securely share your live coordinates."
             )}
           </p>
         </div>
@@ -204,249 +387,866 @@ export const GroupPanel: React.FC = () => {
         </div>
       )}
 
-      {/* No Group State: Join or Create */}
-      {!activeGroup ? (
-        <div className="space-y-3.5">
-          {/* Create Group Card */}
-          <GlassPanel className="p-4 space-y-3 bg-neutral-950/40">
-            <div className="flex items-center space-x-2">
-              <Plus size={16} className="text-indigo-400" />
-              <h3 className="text-sm font-bold text-neutral-200">Create Private Group</h3>
-            </div>
-            <p className="text-xs text-neutral-400 leading-relaxed">
-              Start a private coordination group for your friends, family, or tour buddies. Assign an encrypted meeting point and synchronize live telemetry.
-            </p>
-            <form onSubmit={handleCreate} className="flex space-x-2">
-              <input
-                id="field-group-name-create"
-                type="text"
-                placeholder="e.g. Mahashtami Pandal Hop"
-                value={groupNameInput}
-                onChange={(e) => setGroupNameInput(e.target.value)}
-                className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-300 placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
-              />
-              <button
-                type="submit"
-                id="btn-submit-create-group"
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl uppercase tracking-wider transition-colors"
-              >
-                Create
-              </button>
-            </form>
-          </GlassPanel>
+      {/* Dual Tab Switcher */}
+      <div className="flex bg-neutral-900/40 p-1.5 rounded-2xl border border-neutral-900">
+        <button
+          onClick={() => setSubTab('friends')}
+          className={`flex-1 py-2 text-xs font-bold rounded-xl uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
+            subTab === 'friends'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+              : 'text-neutral-400 hover:text-neutral-200'
+          }`}
+        >
+          <User size={13} />
+          <span>My Friends</span>
+          {incomingRequests.length > 0 && (
+            <span className="shrink-0 w-4 h-4 bg-rose-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center animate-bounce">
+              {incomingRequests.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setSubTab('groups')}
+          className={`flex-1 py-2 text-xs font-bold rounded-xl uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
+            subTab === 'groups'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+              : 'text-neutral-400 hover:text-neutral-200'
+          }`}
+        >
+          <Users size={13} />
+          <span>Active Groups</span>
+        </button>
+      </div>
 
-          {/* Join Group Card */}
-          <GlassPanel className="p-4 space-y-3 bg-neutral-950/40">
-            <div className="flex items-center space-x-2">
-              <Link size={16} className="text-emerald-400" />
-              <h3 className="text-sm font-bold text-neutral-200">Join Existing Group</h3>
-            </div>
-            <p className="text-xs text-neutral-400 leading-relaxed">
-              Enter a 4-character invite code provided by a group organizer to join their active safety coordination session.
-            </p>
-            <form onSubmit={handleJoin} className="flex space-x-2">
-              <input
-                id="field-group-invite-join"
-                type="text"
-                placeholder="e.g. PUJA-A4B3"
-                value={inviteCodeInput}
-                onChange={(e) => setInviteCodeInput(e.target.value)}
-                className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-300 placeholder-neutral-500 focus:outline-none focus:border-emerald-500 font-mono"
-              />
-              <button
-                type="submit"
-                id="btn-submit-join-group"
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl uppercase tracking-wider transition-colors"
-              >
-                Join
-              </button>
-            </form>
-          </GlassPanel>
-        </div>
-      ) : (
-        /* Active Group State Dashboard */
+      {/* FRIENDS TAB CONTENT */}
+      {subTab === 'friends' && (
         <div className="space-y-4">
-          <GlassPanel className="p-4 space-y-3 bg-neutral-950/40">
-            {/* Header / Rename */}
-            <div className="flex items-center justify-between border-b border-neutral-900 pb-3">
-              {editingName ? (
-                <form onSubmit={handleRenameSubmit} className="flex-1 flex space-x-2">
-                  <input
-                    id="field-group-name-rename"
-                    type="text"
-                    value={newGroupName}
-                    onChange={(e) => setNewGroupName(e.target.value)}
-                    className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-xs text-neutral-100 focus:outline-none"
-                  />
-                  <button type="submit" className="text-xs font-bold text-emerald-400 px-1">Save</button>
-                  <button type="button" onClick={() => setEditingName(false)} className="text-xs font-bold text-neutral-500 px-1">Cancel</button>
-                </form>
-              ) : (
-                <div className="min-w-0 pr-2">
-                  <h3 className="text-sm font-bold text-neutral-100 truncate">{activeGroup.name}</h3>
-                  <button
-                    id="btn-edit-group-name"
-                    onClick={() => {
-                      setNewGroupName(activeGroup.name);
-                      setEditingName(true);
-                    }}
-                    className="text-[10px] text-neutral-500 hover:text-neutral-300 font-semibold"
-                  >
-                    Rename Group
-                  </button>
-                </div>
-              )}
-
-              <span className="shrink-0 text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold">
-                ● LIVE GROUP
-              </span>
-            </div>
-
-            {/* Invite Code Row */}
-            <div className="flex items-center justify-between bg-neutral-950 p-2.5 rounded-xl border border-neutral-900">
-              <div>
-                <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Invite Your Friends</span>
-                <p className="text-sm font-mono font-bold text-indigo-400 tracking-wider mt-0.5">{activeGroup.id}</p>
+          {/* Privacy Broadcast Toggle Setting */}
+          <div className="p-3.5 bg-neutral-950/80 rounded-xl border border-neutral-900 space-y-2 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Compass size={14} className={shareLocationWithFriends ? 'text-emerald-400 animate-spin' : 'text-neutral-500'} />
+                <span className="text-xs font-semibold text-neutral-200">Share my live location with friends</span>
               </div>
-              <button
-                id="btn-copy-invite-code"
-                onClick={copyCode}
-                className="flex items-center space-x-1 px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 rounded-lg text-[10px] font-bold uppercase transition-colors"
-              >
-                {copied ? <CheckCircle size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                <span>{copied ? 'Copied' : 'Copy'}</span>
-              </button>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  id="toggle-friend-location-sharing"
+                  type="checkbox"
+                  checked={shareLocationWithFriends}
+                  onChange={(e) => setShareLocationWithFriends(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-neutral-300 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+            <p className="text-[10px] text-neutral-400 leading-relaxed">
+              {shareLocationWithFriends ? (
+                <span className="text-emerald-400 font-semibold flex items-center space-x-1">
+                  <span>✓ Live broadcast active! Accepted friends can see you on their map.</span>
+                </span>
+              ) : (
+                "Continuous location sharing is disabled. Toggle above to safely broadcast your location with your friends."
+              )}
+            </p>
+          </div>
+
+          {/* 1. Real-time User Lookup / Search */}
+          <GlassPanel className="p-4 space-y-3 bg-neutral-950/40 border-neutral-900">
+            <div className="flex items-center space-x-2 border-b border-neutral-900 pb-2">
+              <Search size={14} className="text-indigo-400" />
+              <h3 className="text-xs font-bold text-neutral-200 uppercase tracking-wider">Search Eclipse Users</h3>
+            </div>
+            <div className="relative">
+              <input
+                type="text"
+                value={friendSearchQuery}
+                onChange={(e) => setFriendSearchQuery(e.target.value)}
+                placeholder="Type name or Eclipse ID to search..."
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-3 pr-10 py-2.5 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+              {friendSearchQuery && (
+                <button
+                  onClick={() => setFriendSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
 
-            {/* Active Members List */}
-            <div className="space-y-2 pt-1">
-              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Group Members ({activeGroup.members?.length || 0})</span>
-              <div className="space-y-2">
-                {activeGroup.members?.map((member: any) => {
-                  const isMe = member.userId === userId;
-                  const isBroadcasting = member.sharingEnabled;
+            {/* Suggestions list */}
+            {friendSearchQuery && (
+              <div className="space-y-2 mt-2 pt-1 border-t border-neutral-900 max-h-48 overflow-y-auto">
+                {searchResults.length === 0 ? (
+                  <p className="text-[10px] text-neutral-500 text-center py-2">No matching users found.</p>
+                ) : (
+                  searchResults.map((user) => {
+                    const isFriend = friendsList.some((f) => f.friendId === user.userId);
+                    const isSent = outgoingRequests.some((r) => r.receiverId === user.userId);
+                    const isReceived = incomingRequests.some((r) => r.senderId === user.userId);
 
-                  return (
-                    <div
-                      key={member.userId}
-                      className="flex items-center justify-between p-2.5 bg-neutral-950/60 border border-neutral-900 rounded-xl hover:border-neutral-800 transition-colors"
-                    >
-                      <div className="flex items-center space-x-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center font-bold text-indigo-400 shrink-0 text-xs">
-                          {member.displayName.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center space-x-1.5">
-                            <span className="text-xs font-bold text-neutral-200 truncate">{member.displayName}</span>
-                            {isMe && <span className="text-[9px] bg-indigo-500/15 text-indigo-400 px-1 rounded-sm font-semibold shrink-0">me</span>}
+                    return (
+                      <div
+                        key={user.userId}
+                        className="flex items-center justify-between p-2 bg-neutral-900/40 rounded-xl border border-neutral-900/60"
+                      >
+                        <div className="flex items-center space-x-2 min-w-0">
+                          <div className="w-7 h-7 rounded-full bg-neutral-800 text-[10px] font-bold flex items-center justify-center text-indigo-400">
+                            {user.displayName.slice(0, 2).toUpperCase()}
                           </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-neutral-200 truncate">{user.displayName}</p>
+                            <p className="text-[8px] text-neutral-500 font-mono">ID: {user.userId.slice(0, 12)}</p>
+                          </div>
+                        </div>
 
-                          {/* Telemetry metadata */}
-                          {isBroadcasting ? (
-                            <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5 text-[9px] text-neutral-500">
-                              <span className="truncate">Speed: {Math.round((member.speed || 0) * 3.6)} km/h</span>
-                              <span>•</span>
-                              <span>HDG: {Math.round(member.heading || 0)}°</span>
-                              <span>•</span>
-                              <span className="text-emerald-500">{formatLastUpdated(member.lastUpdated)}</span>
-                            </div>
+                        {/* Direct responsive actions */}
+                        <div className="shrink-0">
+                          {isFriend ? (
+                            <span className="flex items-center space-x-1 text-[9px] text-emerald-400 bg-emerald-950/20 border border-emerald-900/50 px-2 py-1 rounded-lg font-bold uppercase">
+                              <Check size={10} />
+                              <span>Friends</span>
+                            </span>
+                          ) : isSent ? (
+                            <span className="flex items-center space-x-1 text-[9px] text-neutral-400 bg-neutral-900 border border-neutral-800 px-2 py-1 rounded-lg font-bold uppercase">
+                              <Clock size={10} />
+                              <span>Sent</span>
+                            </span>
+                          ) : isReceived ? (
+                            <button
+                              onClick={() => {
+                                const req = incomingRequests.find((r) => r.senderId === user.userId);
+                                if (req) handleAcceptRequest(req);
+                              }}
+                              className="text-[9px] text-white bg-indigo-600 hover:bg-indigo-500 px-2.5 py-1 rounded-lg font-bold uppercase transition-colors"
+                            >
+                              Accept
+                            </button>
                           ) : (
-                            <span className="text-[9px] text-rose-500 font-semibold block mt-0.5">Location Paused</span>
+                            <button
+                              onClick={() => handleSendRequest(user)}
+                              className="flex items-center space-x-1 text-[9px] text-indigo-400 hover:text-white bg-indigo-950/30 hover:bg-indigo-600 border border-indigo-900/40 hover:border-indigo-500 px-2.5 py-1 rounded-lg font-bold uppercase transition-all"
+                            >
+                              <UserPlus size={10} />
+                              <span>Add</span>
+                            </button>
                           )}
                         </div>
                       </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </GlassPanel>
 
-                      {/* Map Interaction */}
-                      {isBroadcasting && (
+          {/* 2. Incoming Requests Box */}
+          {incomingRequests.length > 0 && (
+            <GlassPanel className="p-4 space-y-3 bg-neutral-950/40 border-rose-950/40 border-l-2 border-l-rose-500">
+              <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider flex items-center space-x-1">
+                <span>●</span>
+                <span>Incoming Friend Requests ({incomingRequests.length})</span>
+              </span>
+              <div className="space-y-2">
+                {incomingRequests.map((req) => (
+                  <div
+                    key={req.senderId}
+                    className="flex items-center justify-between p-2.5 bg-neutral-950 border border-neutral-900 rounded-xl"
+                  >
+                    <div className="flex items-center space-x-2 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-neutral-900 text-xs font-bold flex items-center justify-center text-rose-400">
+                        {req.senderName.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-neutral-200 truncate">{req.senderName}</p>
+                        <p className="text-[8px] text-neutral-500 font-mono">ID: {req.senderId.slice(0, 10)}...</p>
+                      </div>
+                    </div>
+                    <div className="flex space-x-1.5 shrink-0">
+                      <button
+                        onClick={() => handleAcceptRequest(req)}
+                        className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => handleRejectRequest(req)}
+                        className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </GlassPanel>
+          )}
+
+          {/* 3. My Friends Registry */}
+          <GlassPanel className="p-4 space-y-3 bg-neutral-950/40 border-neutral-900">
+            <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">
+              Active Friends ({friendsList.length})
+            </span>
+            {friendsList.length === 0 ? (
+              <div className="text-center py-8 space-y-2">
+                <Users size={28} className="text-neutral-700 mx-auto stroke-[1.2]" />
+                <p className="text-xs text-neutral-400 font-bold">No Friends Connected Yet</p>
+                <p className="text-[10px] text-neutral-500 max-w-xs mx-auto leading-relaxed">
+                  Search other active users above, or share your Eclipse ID to start sending invite queries.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {friendsList.map((friend) => {
+                  const loc = friendsLocations[friend.friendId];
+                  const isStale = !loc || !loc.timestamp || (Date.now() - loc.timestamp > 120000);
+                  const isLive = loc && loc.sharingEnabled && !isStale;
+
+                  let distanceStr = 'Location unavailable';
+                  if (isLive && loc) {
+                    const dist = calculateDistanceInMeters(currentLocation, { lat: loc.lat, lng: loc.lng });
+                    distanceStr = dist < 1000 ? `${Math.round(dist)} m away` : `${(dist / 1000).toFixed(1)} km away`;
+                  }
+
+                  return (
+                    <div
+                      key={friend.friendId}
+                      className="flex items-center justify-between p-2.5 bg-neutral-950/60 border border-neutral-900 rounded-xl hover:border-neutral-800 transition-colors"
+                    >
+                      <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                        <div className="w-8 h-8 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center font-bold text-indigo-400 shrink-0 text-xs">
+                          {friend.friendName.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-neutral-200 truncate block">{friend.friendName}</span>
+                          <div className="flex items-center space-x-1.5 mt-0.5">
+                            {isLive ? (
+                              <span className="inline-flex items-center text-[9px] text-emerald-400 bg-emerald-950/30 px-1.5 py-0.5 rounded-md border border-emerald-900/40 font-semibold">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse" />
+                                Live • {distanceStr}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center text-[9px] text-neutral-500 bg-neutral-900 px-1.5 py-0.5 rounded-md border border-neutral-800">
+                                Location unavailable
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        {isLive && loc && (
+                          <button
+                            onClick={() => {
+                              const stop = {
+                                id: `friend-${friend.friendId}`,
+                                name: friend.friendName,
+                                location: { lat: loc.lat, lng: loc.lng },
+                                theme: 'Friend',
+                              } as any;
+                              addStop(stop);
+                              setActiveTab('routes');
+                            }}
+                            className="flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all shadow-md shadow-emerald-900/20"
+                            title="Navigate to Friend"
+                          >
+                            <Compass size={11} className="animate-spin" style={{ animationDuration: '3s' }} />
+                            <span>Navigate</span>
+                          </button>
+                        )}
                         <button
-                          id={`btn-focus-member-${member.userId}`}
-                          onClick={() => centerOnMember(member)}
-                          className="p-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white rounded-lg transition-colors shrink-0"
-                          title="Locate Member on Map"
+                          onClick={() => handleRemoveFriend(friend.friendId)}
+                          className="p-1.5 bg-neutral-900 hover:bg-rose-950/30 text-neutral-500 hover:text-rose-400 rounded-lg transition-colors border border-transparent hover:border-rose-900/30 shrink-0"
+                          title="Remove Friend"
                         >
-                          <MapPin size={13} className="stroke-[2.5]" />
+                          <Trash2 size={13} />
                         </button>
-                      )}
+                      </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
+            )}
+          </GlassPanel>
 
-            {/* Meeting Point Coordinator */}
-            <div className="pt-2">
-              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Group Meeting Point</span>
-              <div className="p-3 bg-neutral-950/80 rounded-xl border border-neutral-900 mt-1.5 space-y-3">
-                {activeGroup.meetingPoint && activeGroup.meetingPoint.lat !== 0 ? (
-                  <div className="flex items-center justify-between">
+          {/* 4. Sent / Outgoing Pending Box */}
+          {outgoingRequests.length > 0 && (
+            <GlassPanel className="p-4 space-y-3 bg-neutral-950/40 border-neutral-900">
+              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">
+                Pending Requests Sent ({outgoingRequests.length})
+              </span>
+              <div className="space-y-2">
+                {outgoingRequests.map((req) => (
+                  <div
+                    key={req.receiverId}
+                    className="flex items-center justify-between p-2 bg-neutral-950/40 border border-neutral-900 rounded-xl"
+                  >
                     <div className="flex items-center space-x-2 min-w-0">
-                      <MapPin size={15} className="text-indigo-400 shrink-0" />
-                      <div className="min-w-0 text-xs">
-                        <p className="font-bold text-neutral-200 truncate">{activeGroup.meetingPoint.name || 'Assigned Meeting Point'}</p>
-                        <p className="text-[10px] text-neutral-500 font-mono mt-0.5">
-                          {activeGroup.meetingPoint.lat.toFixed(5)}, {activeGroup.meetingPoint.lng.toFixed(5)}
-                        </p>
+                      <div className="w-6 h-6 rounded-full bg-neutral-900 text-[10px] font-bold flex items-center justify-center text-neutral-500">
+                        {req.receiverName.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-neutral-300 truncate">{req.receiverName}</p>
+                        <p className="text-[8px] text-neutral-500 font-mono">ID: {req.receiverId.slice(0, 8)}...</p>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-1 shrink-0">
-                      <button
-                        id="btn-focus-meeting-point"
-                        onClick={() => {
-                          if (mapRef) mapRef.setView([activeGroup.meetingPoint.lat, activeGroup.meetingPoint.lng], 16);
-                        }}
-                        className="p-1 text-xs text-indigo-400 hover:text-indigo-300 font-bold uppercase"
-                      >
-                        Locate
-                      </button>
-                      <button
-                        id="btn-clear-meeting-point"
-                        onClick={clearGroupMeetingPoint}
-                        className="p-1 text-xs text-rose-500 hover:text-rose-400 font-bold uppercase ml-2"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-[10px] text-neutral-500 leading-relaxed">
-                      No meeting point has been set for this session yet. An organizer can set one to coordinate.
-                    </p>
                     <button
-                      type="button"
-                      id="btn-set-meeting-current"
-                      onClick={setMeetingPointToCurrent}
-                      className="w-full py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-200 text-[10px] font-bold rounded-lg border border-neutral-800 uppercase tracking-wider transition-all"
+                      onClick={() => handleCancelOutgoing(req)}
+                      className="text-[9px] text-neutral-500 hover:text-rose-400 bg-neutral-900 hover:bg-neutral-900/80 px-2 py-1 rounded-lg border border-neutral-800 font-bold uppercase transition-colors"
                     >
-                      Set Meeting Point at My Coordinates
+                      Cancel
                     </button>
                   </div>
-                )}
+                ))}
               </div>
-            </div>
+            </GlassPanel>
+          )}
+        </div>
+      )}
 
-            {/* Exit Actions */}
-            <div className="flex items-center space-x-2 border-t border-neutral-900 pt-3.5 mt-2">
-              <button
-                type="button"
-                id="btn-leave-group"
-                onClick={leaveGroup}
-                className="flex-1 flex items-center justify-center space-x-1.5 py-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-xs font-bold rounded-xl uppercase tracking-wider transition-colors border border-neutral-800"
-              >
-                <LogOut size={13} />
-                <span>Leave Group</span>
-              </button>
-              <button
-                type="button"
-                id="btn-end-group-session"
-                onClick={endGroupSession}
-                className="flex-1 flex items-center justify-center space-x-1.5 py-2 bg-rose-950/20 hover:bg-rose-950/40 text-rose-400 text-xs font-bold rounded-xl uppercase tracking-wider transition-colors border border-rose-900/30"
-              >
-                <XCircle size={13} />
-                <span>End Session</span>
-              </button>
+      {/* GROUPS TAB CONTENT */}
+      {subTab === 'groups' && (
+        <div className="space-y-4">
+          {!activeGroup ? (
+            <div className="space-y-3.5">
+              {/* 1. Pending Group Invites */}
+              {groupInvites.length > 0 && (
+                <GlassPanel className="p-4 space-y-3 bg-indigo-950/20 border-indigo-500/25 border-l-2 border-l-indigo-500">
+                  <div className="flex items-center space-x-1.5 text-xs font-bold text-indigo-400 uppercase tracking-wider">
+                    <Clock size={13} />
+                    <span>Group Invitations ({groupInvites.length})</span>
+                  </div>
+                  <div className="space-y-2">
+                    {groupInvites.map((invite) => (
+                      <div
+                        key={invite.groupId}
+                        className="flex items-center justify-between p-2.5 bg-neutral-950 border border-neutral-900 rounded-xl"
+                      >
+                        <div className="min-w-0 flex-1 pr-2">
+                          <p className="text-xs font-bold text-neutral-200 truncate">{invite.groupName}</p>
+                          <p className="text-[9px] text-neutral-500">Invited by: {invite.senderName}</p>
+                        </div>
+                        <div className="flex space-x-1.5 shrink-0">
+                          <button
+                            onClick={() => respondToGroupInvite(invite.groupId, true)}
+                            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded-lg uppercase transition-all"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => respondToGroupInvite(invite.groupId, false)}
+                            className="px-2.5 py-1 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white font-bold text-[10px] rounded-lg uppercase transition-all"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </GlassPanel>
+              )}
+
+              {/* 2. Create Group Card */}
+              <GlassPanel className="p-4 space-y-3 bg-neutral-950/40 border-neutral-900">
+                <div className="flex items-center space-x-2">
+                  <Plus size={16} className="text-indigo-400" />
+                  <h3 className="text-xs font-bold text-neutral-200 uppercase tracking-wider">Create Puja Group</h3>
+                </div>
+                <p className="text-[11px] text-neutral-400 leading-relaxed">
+                  Start a private Puja group. The group owner can invite accepted friends, manage membership, and share/view live coordination locations.
+                </p>
+                <form onSubmit={handleCreateGroup} className="flex space-x-2">
+                  <input
+                    id="field-group-name-create"
+                    type="text"
+                    placeholder="e.g. College Puja Squad"
+                    value={groupNameInput}
+                    onChange={(e) => setGroupNameInput(e.target.value)}
+                    className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-300 placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    type="submit"
+                    id="btn-submit-create-group"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl uppercase tracking-wider transition-colors shrink-0"
+                  >
+                    Create
+                  </button>
+                </form>
+              </GlassPanel>
+
+              {/* 3. My Puja Groups list */}
+              <GlassPanel className="p-4 space-y-3 bg-neutral-950/40 border-neutral-900">
+                <div className="flex items-center space-x-2 border-b border-neutral-900 pb-2">
+                  <Users size={14} className="text-indigo-400" />
+                  <h3 className="text-xs font-bold text-neutral-200 uppercase tracking-wider">My Puja Groups ({groupsList.length})</h3>
+                </div>
+                {groupsList.length === 0 ? (
+                  <p className="text-[11px] text-neutral-500 text-center py-4">You haven't joined or created any groups yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {groupsList.map((group) => {
+                      const isOwner = group.ownerId === userId;
+                      return (
+                        <div
+                          key={group.id}
+                          className="flex items-center justify-between p-2.5 bg-neutral-950 border border-neutral-900/60 rounded-xl hover:border-neutral-800 transition-colors"
+                        >
+                          <div className="min-w-0 pr-2">
+                            <p className="text-xs font-bold text-neutral-200 truncate">{group.name}</p>
+                            <div className="flex items-center space-x-1.5 mt-0.5">
+                              <span className="text-[9px] text-neutral-500">Owner: {group.ownerName}</span>
+                              {isOwner && (
+                                <span className="text-[8px] bg-indigo-950 text-indigo-400 border border-indigo-900/50 px-1 py-0.5 rounded font-bold uppercase">
+                                  Owner
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setActiveGroup(group);
+                              localStorage.setItem('eclipse_gps_activeGroupId', group.id);
+                            }}
+                            className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-200 hover:text-white border border-neutral-800 font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all shrink-0"
+                          >
+                            Enter
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </GlassPanel>
             </div>
-          </GlassPanel>
+          ) : (
+            /* Active Group Dashboard */
+            <div className="space-y-4">
+              {isLostInCrowdActive ? (
+                /* LOST IN CROWD SCREEN */
+                <div className="space-y-4">
+                  {/* Title Bar */}
+                  <div className="flex items-center justify-between border-b border-rose-900/40 pb-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                      <h2 className="text-sm font-black text-rose-500 uppercase tracking-widest">LOST IN CROWD</h2>
+                    </div>
+                    <button
+                      onClick={() => setIsLostInCrowdActive(false)}
+                      className="px-3 py-1 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-[10px] font-bold rounded-lg border border-neutral-800 transition-colors uppercase tracking-wider"
+                    >
+                      Exit Mode
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-neutral-400 leading-relaxed font-medium">
+                    Find your group members. Displaying ONLY active group members who are currently sharing location.
+                  </p>
+
+                  {/* 4. CLOSEST MEMBER */}
+                  {(() => {
+                    const processed = getProcessedMembers();
+                    const liveOnly = processed.filter(m => m.isLive);
+                    const closest = liveOnly[0] || null;
+                    
+                    if (closest) {
+                      const distStr = closest.distance < 1000 ? `${Math.round(closest.distance)}m away` : `${(closest.distance / 1000).toFixed(1)}km away`;
+                      return (
+                        <div className="p-4 bg-rose-950/25 border-2 border-rose-500/50 rounded-2xl space-y-3 shadow-lg shadow-rose-950/30">
+                          <span className="text-[10px] font-extrabold text-rose-400 uppercase tracking-widest block">
+                            🏆 CLOSEST GROUP MEMBER
+                          </span>
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0 pr-2">
+                              <h3 className="text-lg font-black text-white truncate">{closest.displayName}</h3>
+                              <p className="text-sm font-bold text-emerald-400 mt-1 flex items-center">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-1.5 shrink-0" />
+                                🟢 Live • {distStr}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleNavigateToMember(closest)}
+                              className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black rounded-xl uppercase tracking-widest shadow-md shadow-rose-500/20 flex items-center space-x-1 transition-transform active:scale-95 shrink-0"
+                            >
+                              <Compass size={14} className="mr-1" />
+                              NAVIGATE
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <div className="p-4 bg-neutral-950/80 border border-neutral-900 rounded-2xl text-center">
+                          <p className="text-xs text-neutral-400 font-bold leading-relaxed">
+                            No group members are currently sharing their location.
+                          </p>
+                        </div>
+                      );
+                    }
+                  })()}
+
+                  {/* 2. LOST-IN-CROWD SCREEN MEMBERS LIST */}
+                  <div className="space-y-2.5">
+                    <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">
+                      Group Members List
+                    </span>
+
+                    {(() => {
+                      const processed = getProcessedMembers();
+                      if (processed.length === 0) {
+                        return <p className="text-xs text-neutral-500 py-3 text-center">No other members in this group.</p>;
+                      }
+                      
+                      const liveOnly = processed.filter(m => m.isLive);
+                      const unavailableOnly = processed.filter(m => !m.isLive);
+                      
+                      return (
+                        <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
+                          {/* Live Members */}
+                          {liveOnly.map((member) => {
+                            const distStr = member.distance < 1000 ? `${Math.round(member.distance)} m away` : `${(member.distance / 1000).toFixed(2)} km away`;
+                            return (
+                              <div
+                                key={member.userId}
+                                className="p-3 bg-neutral-950/80 border border-neutral-900 rounded-xl space-y-3"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="min-w-0">
+                                    <h4 className="text-xs font-black text-neutral-100 truncate">{member.displayName}</h4>
+                                    <p className="text-[10px] text-emerald-400 font-bold mt-0.5 flex items-center">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 shrink-0 animate-pulse" />
+                                      🟢 Live • {distStr}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                  <button
+                                    onClick={() => handleShowOnMap(member)}
+                                    className="py-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-[10px] font-bold rounded-lg border border-neutral-800 uppercase tracking-wider transition-colors flex items-center justify-center space-x-1"
+                                  >
+                                    <MapPin size={12} className="text-indigo-400 shrink-0" />
+                                    <span>SHOW ON MAP</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleNavigateToMember(member)}
+                                    className="py-2 bg-rose-950/30 hover:bg-rose-950/50 text-rose-400 text-[10px] font-extrabold rounded-lg border border-rose-900/50 uppercase tracking-wider transition-colors flex items-center justify-center space-x-1"
+                                  >
+                                    <Compass size={12} className="text-rose-400 shrink-0" />
+                                    <span>NAVIGATE</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {/* Location Unavailable Members */}
+                          {unavailableOnly.map((member) => (
+                            <div
+                              key={member.userId}
+                              className="p-3 bg-neutral-950/30 border border-neutral-950 rounded-xl flex items-center justify-between"
+                            >
+                              <span className="text-xs font-bold text-neutral-400 truncate pr-2">{member.displayName}</span>
+                              <span className="text-[10px] text-neutral-500 font-medium flex items-center shrink-0">
+                                <span className="w-1.5 h-1.5 rounded-full bg-neutral-700 mr-1.5" />
+                                ⚪ Location unavailable
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Bottom Exit Button */}
+                  <button
+                    onClick={() => setIsLostInCrowdActive(false)}
+                    className="w-full py-2.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-xs font-bold rounded-xl border border-neutral-800 transition-colors uppercase tracking-widest mt-2"
+                  >
+                    EXIT LOST-IN-CROWD
+                  </button>
+                </div>
+              ) : (
+                /* NORMAL ACTIVE DASHBOARD */
+                <div className="space-y-4 w-full">
+                  {/* LOST IN CROWD PANIC TRIGGER BLOCK */}
+                  <div className="p-4 bg-rose-950/25 border-2 border-rose-500/30 rounded-2xl flex flex-col items-center text-center space-y-3">
+                    <div className="space-y-1">
+                      <h4 className="text-xs font-black text-rose-400 uppercase tracking-widest">Separated from friends?</h4>
+                      <p className="text-[10px] text-neutral-400 max-w-xs leading-relaxed">
+                        Enable Lost-in-Crowd mode to instantly view members sorted by distance and navigate to them.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      id="btn-lost-in-crowd-trigger"
+                      onClick={() => setIsLostInCrowdActive(true)}
+                      className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black rounded-xl uppercase tracking-widest shadow-md shadow-rose-500/20 transition-transform active:scale-95 animate-pulse"
+                    >
+                      🔴 LOST IN CROWD
+                    </button>
+                  </div>
+
+                  <GlassPanel className="p-4 space-y-3 bg-neutral-950/40 border-neutral-900">
+                {/* Header / Rename */}
+                <div className="flex items-center justify-between border-b border-neutral-900 pb-3">
+                  {editingGroupName ? (
+                    <form onSubmit={handleRenameGroupSubmit} className="flex-1 flex space-x-2">
+                      <input
+                        id="field-group-name-rename"
+                        type="text"
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-xs text-neutral-100 focus:outline-none"
+                      />
+                      <button type="submit" className="text-xs font-bold text-emerald-400 px-1">Save</button>
+                      <button type="button" onClick={() => setEditingGroupName(false)} className="text-xs font-bold text-neutral-500 px-1">Cancel</button>
+                    </form>
+                  ) : (
+                    <div className="min-w-0 pr-2 flex-1">
+                      <h3 className="text-sm font-bold text-neutral-100 truncate">{activeGroup.name}</h3>
+                      {activeGroup.ownerId === userId && (
+                        <button
+                          id="btn-edit-group-name"
+                          onClick={() => {
+                            setNewGroupName(activeGroup.name);
+                            setEditingGroupName(true);
+                          }}
+                          className="text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold"
+                        >
+                          Rename Group
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  <span className="shrink-0 text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-bold">
+                    ● ACTIVE PUJA GROUP
+                  </span>
+                </div>
+
+                {/* Group Location Sharing Toggle */}
+                <div className="p-3 bg-neutral-950/80 rounded-xl border border-neutral-900 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Compass size={14} className={groupSharingEnabled ? 'text-emerald-400 animate-spin' : 'text-neutral-500'} />
+                      <span className="text-xs font-semibold text-neutral-200">Share my location with this group</span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        id="toggle-group-sharing-enabled"
+                        type="checkbox"
+                        checked={groupSharingEnabled}
+                        onChange={(e) => updateGroupSharingState(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-neutral-300 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-neutral-400 leading-relaxed">
+                    {groupSharingEnabled ? (
+                      <span className="text-emerald-400 font-semibold">✓ Location sharing is active! Only group members can view your coordinates.</span>
+                    ) : (
+                      "Opt-in to share your location with other members in this group. Joining does NOT share it automatically."
+                    )}
+                  </p>
+                </div>
+
+                {/* Owner invite friends list */}
+                {activeGroup.ownerId === userId && (
+                  <div className="space-y-2 pt-1 border-t border-neutral-900/40">
+                    <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">Invite Accepted Friends</span>
+                    {friendsList.filter(f => !groupMembers.some(m => m.userId === f.friendId)).length === 0 ? (
+                      <p className="text-[9px] text-neutral-500 leading-relaxed">No eligible friends to invite (all are already group members, or invite list is empty).</p>
+                    ) : (
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                        {friendsList
+                          .filter(f => !groupMembers.some(m => m.userId === f.friendId))
+                          .map(friend => (
+                            <div key={friend.friendId} className="flex items-center justify-between p-2 bg-neutral-950 rounded-lg border border-neutral-900">
+                              <span className="text-xs font-bold text-neutral-200 truncate pr-2">{friend.friendName}</span>
+                              <button
+                                onClick={() => handleInviteFriend(friend.friendId, friend.friendName)}
+                                disabled={invitedFriends[friend.friendId]}
+                                className={`px-2.5 py-1 text-[9px] font-bold rounded-md uppercase tracking-wider transition-colors shrink-0 ${
+                                  invitedFriends[friend.friendId]
+                                    ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                                }`}
+                              >
+                                {invitedFriends[friend.friendId] ? 'Invited' : 'Invite'}
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Active Members List */}
+                <div className="space-y-2 pt-2 border-t border-neutral-900/40">
+                  <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">Group Members ({groupMembers.length})</span>
+                  <div className="space-y-2">
+                    {groupMembers.map((member) => {
+                      const isMe = member.userId === userId;
+                      const isOwner = member.role === 'owner';
+                      const status = getMemberStatus(member);
+
+                      return (
+                        <div
+                          key={member.userId}
+                          className="flex items-center justify-between p-2.5 bg-neutral-950/60 border border-neutral-900 rounded-xl hover:border-neutral-800 transition-colors"
+                        >
+                          <div className="flex items-center space-x-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center font-bold text-indigo-400 shrink-0 text-xs">
+                              {member.userName.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center space-x-1.5">
+                                <span className="text-xs font-bold text-neutral-200 truncate">{member.userName}</span>
+                                {isMe && <span className="text-[9px] bg-indigo-500/15 text-indigo-400 px-1 rounded-sm font-semibold shrink-0">me</span>}
+                                {isOwner && <span className="text-[8px] bg-amber-950/40 text-amber-500 border border-amber-900/30 px-1 rounded-sm font-bold uppercase shrink-0">Owner</span>}
+                              </div>
+
+                              <div className="flex items-center space-x-1.5 mt-0.5">
+                                <span className="inline-flex items-center text-[9px] text-neutral-400 font-semibold">
+                                  <span className={`w-1.5 h-1.5 rounded-full mr-1 ${status.dotClass}`} />
+                                  {status.text}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-1.5 shrink-0">
+                            {/* Map Interaction */}
+                            {status.isLive && (
+                              <button
+                                id={`btn-focus-member-${member.userId}`}
+                                onClick={() => centerOnMember({ latitude: status.lat, longitude: status.lng })}
+                                className="p-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white rounded-lg transition-colors shrink-0"
+                                title="Locate Member on Map"
+                              >
+                                <MapPin size={13} className="stroke-[2.5]" />
+                              </button>
+                            )}
+
+                            {/* Owner management: remove members */}
+                            {activeGroup.ownerId === userId && !isOwner && (
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Are you sure you want to remove ${member.userName} from this group?`)) {
+                                    removeGroupMember(member.userId);
+                                  }
+                                }}
+                                className="p-1.5 bg-neutral-900 hover:bg-rose-950/30 text-neutral-500 hover:text-rose-400 rounded-lg transition-colors border border-transparent hover:border-rose-900/30 shrink-0"
+                                title="Remove from Group"
+                              >
+                                <UserX size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Meeting Point Coordinator */}
+                <div className="pt-2">
+                  <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Group Meeting Point</span>
+                  <div className="p-3 bg-neutral-950/80 rounded-xl border border-neutral-900 mt-1.5 space-y-3">
+                    {activeGroup.meetingPoint && activeGroup.meetingPoint.lat !== 0 ? (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2 min-w-0">
+                          <MapPin size={15} className="text-indigo-400 shrink-0" />
+                          <div className="min-w-0 text-xs">
+                            <p className="font-bold text-neutral-200 truncate">{activeGroup.meetingPoint.name || 'Assigned Meeting Point'}</p>
+                            <p className="text-[10px] text-neutral-500 font-mono mt-0.5">
+                              {activeGroup.meetingPoint.lat.toFixed(5)}, {activeGroup.meetingPoint.lng.toFixed(5)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-1 shrink-0">
+                          <button
+                            id="btn-focus-meeting-point"
+                            onClick={() => {
+                              if (mapRef) mapRef.setView([activeGroup.meetingPoint.lat, activeGroup.meetingPoint.lng], 16);
+                            }}
+                            className="p-1 text-xs text-indigo-400 hover:text-indigo-300 font-bold uppercase"
+                          >
+                            Locate
+                          </button>
+                          {activeGroup.ownerId === userId && (
+                            <button
+                              id="btn-clear-meeting-point"
+                              onClick={clearGroupMeetingPoint}
+                              className="p-1 text-xs text-rose-500 hover:text-rose-400 font-bold uppercase ml-2"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-[10px] text-neutral-500 leading-relaxed">
+                          No meeting point has been set for this session yet. An organizer can set one to coordinate.
+                        </p>
+                        {activeGroup.ownerId === userId && (
+                          <button
+                            type="button"
+                            id="btn-set-meeting-current"
+                            onClick={setMeetingPointToCurrent}
+                            className="w-full py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-200 text-[10px] font-bold rounded-lg border border-neutral-800 uppercase tracking-wider transition-all"
+                          >
+                            Set Meeting Point at My Coordinates
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Exit Actions */}
+                <div className="flex items-center space-x-2 border-t border-neutral-900 pt-3.5 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveGroup(null);
+                      localStorage.removeItem('eclipse_gps_activeGroupId');
+                    }}
+                    className="flex-1 py-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-xs font-bold rounded-xl uppercase tracking-wider transition-colors border border-neutral-800"
+                  >
+                    Back to Groups
+                  </button>
+                  {activeGroup.ownerId === userId ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to delete this group? All members will be removed and the group will be permanently deleted.')) {
+                          deletePujaGroup();
+                        }
+                      }}
+                      className="flex-1 py-2 bg-rose-950/20 hover:bg-rose-950/40 text-rose-400 text-xs font-bold rounded-xl uppercase tracking-wider transition-colors border border-rose-900/30"
+                    >
+                      Delete Group
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to leave this group?')) {
+                          leavePujaGroup();
+                        }
+                      }}
+                      className="flex-1 py-2 bg-rose-950/20 hover:bg-rose-950/40 text-rose-400 text-xs font-bold rounded-xl uppercase tracking-wider transition-colors border border-rose-900/30"
+                    >
+                      Leave Group
+                    </button>
+                  )}
+                </div>
+              </GlassPanel>
+            </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

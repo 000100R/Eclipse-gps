@@ -1,0 +1,33 @@
+{
+  "databaseId": "default",
+  "collections": {
+    "users": {
+      "fields": {
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "lastActive": { "type": "timestamp" }
+      },
+      "indexes": []
+    },
+    "friendRequests": {
+      "fields": {
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "receiverName": { "type": "string" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "timestamp" }
+      },
+      "indexes": []
+    },
+    "friendships": {
+      "fields": {
+        "userId": { "type": "string" },
+        "friendId": { "type": "string" },
+        "friendName": { "type": "string" },
+        "timestamp": { "type": "timestamp" }
+      },
+      "indexes": []
+    }
+  }
+}
