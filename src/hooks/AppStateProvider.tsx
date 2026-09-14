@@ -4,6 +4,8 @@ import { eventsService } from '../services/events/eventsService';
 import { placesService } from '../services/places/placesService';
 import { routingService } from '../services/routing/routingService';
 import { alertService } from '../services/realtime/alertService';
+import { pandalDiscoveryService } from '../services/discovery/pandalDiscoveryService';
+import { curatedEclipsePandals } from '../data/curatedPandals';
 import { ref, set, remove, onDisconnect, serverTimestamp, onValue, off } from 'firebase/database';
 import { isFirebaseConfigured, getFirebaseDatabase } from '../services/firebase';
 import {
@@ -171,6 +173,7 @@ interface AppStateContextType {
   userPandals: Pandal[];
   isLostInCrowdActive: boolean;
   setIsLostInCrowdActive: (active: boolean) => void;
+  executeAIActionOnMap: (actionType: string, params: any) => Promise<{ pandals?: any[]; error?: string }>;
 }
 
 const AppStateContext = createContext<AppStateContextType | undefined>(undefined);
@@ -350,238 +353,30 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const lastDiscoveryCenterRef = useRef<Location>(KOLKATA_CENTER);
 
-  // Core Nearby Pandal Discovery Engine
+  // Core Nearby Pandal Discovery Engine (delegates to centralized pandalDiscoveryService)
   const discoverNearbyPandals = async (center: Location, radiusKm: number, sortBy: string) => {
     setIsDiscovering(true);
     try {
       const radiusMeters = radiusKm * 1000;
-      const discovered: Pandal[] = [];
+      const result = await pandalDiscoveryService.discoverPandals({
+        near: center,
+        radius: radiusMeters,
+        sortBy: sortBy as any,
+      });
 
-      // 1. Fetch from Local Eclipse Database (demoPandals)
-      const localPandals = eventsService.getPandals(); // Handles favorites & visited status
-      for (const p of localPandals) {
-        const dist = calculateDistanceInMeters(center, p.location);
-        if (dist <= radiusMeters) {
-          discovered.push({
-            ...p,
-            distance: dist, // Attach distance for sorting/display
-          } as any);
-        }
-      }
-
-      // 2. Fetch User-Submitted Pandals inside radius
-      for (const up of userPandals) {
+      // Include user-submitted local additions if any
+      const userPandalsInRadius = userPandals.filter(up => {
         const dist = calculateDistanceInMeters(center, up.location);
-        if (dist <= radiusMeters) {
-          const isFav = savedLocations.some(sl => sl.itemId === up.id);
-          const isVisited = visitedIds.includes(up.id);
-          discovered.push({
-            ...up,
-            favouriteStatus: isFav,
-            visitedStatus: isVisited,
-            distance: dist,
-          } as any);
-        }
-      }
+        return dist <= radiusMeters;
+      }).map(up => ({
+        ...up,
+        distance: calculateDistanceInMeters(center, up.location),
+        favouriteStatus: savedLocations.some(sl => sl.itemId === up.id),
+        visitedStatus: visitedIds.includes(up.id),
+      }));
 
-      // 3. Fetch from External Google Places / Nominatim
-      let externalResults: any[] = [];
-      try {
-        const query = "Durga Puja";
-        // Convert radius to rough bounding box size in degrees
-        const bboxSize = radiusKm * 0.01;
-        const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=25&viewbox=${center.lng - bboxSize},${center.lat + bboxSize},${center.lng + bboxSize},${center.lat - bboxSize}&bounded=1`;
-        const res = await fetch(nominatimUrl, {
-          headers: { 'User-Agent': 'EclipseGPS/1.0' }
-        });
-        if (res.ok) {
-          externalResults = await res.json();
-        }
-      } catch (e) {
-        console.warn('External Nominatim discovery failed, falling back to local database:', e);
-      }
-
-      // Map external results to Pandal structures
-      const externalPandals: Pandal[] = [];
-      if (externalResults && externalResults.length > 0) {
-        externalResults.forEach((item: any, idx: number) => {
-          const itemLat = parseFloat(item.lat);
-          const itemLng = parseFloat(item.lon);
-          const dist = calculateDistanceInMeters(center, { lat: itemLat, lng: itemLng });
-
-          if (dist <= radiusMeters) {
-            // Deduplicate: If there is a local verified or user pandal close (<150m), do NOT add the external one
-            const isDuplicate = discovered.some(p => {
-              const d = calculateDistanceInMeters(p.location, { lat: itemLat, lng: itemLng });
-              const nameMatch = p.name.toLowerCase().includes(item.display_name.split(',')[0].toLowerCase()) ||
-                                item.display_name.split(',')[0].toLowerCase().includes(p.name.toLowerCase());
-              return d < 150 || nameMatch;
-            });
-
-            if (!isDuplicate) {
-              const name = item.display_name.split(',')[0];
-              const area = item.display_name.split(',')[1] || 'Discovered Area';
-              const rating = parseFloat((4.0 + Math.random() * 0.8).toFixed(1));
-              const id = `discovered-${item.place_id || 'ext-' + idx}`;
-              const isFav = savedLocations.some(sl => sl.itemId === id);
-              const isVisited = visitedIds.includes(id);
-
-              externalPandals.push({
-                id,
-                name,
-                latitude: itemLat,
-                longitude: itemLng,
-                location: { lat: itemLat, lng: itemLng },
-                address: item.display_name,
-                area: area.trim(),
-                zone: 'DISCOVERED',
-                city: 'Kolkata',
-                theme: 'Discovered Public Pandal',
-                description: 'Automatically discovered via public real-time mapping services.',
-                images: ['https://images.unsplash.com/photo-1590050752117-238cb0fb12b1?auto=format&fit=crop&q=80&w=600'],
-                openingTime: '08:00 AM',
-                closingTime: '11:59 PM',
-                openingHours: 'Day & Night',
-                crowdLevel: idx % 3 === 0 ? 'HEAVY' : idx % 3 === 1 ? 'MODERATE' : 'LOW',
-                queueEstimate: idx % 3 === 0 ? '30-45 mins' : idx % 3 === 1 ? '15-20 mins' : 'Under 10 mins',
-                queueTimeMinutes: idx % 3 === 0 ? 35 : idx % 3 === 1 ? 15 : 5,
-                parkingAvailability: 'limited',
-                parkingStatus: 'moderate',
-                estimatedVisitDuration: 25,
-                accessibility: true,
-                rating,
-                source: 'Public Mapping Data',
-                sourceType: 'PUBLIC_DATA',
-                verified: false, // Unverified
-                visitedStatus: isVisited,
-                favouriteStatus: isFav,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                distance: dist,
-              } as any);
-            }
-          }
-        });
-      }
-
-      // Handle Client-Side Google Places if API is fully configured and loaded
-      if (typeof window !== 'undefined' && (window as any).google && (window as any).google.maps && (window as any).google.maps.places) {
-        try {
-          const dummyDiv = document.createElement('div');
-          const service = new (window as any).google.maps.places.PlacesService(dummyDiv);
-          const request = {
-            location: new (window as any).google.maps.LatLng(center.lat, center.lng),
-            radius: radiusMeters,
-            keyword: 'Durga Puja',
-          };
-
-          const placesResults = await new Promise<any[]>((resolve) => {
-            service.nearbySearch(request, (results: any, status: any) => {
-              if (status === (window as any).google.maps.places.PlacesServiceStatus.OK && results) {
-                resolve(results);
-              } else {
-                resolve([]);
-              }
-            });
-          });
-
-          placesResults.forEach((place: any, idx: number) => {
-            const placeLat = place.geometry.location.lat();
-            const placeLng = place.geometry.location.lng();
-            const dist = calculateDistanceInMeters(center, { lat: placeLat, lng: placeLng });
-
-            if (dist <= radiusMeters) {
-              const isDuplicate = [...discovered, ...externalPandals].some(p => {
-                const d = calculateDistanceInMeters(p.location, { lat: placeLat, lng: placeLng });
-                const nameMatch = p.name.toLowerCase().includes(place.name.toLowerCase()) ||
-                                  place.name.toLowerCase().includes(p.name.toLowerCase());
-                return d < 150 || nameMatch;
-              });
-
-              if (!isDuplicate) {
-                const rating = place.rating || parseFloat((4.0 + Math.random() * 0.8).toFixed(1));
-                const id = `gplace-${place.place_id || idx}`;
-                const isFav = savedLocations.some(sl => sl.itemId === id);
-                const isVisited = visitedIds.includes(id);
-
-                externalPandals.push({
-                  id,
-                  name: place.name,
-                  latitude: placeLat,
-                  longitude: placeLng,
-                  location: { lat: placeLat, lng: placeLng },
-                  address: place.vicinity || place.formatted_address || 'Discovered Location',
-                  area: place.vicinity?.split(',')[0] || 'Kolkata',
-                  zone: 'DISCOVERED',
-                  city: 'Kolkata',
-                  theme: 'Google Places Discovered',
-                  description: 'Automatically discovered via Google Places API nearby search.',
-                  images: place.photos && place.photos.length > 0 ? [place.photos[0].getUrl()] : ['https://images.unsplash.com/photo-1590050752117-238cb0fb12b1?auto=format&fit=crop&q=80&w=600'],
-                  openingTime: '08:00 AM',
-                  closingTime: '11:59 PM',
-                  openingHours: 'Day & Night',
-                  crowdLevel: idx % 3 === 0 ? 'HEAVY' : idx % 3 === 1 ? 'MODERATE' : 'LOW',
-                  queueEstimate: idx % 3 === 0 ? '30-45 mins' : idx % 3 === 1 ? '15-20 mins' : 'Under 10 mins',
-                  queueTimeMinutes: idx % 3 === 0 ? 35 : idx % 3 === 1 ? 15 : 5,
-                  parkingAvailability: 'limited',
-                  parkingStatus: 'moderate',
-                  estimatedVisitDuration: 30,
-                  accessibility: true,
-                  rating,
-                  source: 'Google Places',
-                  sourceType: 'PUBLIC_DATA',
-                  verified: false,
-                  visitedStatus: isVisited,
-                  favouriteStatus: isFav,
-                  createdAt: Date.now(),
-                  updatedAt: Date.now(),
-                  distance: dist,
-                } as any);
-              }
-            }
-          });
-        } catch (err) {
-          console.warn('Google Places live fetch failed:', err);
-        }
-      }
-
-      let combined = [...discovered, ...externalPandals];
-
-      // 4. Sorting Algorithms
-      if (sortBy === 'nearest') {
-        combined.sort((a, b) => {
-          const distA = calculateDistanceInMeters(center, a.location);
-          const distB = calculateDistanceInMeters(center, b.location);
-          return distA - distB;
-        });
-      } else if (sortBy === 'least_crowded') {
-        const crowdWeight = { LOW: 1, MODERATE: 2, HEAVY: 3, EXTREME: 4 };
-        combined.sort((a, b) => {
-          return crowdWeight[a.crowdLevel] - crowdWeight[b.crowdLevel];
-        });
-      } else if (sortBy === 'fastest') {
-        combined.sort((a, b) => {
-          const distA = calculateDistanceInMeters(center, a.location);
-          const distB = calculateDistanceInMeters(center, b.location);
-          const travelTimeA = (distA / 8.33) / 60; // driving estimate
-          const travelTimeB = (distB / 8.33) / 60;
-          const totalA = travelTimeA + a.queueTimeMinutes;
-          const totalB = travelTimeB + b.queueTimeMinutes;
-          return totalA - totalB;
-        });
-      } else {
-        // Default: Recommended
-        const crowdPenalty = { LOW: 0, MODERATE: 2, HEAVY: 8, EXTREME: 15 };
-        combined.sort((a, b) => {
-          const distA = calculateDistanceInMeters(center, a.location) / 1000;
-          const distB = calculateDistanceInMeters(center, b.location) / 1000;
-          const scoreA = a.rating * 10 - crowdPenalty[a.crowdLevel] - distA * 1.5;
-          const scoreB = b.rating * 10 - crowdPenalty[b.crowdLevel] - distB * 1.5;
-          return scoreB - scoreA;
-        });
-      }
-
-      setPandals(combined);
+      const merged = [...result.pandals, ...(userPandalsInRadius as any[])];
+      setPandals(merged);
     } catch (e) {
       console.error('Error during nearby pandal discovery:', e);
     } finally {
@@ -620,6 +415,8 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       rating: 4.0,
       source: 'User Submission',
       sourceType: 'COMMUNITY',
+      sourceId: `user-pandal-${Date.now()}`,
+      verificationStatus: 'COMMUNITY_VERIFIED',
       verified: false,
       visitedStatus: false,
       favouriteStatus: false,
@@ -1600,25 +1397,39 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
 
       if (!response.ok) {
-        throw new Error('Server returned error status');
+        let errDetail = `Server returned status ${response.status}`;
+        try {
+          const errData = await response.json();
+          if (errData.error) errDetail = errData.error;
+        } catch (_) {}
+        throw new Error(errDetail);
       }
 
       const data = await response.json();
       
-      const assistantMsg: AIMessage = {
-        id: `msg-${Date.now()}-assistant`,
-        role: 'assistant',
-        content: data.text || "I processed your request, but got empty feedback.",
-        action: data.action ? { type: data.action, parameters: data.parameters || {} } : undefined,
-        timestamp: Date.now(),
-      };
-
-      setMessages(prev => [...prev, assistantMsg]);
+      let discoveredPandals: any[] | undefined = undefined;
+      let finalContent = data.text || "I processed your request.";
 
       // Map action trigger execution!
       if (data.action) {
-        executeAIActionOnMap(data.action, data.parameters || {});
+        const actionResult = await executeAIActionOnMap(data.action, data.parameters || {});
+        if (actionResult?.error) {
+          finalContent = actionResult.error;
+        } else if (actionResult?.pandals && actionResult.pandals.length > 0) {
+          discoveredPandals = actionResult.pandals;
+        }
       }
+
+      const assistantMsg: AIMessage = {
+        id: `msg-${Date.now()}-assistant`,
+        role: 'assistant',
+        content: finalContent,
+        action: data.action ? { type: data.action, parameters: data.parameters || {} } : undefined,
+        timestamp: Date.now(),
+        discoveredPandals,
+      };
+
+      setMessages(prev => [...prev, assistantMsg]);
     } catch (e: any) {
       console.error('Failed to communicate with secure server-side Gemini route:', e);
       setMessages(prev => [
@@ -1626,7 +1437,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         {
           id: `msg-${Date.now()}-assistant`,
           role: 'assistant',
-          content: `I'm sorry, I'm currently having difficulty connecting to my secure server-side API. Let's try again in a few moments!`,
+          content: e?.message ? `${e.message}` : `I'm sorry, I'm currently having difficulty connecting to my secure server-side API. Let's try again in a few moments!`,
           timestamp: Date.now(),
         },
       ]);
@@ -1636,9 +1447,54 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // AI-Map orchestration engine
-  const executeAIActionOnMap = async (actionType: string, params: any) => {
+  const executeAIActionOnMap = async (actionType: string, params: any): Promise<{ pandals?: any[]; error?: string }> => {
     switch (actionType) {
-      case 'SEARCH_PANDALS':
+      case 'SEARCH_NEARBY_PANDALS':
+      case 'SEARCH_PANDALS_BY_NAME':
+      case 'SEARCH_PANDALS_BY_AREA':
+      case 'SEARCH_PANDALS': {
+        const isNearbyRequest = actionType === 'SEARCH_NEARBY_PANDALS' || (!params.query && !params.name && !params.area);
+        if (isNearbyRequest && (gpsStatus === 'denied' || gpsStatus === 'error')) {
+          return {
+            error: 'Location access is unavailable. Search by pandal name or area instead.',
+            pandals: [],
+          };
+        }
+
+        const queryTerm = params.name || params.query || (actionType === 'SEARCH_PANDALS_BY_AREA' ? params.area : '');
+        const discoveryResult = await pandalDiscoveryService.discoverPandals({
+          near: currentLocation,
+          radius: params.radius || 5000,
+          query: queryTerm,
+          area: params.area,
+          mode: actionType === 'SEARCH_PANDALS_BY_NAME' ? 'name' : actionType === 'SEARCH_PANDALS_BY_AREA' ? 'area' : 'nearby',
+        });
+
+        if (discoveryResult.pandals.length > 0) {
+          setPandals(discoveryResult.pandals);
+          setSearchResults(discoveryResult.pandals);
+          setActiveTab('home');
+
+          if (discoveryResult.pandals.length === 1) {
+            const single = discoveryResult.pandals[0];
+            setSelectedItem(single);
+            if (mapRef) {
+              mapRef.setView([single.location.lat, single.location.lng], 16);
+            }
+          } else if (mapRef && mapRef.fitBounds) {
+            const lats = discoveryResult.pandals.map(p => p.location.lat);
+            const lngs = discoveryResult.pandals.map(p => p.location.lng);
+            const minLat = Math.min(...lats);
+            const maxLat = Math.max(...lats);
+            const minLng = Math.min(...lngs);
+            const maxLng = Math.max(...lngs);
+            mapRef.fitBounds([[minLat, minLng], [maxLat, maxLng]]);
+          }
+        }
+
+        return { pandals: discoveryResult.pandals };
+      }
+
       case 'SEARCH_EVENTS':
       case 'SEARCH_PLACES':
         if (params.query) {
@@ -1648,29 +1504,38 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         break;
 
       case 'SHOW_NEARBY':
+        if (params.category === 'pandal') {
+          return executeAIActionOnMap('SEARCH_NEARBY_PANDALS', params);
+        }
         executeSearch(params.category || 'amenities');
         setActiveTab('home');
         break;
 
       case 'SHOW_LOCATION':
       case 'GET_EVENT_DETAILS':
-      case 'GET_PLACE_DETAILS':
-        if (params.itemId) {
-          const item = eventsService.getItemById(params.itemId);
-          if (item) {
-            setSelectedItem(item);
-            setActiveTab('home');
-            if (mapRef) {
-              mapRef.setView([item.location.lat, item.location.lng], 16);
-            }
+      case 'GET_PLACE_DETAILS': {
+        let item = params.itemId ? eventsService.getItemById(params.itemId) : null;
+        if (!item) {
+          const targetName = params.locationName || params.name || params.query;
+          if (targetName) {
+            item = pandals.find(p => p.name.toLowerCase().includes(targetName.toLowerCase())) ||
+                   (curatedEclipsePandals.find(p => p.name.toLowerCase().includes(targetName.toLowerCase())) as any);
+          }
+        }
+        if (item) {
+          setSelectedItem(item);
+          setActiveTab('home');
+          if (mapRef) {
+            mapRef.setView([item.location.lat, item.location.lng], 16);
           }
         }
         break;
+      }
 
       case 'CREATE_ROUTE':
         if (params.destination) {
-          // If destination is a known ID
-          const item = eventsService.getItemById(params.destination);
+          const item = eventsService.getItemById(params.destination) ||
+                       (pandals.find(p => p.id === params.destination) as any);
           if (item) {
             calculateRouteToItem(item);
           }
@@ -1680,7 +1545,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       case 'OPTIMIZE_ROUTE':
         if (params.pandalIds && Array.isArray(params.pandalIds)) {
           const selectedItems = params.pandalIds
-            .map(id => eventsService.getItemById(id))
+            .map(id => eventsService.getItemById(id) || pandals.find(p => p.id === id))
             .filter(Boolean) as (Pandal | Event)[];
 
           if (selectedItems.length > 0) {
@@ -1720,15 +1585,22 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
         break;
 
-      case 'NAVIGATE_TO':
-        if (params.itemId) {
-          const item = eventsService.getItemById(params.itemId);
-          if (item) {
-            await calculateRouteToItem(item);
-            setIsNavigating(true);
+      case 'NAVIGATE_TO': {
+        let item = params.itemId ? eventsService.getItemById(params.itemId) : null;
+        if (!item) {
+          const targetName = params.locationName || params.name || params.query || params.destination;
+          if (targetName) {
+            item = pandals.find(p => p.name.toLowerCase().includes(targetName.toLowerCase())) ||
+                   (curatedEclipsePandals.find(p => p.name.toLowerCase().includes(targetName.toLowerCase())) as any);
           }
         }
+        if (item) {
+          await calculateRouteToItem(item);
+          setIsNavigating(true);
+          setActiveTab('home');
+        }
         break;
+      }
 
       case 'SAVE_LOCATION':
         if (params.itemId) {
@@ -1818,6 +1690,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         messages,
         isAiLoading,
         askEclipseAI,
+        executeAIActionOnMap,
         isAiSheetOpen,
         setIsAiSheetOpen,
 

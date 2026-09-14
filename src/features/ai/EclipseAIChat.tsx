@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { Send, Sparkles, AlertCircle, Compass, HelpCircle } from 'lucide-react';
+import { PandalCardList } from '../pandals/PandalCardList';
 
 export const EclipseAIChat: React.FC = () => {
   const {
@@ -109,6 +110,14 @@ export const EclipseAIChat: React.FC = () => {
                   <div className="space-y-1">
                     {formatMsgContent(msg.content)}
                   </div>
+
+                  {/* Discovered Durga Puja Pandals */}
+                  {msg.discoveredPandals && msg.discoveredPandals.length > 0 && (
+                    <PandalCardList
+                      pandals={msg.discoveredPandals}
+                      onActionComplete={() => setIsAiSheetOpen(false)}
+                    />
+                  )}
 
                   {/* Operational Action Chip */}
                   {isAI && msg.action && msg.action.type !== 'NO_ACTION' && (

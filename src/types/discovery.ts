@@ -1,0 +1,109 @@
+import { CrowdLevel, Location, Pandal, Event } from './index';
+
+export type PandalSource =
+  | 'GOOGLE_PLACES'
+  | 'ECLIPSE_CURATED'
+  | 'USER_CONTRIBUTION'
+  | 'OSM_NOMINATIM'
+  | 'OFFICIAL_COMMITTEE';
+
+export interface DiscoveredPandal {
+  id: string;
+  source: PandalSource;
+  sourceId: string;
+  verificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'PENDING' | 'COMMUNITY_VERIFIED';
+  name: string;
+  latitude: number;
+  longitude: number;
+  location: Location;
+  address: string;
+  area: string;
+  city?: string;
+  distance?: number; // in meters from user GPS
+  estimatedTravelTime?: string; // e.g. "8 min"
+  googleMapsUri?: string;
+  placeTypes?: string[];
+  photos?: string[];
+  rating?: number;
+  userRatingCount?: number;
+  openingHours?: string;
+  status?: string; // 'OPEN' | 'OPERATIONAL' | 'TEMPORARY'
+  eventInfo?: {
+    theme?: string;
+    description?: string;
+    organizer?: string;
+    timings?: string;
+  };
+  crowdLevel?: CrowdLevel;
+  crowdTrend?: 'RISING' | 'STEADY' | 'FALLING';
+  confidence?: number; // 0.0 to 1.0
+
+  // Full compatibility with existing Pandal model
+  zone?: string;
+  theme?: string;
+  description?: string;
+  images?: string[];
+  verified?: boolean;
+  visitedStatus?: boolean;
+  favouriteStatus?: boolean;
+  queueEstimate?: string;
+  queueTimeMinutes?: number;
+  parkingAvailability?: 'available' | 'limited' | 'none';
+  parkingStatus?: 'easy' | 'moderate' | 'full';
+  estimatedVisitDuration?: number;
+  accessibility?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface DiscoveredEvent {
+  id: string;
+  name: string;
+  type: 'durga_puja' | 'cultural' | 'dhak_performance' | 'immersion' | 'competition' | 'procession' | 'festival' | 'local_event' | 'concert' | 'fair' | 'sports';
+  location: Location;
+  address: string;
+  area?: string;
+  distance?: number;
+  estimatedTravelTime?: string;
+  description: string;
+  image?: string;
+  openingHours?: string;
+  crowdLevel?: CrowdLevel;
+  timings?: string;
+  organizer?: string;
+  source: 'ECLIPSE_CURATED' | 'ORGANIZER' | 'COMMUNITY' | 'PUBLIC_DATA';
+  verified?: boolean;
+}
+
+export interface UserPandalSubmission {
+  name: string;
+  latitude: number;
+  longitude: number;
+  address?: string;
+  area?: string;
+  theme?: string;
+  description?: string;
+  eventTiming?: string;
+  photos?: string[];
+  crowdLevel?: CrowdLevel;
+  isTemporary?: boolean;
+  closureStatus?: boolean;
+}
+
+export interface PandalDiscoveryParams {
+  query?: string;
+  near?: Location;
+  radius?: number; // in meters
+  area?: string;
+  mode?: 'nearby' | 'text' | 'area' | 'name' | 'all';
+  sortBy?: 'recommended' | 'nearest' | 'fastest' | 'least_crowded';
+}
+
+export interface DiscoveryResult {
+  pandals: DiscoveredPandal[];
+  events: DiscoveredEvent[];
+  searchRadius: number; // in meters
+  queryText: string;
+  centerLocation: Location;
+  sourcesUsed: string[];
+}

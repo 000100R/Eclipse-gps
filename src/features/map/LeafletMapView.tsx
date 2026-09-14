@@ -86,7 +86,10 @@ export const LeafletMapView: React.FC = () => {
     setMapRef({
       setView: (coords: [number, number], zoom?: number) => {
         map.setView(coords, zoom || map.getZoom());
-      }
+      },
+      fitBounds: (bounds: [[number, number], [number, number]], options?: any) => {
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, ...options });
+      },
     });
 
     // Feature group to hold active catalog markers

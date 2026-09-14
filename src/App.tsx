@@ -6,6 +6,7 @@ import { TopBar } from './components/layout/TopBar';
 import { BottomNav } from './components/layout/BottomNav';
 import { EclipseAIButton } from './features/ai/EclipseAIButton';
 import { EclipseAIChat } from './features/ai/EclipseAIChat';
+import { EclipseCopilotUI } from './features/ai/EclipseCopilotUI';
 import { ExplorePandals } from './features/pandals/ExplorePandals';
 import { DiscoveryHUD } from './features/pandals/DiscoveryHUD';
 import { ExploreEvents } from './features/events/ExploreEvents';
@@ -57,6 +58,9 @@ const AppContent: React.FC = () => {
 
       {/* 6. AI Co-pilot Messaging Drawer */}
       <EclipseAIChat />
+
+      {/* Eclipse Copilot Core UI Panel */}
+      <EclipseCopilotUI />
 
       {/* 7. Bottom Navigation Tab Selectors */}
       <BottomNav />

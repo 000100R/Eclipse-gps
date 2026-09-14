@@ -59,6 +59,8 @@ export interface Pandal {
   rating: number;
   source: string;
   sourceType: 'VERIFIED' | 'ORGANIZER' | 'COMMUNITY' | 'PUBLIC_DATA' | 'AI_ESTIMATE' | 'DEMO';
+  sourceId: string;
+  verificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'PENDING' | 'COMMUNITY_VERIFIED';
   verified: boolean;
   visitedStatus: boolean;
   favouriteStatus: boolean;
@@ -155,6 +157,9 @@ export interface Alert {
 }
 
 export type AIActionType =
+  | 'SEARCH_NEARBY_PANDALS'
+  | 'SEARCH_PANDALS_BY_NAME'
+  | 'SEARCH_PANDALS_BY_AREA'
   | 'SEARCH_PLACES'
   | 'SEARCH_EVENTS'
   | 'SEARCH_PANDALS'
@@ -175,6 +180,8 @@ export interface AIAction {
   type: AIActionType;
   parameters: {
     query?: string;
+    name?: string;
+    area?: string;
     category?: string;
     locationName?: string;
     itemId?: string;
@@ -194,9 +201,12 @@ export interface AIMessage {
   content: string;
   action?: AIAction;
   timestamp: number;
+  discoveredPandals?: any[];
 }
 
 export interface AIConversation {
   id: string;
   messages: AIMessage[];
 }
+
+export * from './geoImport';

@@ -1,6 +1,8 @@
 import { Location, Place, Event, Pandal } from '../../types';
 import { demoPandals } from '../../data/demoPandals';
 import { demoEvents } from '../../data/demoEvents';
+import { curatedEclipsePandals } from '../../data/curatedPandals';
+import { validateAndNormalizeCoordinates, verifyPandalAreaMatch } from '../../utils/coordinateValidation';
 
 export interface ISearchResult {
   id: string;
@@ -25,16 +27,30 @@ export class NominatimPlacesProvider implements IPlacesProvider {
     const results: ISearchResult[] = [];
     const lowerQuery = query.toLowerCase();
 
-    // 1. Search local demo pandals and events first
-    for (const p of demoPandals) {
-      if (p.name.toLowerCase().includes(lowerQuery) || p.theme.toLowerCase().includes(lowerQuery) || p.address.toLowerCase().includes(lowerQuery)) {
+    // 1. Search verified curated pandals and demo pandals first
+    const allKnownPandals: any[] = [...curatedEclipsePandals, ...demoPandals];
+    const seenPandalIds = new Set<string>();
+
+    for (const p of allKnownPandals) {
+      if (seenPandalIds.has(p.id)) continue;
+      const pName = p.name.toLowerCase();
+      const pTheme = (p.theme || '').toLowerCase();
+      const pAddr = (p.address || '').toLowerCase();
+      const pArea = (p.area || '').toLowerCase();
+
+      if (pName.includes(lowerQuery) || pTheme.includes(lowerQuery) || pAddr.includes(lowerQuery) || pArea.includes(lowerQuery)) {
+        seenPandalIds.add(p.id);
+        const coords = validateAndNormalizeCoordinates(p.latitude, p.longitude, p.name) || p.location;
+        const areaCheck = verifyPandalAreaMatch(p.name, p.area, coords.lat, coords.lng);
+        const finalCoords = (!areaCheck.valid && areaCheck.correctedCoords) ? areaCheck.correctedCoords : coords;
+
         results.push({
           id: p.id,
           name: p.name,
           type: 'pandal',
-          location: p.location,
+          location: { lat: finalCoords.lat, lng: finalCoords.lng },
           address: p.address,
-          description: `Theme: ${p.theme} - ${p.description}`,
+          description: `Theme: ${p.theme || 'Durga Puja'} - ${p.description || ''}`,
           crowdLevel: p.crowdLevel,
           rawItem: p,
         });
@@ -74,9 +90,12 @@ export class NominatimPlacesProvider implements IPlacesProvider {
       if (response.ok) {
         const data = await response.json();
         for (const item of data) {
-          // Check if this item already exists in local results
-          const itemLat = parseFloat(item.lat);
-          const itemLng = parseFloat(item.lon);
+          // Validate coordinates and check for lat/lon reversal
+          const coords = validateAndNormalizeCoordinates(item.lat, item.lon, item.display_name);
+          if (!coords) continue;
+
+          const itemLat = coords.lat;
+          const itemLng = coords.lng;
           const isDup = results.some(r => Math.abs(r.location.lat - itemLat) < 0.0001 && Math.abs(r.location.lng - itemLng) < 0.0001);
           
           if (!isDup) {

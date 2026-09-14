@@ -14,10 +14,40 @@ app.use(express.json());
 
 // Initialize Google Gen AI securely on the server
 const apiKey = process.env.GEMINI_API_KEY;
-const rawModelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-// If rawModelName starts with 'AQ.', it is an internal or tuned model ID not supported by generateContent, so we fallback to gemini-3.8-flash
-const actualModel = rawModelName.startsWith('AQ.') ? 'gemini-3.8-flash' : rawModelName;
-const modelName = actualModel.startsWith('models/') ? actualModel.substring(7) : actualModel;
+const rawModelName = process.env.GEMINI_MODEL || '';
+// If rawModelName starts with 'AQ.', it is an internal or tuned model ID not supported by standard generateContent
+const cleanModel = rawModelName.startsWith('AQ.') ? '' : rawModelName.replace(/^models\//, '');
+
+// Official active models list ordered by active quota availability
+const CANDIDATE_MODELS = Array.from(
+  new Set([
+    ...(cleanModel ? [cleanModel] : []),
+    'gemini-3.8-flash',
+    'gemini-3.5-flash',
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash-lite',
+    'gemini-3.6-flash',
+  ])
+);
+
+// Quota exhaustion cooldown cache to avoid repeated failed calls on exhausted models
+const modelCooldowns = new Map<string, number>();
+
+function isModelCoolingDown(model: string): boolean {
+  const until = modelCooldowns.get(model);
+  if (!until) return false;
+  if (Date.now() > until) {
+    modelCooldowns.delete(model);
+    return false;
+  }
+  return true;
+}
+
+function markModelExhausted(model: string, retryDelaySeconds = 60) {
+  modelCooldowns.set(model, Date.now() + retryDelaySeconds * 1000);
+  console.warn(`[Gemini API] Model ${model} quota exhausted. Cooldown set for ${retryDelaySeconds}s.`);
+}
 
 let ai: GoogleGenAI | null = null;
 if (apiKey) {
@@ -29,10 +59,189 @@ if (apiKey) {
       },
     },
   });
-  console.log(`Gemini API Initialized securely on server with model: ${modelName}`);
+  console.log(`Gemini API Initialized securely on server. Candidates: ${CANDIDATE_MODELS.join(', ')}`);
 } else {
-  console.warn('WARNING: GEMINI_API_KEY environment variable is not set. AI features will run in sandbox mode.');
+  console.warn('WARNING: GEMINI_API_KEY environment variable is not set.');
 }
+
+/**
+ * Safe error classifier ensuring useful debug feedback without exposing secrets
+ */
+function classifyGeminiError(error: any): { message: string; type: string; status: number } {
+  if (!apiKey) {
+    return {
+      message: 'Gemini API key missing: GEMINI_API_KEY environment variable is not configured.',
+      type: 'MISSING_API_KEY',
+      status: 500,
+    };
+  }
+
+  const status = error?.status || error?.code;
+  const msg = (error?.message || String(error || '')).toLowerCase();
+
+  if (status === 401 || msg.includes('api_key_invalid') || msg.includes('invalid api key') || msg.includes('unauthenticated')) {
+    return {
+      message: 'Gemini authentication failed: The provided API key is invalid.',
+      type: 'INVALID_API_KEY',
+      status: 401,
+    };
+  }
+
+  if (status === 403 || msg.includes('permission_denied') || msg.includes('permission denied')) {
+    return {
+      message: 'Gemini permission denied: API key lacks authorization or project access.',
+      type: 'API_KEY_NOT_AUTHORIZED',
+      status: 403,
+    };
+  }
+
+  if (msg.includes('billing')) {
+    return {
+      message: 'Billing required: Google Cloud project requires billing enabled.',
+      type: 'BILLING_REQUIRED',
+      status: 402,
+    };
+  }
+
+  if (status === 404 || msg.includes('not_found') || msg.includes('not found') || msg.includes('no longer available')) {
+    return {
+      message: 'Gemini model not found: The configured model is not available.',
+      type: 'MODEL_NOT_FOUND',
+      status: 404,
+    };
+  }
+
+  if (status === 429 || msg.includes('resource_exhausted') || msg.includes('quota')) {
+    return {
+      message: 'Gemini quota exceeded: API resource limit reached.',
+      type: 'QUOTA_EXCEEDED',
+      status: 429,
+    };
+  }
+
+  if (status === 503 || msg.includes('high demand') || msg.includes('unavailable')) {
+    return {
+      message: 'Gemini model high demand (503): Model experiencing temporary high demand.',
+      type: 'RATE_LIMITED',
+      status: 503,
+    };
+  }
+
+  if (status === 400 || msg.includes('invalid_argument') || msg.includes('malformed')) {
+    return {
+      message: 'Invalid request: Bad parameters or malformed content structure.',
+      type: 'INVALID_REQUEST',
+      status: 400,
+    };
+  }
+
+  if (msg.includes('fetch') || msg.includes('econnrefused') || msg.includes('etimedout') || msg.includes('enotfound') || msg.includes('network')) {
+    return {
+      message: 'Gemini network failure: Unable to reach Google AI servers.',
+      type: 'NETWORK_ERROR',
+      status: 502,
+    };
+  }
+
+  return {
+    message: `Gemini server/API route failure: ${error?.message || 'Internal server error'}`,
+    type: 'SERVER_ROUTE_ERROR',
+    status: typeof status === 'number' && status >= 400 && status < 600 ? status : 500,
+  };
+}
+
+// Temporary Minimal Gemini API Health Check Endpoint (STEP 2)
+app.get('/api/ai/health', async (req, res) => {
+  const envKeyDetected = !!process.env.GEMINI_API_KEY;
+  const keyLength = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0;
+  let keyType = 'UNKNOWN';
+  if (process.env.GEMINI_API_KEY?.startsWith('AIzaSy')) {
+    keyType = 'STANDARD';
+  } else if (process.env.GEMINI_API_KEY?.startsWith('AQ.')) {
+    keyType = 'AUTH';
+  }
+
+  if (!envKeyDetected || !ai) {
+    const errorInfo = classifyGeminiError(new Error('GEMINI_API_KEY is not set'));
+    return res.status(500).json({
+      test: 'FAIL',
+      errorCategory: 'MISSING_API_KEY',
+      httpStatus: 500,
+      apiKeyDetected: false,
+      apiKeyType: keyType,
+      apiKeyLength: 0,
+      sdk: '@google/genai',
+      model: CANDIDATE_MODELS[0] || 'gemini-3.8-flash',
+      result: errorInfo.message,
+    });
+  }
+
+  const candidateList = [
+    ...CANDIDATE_MODELS.filter((m) => !isModelCoolingDown(m)),
+    ...CANDIDATE_MODELS.filter((m) => isModelCoolingDown(m)),
+  ];
+
+  let lastHealthError: any = null;
+  let responseText = '';
+  let modelUsed = candidateList[0] || 'gemini-3.8-flash';
+  let durationMs = 0;
+
+  for (const candidate of candidateList) {
+    try {
+      const startTime = Date.now();
+      const response = await ai.models.generateContent({
+        model: candidate,
+        contents: 'Reply with exactly: ECLIPSE_GEMINI_OK',
+      });
+      durationMs = Date.now() - startTime;
+      responseText = (response.text || '').trim();
+      modelUsed = candidate;
+      break;
+    } catch (err: any) {
+      lastHealthError = err;
+      const status = err?.status || err?.code;
+      const errMsg = (err?.message || '').toLowerCase();
+      if (status === 429 || errMsg.includes('resource_exhausted') || errMsg.includes('quota')) {
+        let delaySec = 60;
+        try {
+          const match = err?.message?.match(/retry in ([0-9.]+)s/i) || err?.message?.match(/retryDelay":"([0-9]+)s/i);
+          if (match) delaySec = Math.max(30, Math.ceil(parseFloat(match[1])));
+        } catch (_) {}
+        markModelExhausted(candidate, delaySec);
+      }
+    }
+  }
+
+  if (!responseText) {
+    const classified = classifyGeminiError(lastHealthError);
+    return res.status(classified.status).json({
+      test: 'FAIL',
+      errorCategory: classified.type,
+      httpStatus: classified.status,
+      apiKeyDetected: true,
+      apiKeyType: keyType,
+      apiKeyLength: keyLength,
+      sdk: '@google/genai',
+      model: modelUsed,
+      result: classified.message,
+    });
+  }
+
+  return res.json({
+    test: 'PASS',
+    apiKeyDetected: true,
+    apiKeyType: keyType,
+    apiKeyLength: keyLength,
+    sdk: '@google/genai',
+    model: modelUsed,
+    httpStatus: 200,
+    durationMs,
+    rawResponse: responseText,
+    result: responseText.includes('ECLIPSE_GEMINI_OK')
+      ? 'Gemini connection verified and active.'
+      : `Gemini responded: "${responseText}"`,
+  });
+});
 
 // Strict Action Definition System Instruction
 const SYSTEM_INSTRUCTION = `
@@ -47,6 +256,8 @@ The JSON object must strictly follow this structure:
   "action": "ACTION_TYPE",
   "parameters": {
     "query": "search term if applicable",
+    "name": "name of pandal or place if applicable",
+    "area": "area or neighborhood if applicable",
     "category": "category filter if applicable",
     "locationName": "name of a place",
     "itemId": "id of a pandal/event if applicable",
@@ -56,9 +267,12 @@ The JSON object must strictly follow this structure:
 }
 
 You support the following validated ACTION_TYPE values. You must select the single most appropriate action based on the user's message:
+- SEARCH_NEARBY_PANDALS: Use when the user asks for pandals around them, e.g. "Find nearby pandals", "Show pandals near me", "What pandals are around me?", "Show all nearby Durga Puja pandals". (Parameters: radius: 5000, category: "pandal")
+- SEARCH_PANDALS_BY_NAME: Use when the user searches for a specific pandal by name, e.g. "Find Maddox Square", "Show Maddox Square on the map", "Show Deshapriya Park", "Find Sreebhumi". (Parameters: name, query)
+- SEARCH_PANDALS_BY_AREA: Use when the user asks for pandals in a specific neighborhood or zone, e.g. "Find pandals near Salt Lake", "Show pandals around Ballygunge", "Show all pandals around South Kolkata", "Pandals in Behala". (Parameters: area, query)
 - SEARCH_PLACES: Search for generic addresses, shops, landmarks, or restaurants. (Parameters: query)
 - SEARCH_EVENTS: Search for festivals, concerts, sports, fairs, or local events. (Parameters: query)
-- SEARCH_PANDALS: Search specifically for Durga Puja pandals. (Parameters: query)
+- SEARCH_PANDALS: Search generally for Durga Puja pandals. (Parameters: query)
 - SHOW_NEARBY: Show points of interest, events, or places near the user. (Parameters: radius, category)
 - SHOW_LOCATION: Fly to or display a specific place on the map. (Parameters: itemId, locationName)
 - CREATE_ROUTE: Create a direct route. (Parameters: origin, destination, waypoints)
@@ -71,25 +285,84 @@ You support the following validated ACTION_TYPE values. You must select the sing
 - SHOW_ALERTS: View active warnings or crowd alerts. (Parameters: query)
 - NO_ACTION: When the user asks a general informational question or makes chit-chat that doesn't trigger map adjustments. (Parameters: query)
 
-Here is your knowledge of the local area and the database of Kolkata Durga Puja Pandals:
-1. Sreebhumi Sporting Club (id: "pandal-1", Theme: Vatican City St. Peter's Basilica, Address: Lake Town, Crowd: EXTREME)
-2. Santosh Mitra Square (id: "pandal-2", Theme: The Golden Temple of Amritsar, Address: Bowbazar, Crowd: HEAVY)
-3. Maddox Square (id: "pandal-3", Theme: Traditional Sabeki Puja, Address: Ballygunge, Crowd: MODERATE)
-4. Ballygunge Cultural Association (id: "pandal-4", Theme: Sustainable Clay and Terracotta, Address: Ballygunge, Crowd: LOW)
-5. Chetla Agrani Club (id: "pandal-5", Theme: Inner Peace and Ancient Mantras, Address: Chetla, Crowd: HEAVY)
-6. College Square (id: "pandal-6", Theme: Palace of illumination, Address: College Street, Crowd: EXTREME)
+IMPORTANT DIRECTIVE FOR PANDAL DISCOVERY:
+You determine user intent and select the appropriate action. You must NEVER fabricate pandal names, fake coordinates, or hallucinated addresses.
+The application's high-precision Pandal Discovery Engine, Google Places integration, and verified Kolkata database will execute the actual search, verify coordinates, render markers on the map, and display interactive cards.
+In your "text" field, provide a polite, natural confirmation of the search you are executing.
 
-Other generic events:
-1. Kolkata International Book Fair (id: "event-1", Fair, Location: Salt Lake)
-2. KKR vs MI Cricket Match at Eden Gardens (id: "event-2", Sports, Location: Maidan)
-3. Kolkata Jazz Fest 2026 (id: "event-3", Concert, Location: Mohor Kunj)
-4. Science City Robotics Exhibition (id: "event-4", Exhibition, Location: Science City)
-5. Victoria Memorial Hall (id: "event-5", Landmark, Location: Maidan)
+Here is your knowledge of prominent Kolkata Durga Puja Pandals:
+1. Maddox Square (Ballygunge, Traditional Sabeki Puja, open park gathering)
+2. Deshapriya Park (Rash Behari Avenue, Kalighat, colossal thematic installations)
+3. Sreebhumi Sporting Club (Lake Town, Royal monument replicas, gold ornaments)
+4. Santosh Mitra Square (Bowbazar, Golden Temple & 3D light architecture)
+5. Ballygunge Cultural Association (Ballygunge, Rural Bengal terracotta craft)
+6. Chetla Agrani Club (Chetla / Alipore, handcrafted wooden art & forest retreat)
+7. College Square (College Street, Illuminated palace on the lake)
+8. Ekdalia Evergreen Club (Gariahat, Gothic cathedral & European chandeliers)
+9. Tridhara Sammilani (Manoharpukur / Kalighat, contemporary thought art)
+10. Suruchi Sangha (New Alipore, Indian regional folk cultures)
+11. Mudiali Club (Kalighat / Tollygunge, Dokra brass folk metalcraft)
+12. Singhi Park (Gariahat, classical stone temple sculptures)
+13. Bagbazar Sarbojanin (North Kolkata, historic heritage Sabeki tradition)
+14. FD Block & BJ Block (Salt Lake, grand futuristic and village art pavilions)
+15. Behala Notun Dal & Barisha Club (Behala, cutting-edge art and social sculptures)
+16. Kumartuli Park (Kumartuli, tribute to the traditional clay sculptors of Bengal)
 
-If the user asks for a trip plan (e.g. "I have 5 hours tonight. Find 7 Durga Puja pandals. Avoid extreme crowds and minimize travel."), choose appropriate locations, explain your reasoning in the "text" field, and return an 'OPTIMIZE_ROUTE' action containing the pandalIds (e.g., ["pandal-4", "pandal-3", "pandal-5", "pandal-2"]) so the application's TSP routing engine can calculate the actual road geometry and optimize it!
+If the user asks for a trip plan (e.g. "I have 5 hours tonight. Find 7 Durga Puja pandals. Avoid extreme crowds and minimize travel."), choose appropriate locations, explain your reasoning in the "text" field, and return an 'OPTIMIZE_ROUTE' action containing the pandalIds so the application's TSP routing engine can calculate the actual road geometry and optimize it!
 
-If the user mentions "Take me to Sreebhumi" or "navigate to Santosh Mitra", output 'NAVIGATE_TO' with the correct itemId.
+If the user mentions "Take me to Maddox Square" or "navigate to Sreebhumi", output 'NAVIGATE_TO' with the locationName.
 `;
+
+// Secure endpoint for Google Places API (New) Search Proxy
+app.post('/api/places/search', async (req, res) => {
+  const { query, location, radius } = req.body;
+  const gApiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY;
+
+  if (!gApiKey) {
+    return res.json({ places: [], status: 'NO_API_KEY' });
+  }
+
+  try {
+    const placesUrl = 'https://places.googleapis.com/v1/places:searchText';
+    const requestBody: any = {
+      textQuery: query || 'Durga Puja pandal',
+    };
+
+    if (location && typeof location.lat === 'number' && typeof location.lng === 'number') {
+      requestBody.locationBias = {
+        circle: {
+          center: {
+            latitude: location.lat,
+            longitude: location.lng,
+          },
+          radius: radius || 5000.0,
+        },
+      };
+    }
+
+    const gResponse = await fetch(placesUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': gApiKey,
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount,places.googleMapsUri,places.photos,places.businessStatus',
+        'X-Goog-Maps-Solution-ID': 'gmp_git_agentskills_v1',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!gResponse.ok) {
+      console.warn(`[Places API] Google Places search returned status ${gResponse.status}`);
+      return res.json({ places: [], status: `ERROR_${gResponse.status}` });
+    }
+
+    const data = await gResponse.json();
+    return res.json({ places: data.places || [], status: 'OK' });
+  } catch (err: any) {
+    console.warn('[Places API] Search proxy error:', err.message);
+    return res.json({ places: [], status: 'NETWORK_ERROR' });
+  }
+});
 
 // Secure API endpoint for Gemini
 app.post('/api/ai', async (req, res) => {
@@ -99,57 +372,14 @@ app.post('/api/ai', async (req, res) => {
     return res.status(400).json({ error: 'Invalid messages body' });
   }
 
-  // Fallback if API key is not configured
-  if (!ai) {
-    // Generate simulated AI action responses to ensure full app works perfectly in sandbox/preview
-    const userMessage = messages[messages.length - 1]?.content || '';
-    const lowerMessage = userMessage.toLowerCase();
-    
-    let mockResponse = {
-      text: "I am running in Sandbox Mode because no Gemini API key is active. Here is a simulated response.",
-      action: "NO_ACTION",
-      parameters: {} as any
-    };
-
-    if (lowerMessage.includes('pandal') || lowerMessage.includes('puja')) {
-      mockResponse = {
-        text: "I've searched for Durga Puja pandals around Kolkata and plotted them on your interactive map.",
-        action: "SEARCH_PANDALS",
-        parameters: { query: "Durga Puja" }
-      };
-    } else if (lowerMessage.includes('event')) {
-      mockResponse = {
-        text: "I've discovered several concerts and fairs in Kolkata! They have been highlighted on the map.",
-        action: "SEARCH_EVENTS",
-        parameters: { query: "events" }
-      };
-    } else if (lowerMessage.includes('navigate') || lowerMessage.includes('take me')) {
-      mockResponse = {
-        text: "Starting live navigation routing to Sreebhumi Sporting Club. Road calculation completed.",
-        action: "NAVIGATE_TO",
-        parameters: { itemId: "pandal-1", locationName: "Sreebhumi Sporting Club" }
-      };
-    } else if (lowerMessage.includes('plan') || lowerMessage.includes('route') || lowerMessage.includes('trip')) {
-      mockResponse = {
-        text: "I have structured an optimized route bypassing extreme crowd zones. We will visit Chetla Agrani, Maddox Square, and Ballygunge Cultural.",
-        action: "OPTIMIZE_ROUTE",
-        parameters: { pandalIds: ["pandal-5", "pandal-3", "pandal-4"] }
-      };
-    } else if (lowerMessage.includes('save')) {
-      mockResponse = {
-        text: "Adding Chetla Agrani Club to your saved places.",
-        action: "SAVE_LOCATION",
-        parameters: { itemId: "pandal-5" }
-      };
-    } else if (lowerMessage.includes('near me') || lowerMessage.includes('nearby')) {
-      mockResponse = {
-        text: "Scanning radius for events, pandals, and parking lots near your current coordinates.",
-        action: "SHOW_NEARBY",
-        parameters: { radius: 3000 }
-      };
-    }
-
-    return res.json(mockResponse);
+  // Check if API key / AI client is available
+  if (!apiKey || !ai) {
+    const classified = classifyGeminiError(new Error('GEMINI_API_KEY is not set'));
+    return res.status(classified.status).json({
+      error: classified.message,
+      errorType: classified.type,
+      status: classified.status,
+    });
   }
 
   try {
@@ -161,15 +391,67 @@ app.post('/api/ai', async (req, res) => {
       promptText += `\n\n[Context: The user's current GPS location is Lat: ${userLocation.lat}, Lng: ${userLocation.lng}]`;
     }
 
-    // Call the Google Gen AI SDK
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: promptText,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-      },
-    });
+    // Call the Google Gen AI SDK with candidate models, prioritizing non-cooling models
+    let response: any = null;
+    let successfulModel = '';
+    let lastError: any = null;
+
+    const candidateList = [
+      ...CANDIDATE_MODELS.filter((m) => !isModelCoolingDown(m)),
+      ...CANDIDATE_MODELS.filter((m) => isModelCoolingDown(m)),
+    ];
+
+    for (const candidate of candidateList) {
+      const isCooling = isModelCoolingDown(candidate);
+      const maxAttempts = isCooling ? 1 : 2;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          response = await ai.models.generateContent({
+            model: candidate,
+            contents: promptText,
+            config: {
+              systemInstruction: SYSTEM_INSTRUCTION,
+              responseMimeType: 'application/json',
+            },
+          });
+          successfulModel = candidate;
+          break;
+        } catch (err: any) {
+          lastError = err;
+          const status = err?.status || err?.code;
+          const errMsg = (err?.message || '').toLowerCase();
+          const isQuotaExhausted = status === 429 || errMsg.includes('resource_exhausted') || errMsg.includes('quota');
+          const isHighDemand = status === 503 || errMsg.includes('high demand') || errMsg.includes('unavailable');
+
+          if (isQuotaExhausted) {
+            let delaySec = 60;
+            try {
+              const match = err?.message?.match(/retry in ([0-9.]+)s/i) || err?.message?.match(/retryDelay":"([0-9]+)s/i);
+              if (match) delaySec = Math.max(30, Math.ceil(parseFloat(match[1])));
+            } catch (_) {}
+            markModelExhausted(candidate, delaySec);
+            // Immediately break out to next candidate model without wasting retry attempts
+            break;
+          }
+
+          console.warn(`[Gemini API] Attempt ${attempt} on model ${candidate} failed: ${err?.message || err}`);
+          if (isHighDemand && attempt < maxAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+          } else {
+            break;
+          }
+        }
+      }
+
+      if (response) {
+        break;
+      }
+    }
+
+    if (!response) {
+      throw lastError || new Error('All candidate Gemini models failed to respond.');
+    }
 
     const rawText = response.text || '';
     
@@ -183,18 +465,22 @@ app.post('/api/ai', async (req, res) => {
       if (jsonMatch) {
         actionData = JSON.parse(jsonMatch[1]);
       } else {
-        throw new Error('Could not parse Gemini output as JSON: ' + rawText);
+        actionData = {
+          text: rawText.replace(/```json/g, '').replace(/```/g, '').trim(),
+          action: "NO_ACTION",
+          parameters: {}
+        };
       }
     }
 
     res.json(actionData);
   } catch (error: any) {
-    console.error('Gemini API execution error:', error);
-    res.status(500).json({
-      error: 'Failed to execute Gemini AI model: ' + error.message,
-      text: "I encountered an issue processing that request. Let's try again in a moment.",
-      action: "NO_ACTION",
-      parameters: {},
+    const classified = classifyGeminiError(error);
+    console.error(`[Gemini API Route Error] [${classified.type}] ${classified.message}`);
+    res.status(classified.status).json({
+      error: classified.message,
+      errorType: classified.type,
+      status: classified.status,
     });
   }
 });
