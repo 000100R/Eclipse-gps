@@ -7,6 +7,9 @@ import {
   verifyPandalAreaMatch,
   VERIFIED_NAKTALA_COORDINATES,
 } from '../../utils/coordinateValidation';
+import { pandalGridSearchEngine } from './pandalGridSearchEngine';
+import { googleEarthImportService } from '../geoImport/googleEarthImportService';
+import { pandalEnrichmentService } from '../intelligence/pandalEnrichmentService';
 
 // Known Kolkata neighborhoods for area-based resolution
 const KNOWN_AREAS: Record<string, Location> = {
@@ -282,34 +285,35 @@ export class PandalDiscoveryService {
   }
 
   /**
-   * Multi-Pass Google Places and External Discovery
+   * Multi-Pass Google Places and External Discovery using Geographic Grid Search
    */
   private async runMultiPassDiscovery(
     center: Location,
     radius: number,
     filterQuery?: string
   ): Promise<DiscoveredPandal[]> {
-    const results: DiscoveredPandal[] = [];
+    try {
+      // Decompose geographic area into overlapping cells
+      const cells = pandalGridSearchEngine.decomposeIntoGridCells(center, radius);
+      const gridResults = await pandalGridSearchEngine.executeGridSearch(cells, filterQuery);
+      if (gridResults && gridResults.length > 0) {
+        return gridResults;
+      }
+    } catch (e) {
+      console.warn('[PandalDiscovery] Grid search fallback:', e);
+    }
 
-    // Attempt Google Places API (New) via secure server endpoint
+    // Fallback: single pass server search
     try {
       const serverPlaces = await this.fetchServerPlacesDiscovery(center, radius, filterQuery);
       if (serverPlaces && serverPlaces.length > 0) {
-        results.push(...serverPlaces);
+        return serverPlaces;
       }
     } catch (e) {
-      // Server places route gracefully logged
+      // Gracefully handled
     }
 
-    // Client-side Google Maps Places Library fallback if loaded
-    if (typeof window !== 'undefined' && (window as any).google?.maps?.places?.PlacesService) {
-      try {
-        const clientPlaces = await this.fetchClientGooglePlaces(center, radius);
-        results.push(...clientPlaces);
-      } catch (_) {}
-    }
-
-    return results;
+    return [];
   }
 
   /**
@@ -549,8 +553,30 @@ export class PandalDiscoveryService {
     radius: number,
     queryText?: string
   ): DiscoveredPandal[] {
+    const googleEarthCandidates: DiscoveredPandal[] = googleEarthImportService.getImportedRecords()
+      .filter((r) => r.category === 'PANDAL' || /pandal|puja|mandap/i.test(r.name))
+      .map((rec) => ({
+        id: `kml-${rec.id}`,
+        name: rec.name,
+        latitude: rec.latitude,
+        longitude: rec.longitude,
+        location: { lat: rec.latitude, lng: rec.longitude },
+        address: rec.description || `${rec.folderHierarchy?.[0] || 'Kolkata'}, Kolkata`,
+        area: rec.folderHierarchy?.[0] || 'Kolkata',
+        city: 'Kolkata',
+        source: 'GOOGLE_EARTH' as const,
+        sourceId: rec.id,
+        verificationStatus: rec.verificationStatus === 'verified' ? ('VERIFIED' as const) : ('UNVERIFIED' as const),
+        rating: 4.8,
+        userRatingCount: 350,
+        description: rec.description,
+        verified: rec.verificationStatus === 'verified',
+        crowdLevel: 'MODERATE' as const,
+      }));
+
     const candidates = [
       ...curatedEclipsePandals,
+      ...googleEarthCandidates,
       ...this.userSubmissions,
       ...externalPlaces,
     ];
@@ -652,17 +678,19 @@ export class PandalDiscoveryService {
   }
 
   /**
-   * Enrich pandal with real distance from user GPS and travel time
+   * Enrich pandal with real distance from user GPS, travel time, and intelligence fields
    */
   private enrichPandalWithMetrics(pandal: DiscoveredPandal, userLoc?: Location): DiscoveredPandal {
+    const baseEnriched = pandalEnrichmentService.enrichPandal(pandal);
+
     if (!userLoc || typeof userLoc.lat !== 'number' || typeof userLoc.lng !== 'number') {
       return {
-        ...pandal,
-        location: { lat: pandal.latitude, lng: pandal.longitude },
+        ...baseEnriched,
+        location: { lat: baseEnriched.latitude, lng: baseEnriched.longitude },
       };
     }
 
-    const distMeters = Math.round(this.calculateDistanceInMeters(userLoc, pandal.location));
+    const distMeters = Math.round(this.calculateDistanceInMeters(userLoc, baseEnriched.location));
     const distKm = (distMeters / 1000).toFixed(1);
 
     // Approximate travel time in Kolkata city traffic: ~18-20 km/h average drive, or walking for < 1km
@@ -676,11 +704,11 @@ export class PandalDiscoveryService {
     }
 
     return {
-      ...pandal,
+      ...baseEnriched,
       distance: distMeters,
       estimatedTravelTime: durationStr,
       // Ensure compatibility fields are mirrored
-      location: { lat: pandal.latitude, lng: pandal.longitude },
+      location: { lat: baseEnriched.latitude, lng: baseEnriched.longitude },
     };
   }
 

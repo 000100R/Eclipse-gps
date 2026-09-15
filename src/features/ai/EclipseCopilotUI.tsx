@@ -30,9 +30,10 @@ export const EclipseCopilotUI: React.FC = () => {
   ]);
 
   const quickPrompts = [
+    'Which pandals are less crowded right now?',
+    'Is traffic heavy near Bagbazar?',
+    'Should I go to College Square now or later?',
     'Find nearby pandals',
-    'Find Maddox Square',
-    'Pandals near Salt Lake',
     'Plan a 4-pandal tour',
   ];
 

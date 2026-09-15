@@ -19,6 +19,7 @@ import {
 import { kmlParser } from './kmlParser';
 import { kmzParser } from './kmzParser';
 import { DuplicateDetector, KnownGeoEntity } from './duplicateDetector';
+import { seedGoogleEarthRecords } from '../../data/seedGoogleEarthRecords';
 
 const STORAGE_KEY = 'eclipse_imported_geo_records_v1';
 
@@ -259,11 +260,20 @@ export class GoogleEarthImportService {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
-          this.inMemoryStore = JSON.parse(raw);
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            this.inMemoryStore = parsed;
+          }
         }
       } catch (err) {
         console.warn('[GoogleEarthImportService] Failed to load imported records from storage:', err);
       }
+    }
+
+    // If storage is empty, initialize with authentic verified Google Earth KML placemarks
+    if (this.inMemoryStore.length === 0) {
+      this.inMemoryStore = [...seedGoogleEarthRecords];
+      this.saveToStorage();
     }
   }
 

@@ -1,6 +1,10 @@
 import { AIAction, AIActionType } from '../../types';
 
 const VALID_ACTIONS: AIActionType[] = [
+  'SEARCH_NEARBY_PANDALS',
+  'SEARCH_PANDALS_BY_NAME',
+  'SEARCH_PANDALS_BY_AREA',
+  'SEARCH_BONEDI_BARI',
   'SEARCH_PLACES',
   'SEARCH_EVENTS',
   'SEARCH_PANDALS',

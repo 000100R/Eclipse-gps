@@ -5,13 +5,21 @@ export type PandalSource =
   | 'ECLIPSE_CURATED'
   | 'USER_CONTRIBUTION'
   | 'OSM_NOMINATIM'
-  | 'OFFICIAL_COMMITTEE';
+  | 'OFFICIAL_COMMITTEE'
+  | 'GOOGLE_EARTH';
+
+export interface PandalDataSourceRecord {
+  field?: string;
+  source: string;
+  timestamp?: number | string;
+  note?: string;
+}
 
 export interface DiscoveredPandal {
   id: string;
   source: PandalSource;
   sourceId: string;
-  verificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'PENDING' | 'COMMUNITY_VERIFIED';
+  verificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'PENDING' | 'COMMUNITY_VERIFIED' | 'EXTERNAL';
   name: string;
   latitude: number;
   longitude: number;
@@ -38,9 +46,26 @@ export interface DiscoveredPandal {
   crowdTrend?: 'RISING' | 'STEADY' | 'FALLING';
   confidence?: number; // 0.0 to 1.0
 
-  // Full compatibility with existing Pandal model
+  // Full compatibility with existing Pandal model & Phase 13.4 Enrichment Layer
   zone?: string;
   theme?: string;
+  themeDescription?: string;
+  establishedYear?: number;
+  landmark?: string;
+  nearestMetro?: string;
+  metroDistance?: string;
+  bestVisitingTime?: string;
+  bestVisitingPeriod?: string;
+  entryGuide?: string;
+  exitGuide?: string;
+  accessibility?: boolean | string;
+  organizer?: string;
+  helpline?: string;
+  officialWebsite?: string;
+  lastVerifiedAt?: string | number;
+  lastVerifiedTime?: string | number;
+  dataSources?: PandalDataSourceRecord[];
+
   description?: string;
   images?: string[];
   verified?: boolean;
@@ -51,7 +76,6 @@ export interface DiscoveredPandal {
   parkingAvailability?: 'available' | 'limited' | 'none';
   parkingStatus?: 'easy' | 'moderate' | 'full';
   estimatedVisitDuration?: number;
-  accessibility?: boolean;
   createdAt?: number;
   updatedAt?: number;
 }

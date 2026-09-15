@@ -93,8 +93,8 @@ export const PandalCardList: React.FC<PandalCardListProps> = ({ pandals, onActio
                 </p>
               )}
 
-              {/* Metrics row: Distance & Travel Time */}
-              <div className="flex items-center gap-3 mt-2 text-[10px] text-neutral-400 font-medium">
+              {/* Metrics row: Distance, Travel Time & Nearest Metro */}
+              <div className="flex items-center gap-3 mt-2 text-[10px] text-neutral-400 font-medium flex-wrap">
                 {distKm && (
                   <span className="flex items-center gap-1 text-emerald-400">
                     <MapPin size={11} />
@@ -104,6 +104,11 @@ export const PandalCardList: React.FC<PandalCardListProps> = ({ pandals, onActio
                 {pandal.estimatedTravelTime && (
                   <span>
                     ⏱ {pandal.estimatedTravelTime}
+                  </span>
+                )}
+                {pandal.nearestMetro && (
+                  <span className="text-sky-400">
+                    🚇 {pandal.nearestMetro}
                   </span>
                 )}
                 {pandal.queueEstimate && (

@@ -5,6 +5,14 @@ import { placesService } from '../services/places/placesService';
 import { routingService } from '../services/routing/routingService';
 import { alertService } from '../services/realtime/alertService';
 import { pandalDiscoveryService } from '../services/discovery/pandalDiscoveryService';
+import { pandalIntelligenceProvider } from '../services/intelligence/pandalIntelligenceProvider';
+import { bonediBariIntelligenceProvider } from '../services/intelligence/bonediBariIntelligenceProvider';
+import { metroIntelligenceProvider } from '../services/intelligence/metroIntelligenceProvider';
+import { pujaCalendarIntelligenceProvider } from '../services/intelligence/pujaCalendarIntelligenceProvider';
+import { crowdIntelligenceService } from '../services/intelligence/crowdIntelligenceService';
+import { trafficIntelligenceService } from '../services/intelligence/trafficIntelligenceService';
+import { smartVisitService } from '../services/intelligence/smartVisitService';
+import { intelligenceLayerService } from '../services/intelligence/intelligenceLayerService';
 import { curatedEclipsePandals } from '../data/curatedPandals';
 import { ref, set, remove, onDisconnect, serverTimestamp, onValue, off } from 'firebase/database';
 import { isFirebaseConfigured, getFirebaseDatabase } from '../services/firebase';
@@ -77,11 +85,11 @@ interface AppStateContextType {
   setActiveRoute: (route: Route | null) => void;
   routeStops: (Pandal | Event)[];
   setRouteStops: React.Dispatch<React.SetStateAction<(Pandal | Event)[]>>;
-  addStop: (item: Pandal | Event) => void;
+  addStop: (item: Pandal | Event | any) => void;
   removeStop: (itemId: string) => void;
   reorderStops: (startIndex: number, endIndex: number) => void;
   optimizeRoute: () => Promise<void>;
-  calculateRouteToItem: (item: Pandal | Event) => Promise<void>;
+  calculateRouteToItem: (item: Pandal | Event | any) => Promise<void>;
   routePreference: 'FASTEST' | 'SHORTEST' | 'LOW CROWD' | 'BALANCED' | 'WALKING' | 'DRIVING';
   setRoutePreference: (pref: 'FASTEST' | 'SHORTEST' | 'LOW CROWD' | 'BALANCED' | 'WALKING' | 'DRIVING') => void;
 
@@ -1287,7 +1295,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Direct simple routing to a place/event
-  const calculateRouteToItem = async (item: Pandal | Event) => {
+  const calculateRouteToItem = async (item: Pandal | Event | any) => {
     setRouteStops([item]);
     try {
       const osrmProfile = routePreference === 'WALKING' ? 'foot' : 'driving';
@@ -1408,6 +1416,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const data = await response.json();
       
       let discoveredPandals: any[] | undefined = undefined;
+      let discoveredBonediBaris: any[] | undefined = undefined;
       let finalContent = data.text || "I processed your request.";
 
       // Map action trigger execution!
@@ -1415,8 +1424,13 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const actionResult = await executeAIActionOnMap(data.action, data.parameters || {});
         if (actionResult?.error) {
           finalContent = actionResult.error;
-        } else if (actionResult?.pandals && actionResult.pandals.length > 0) {
-          discoveredPandals = actionResult.pandals;
+        } else {
+          if (actionResult?.pandals && actionResult.pandals.length > 0) {
+            discoveredPandals = actionResult.pandals;
+          }
+          if (actionResult?.bonediBaris && actionResult.bonediBaris.length > 0) {
+            discoveredBonediBaris = actionResult.bonediBaris;
+          }
         }
       }
 
@@ -1427,17 +1441,26 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         action: data.action ? { type: data.action, parameters: data.parameters || {} } : undefined,
         timestamp: Date.now(),
         discoveredPandals,
+        discoveredBonediBaris,
       };
 
       setMessages(prev => [...prev, assistantMsg]);
     } catch (e: any) {
       console.error('Failed to communicate with secure server-side Gemini route:', e);
+      let friendlyMessage = `I am currently experiencing a brief delay connecting to the AI service. All map layers, Bonedi Bari heritage houses, and pandals are fully functional—you can search or tap on any item directly!`;
+      if (e?.message) {
+        if (e.message.includes('503') || e.message.includes('high demand') || e.message.includes('unavailable')) {
+          friendlyMessage = `The AI model is experiencing a temporary surge in demand. Local pandal intelligence and heritage navigation remain active—feel free to ask again in a moment!`;
+        } else if (e.message.includes('429') || e.message.includes('quota')) {
+          friendlyMessage = `AI rate limit reached temporarily. You can still use the interactive map, Bonedi Bari heritage explorer, and route planner!`;
+        }
+      }
       setMessages(prev => [
         ...prev,
         {
           id: `msg-${Date.now()}-assistant`,
           role: 'assistant',
-          content: e?.message ? `${e.message}` : `I'm sorry, I'm currently having difficulty connecting to my secure server-side API. Let's try again in a few moments!`,
+          content: friendlyMessage,
           timestamp: Date.now(),
         },
       ]);
@@ -1447,8 +1470,252 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // AI-Map orchestration engine
-  const executeAIActionOnMap = async (actionType: string, params: any): Promise<{ pandals?: any[]; error?: string }> => {
+  const executeAIActionOnMap = async (actionType: string, params: any): Promise<{ pandals?: any[]; bonediBaris?: any[]; error?: string }> => {
     switch (actionType) {
+      case 'SEARCH_METRO': {
+        // Automatically activate METRO layer in Intelligence Grid
+        intelligenceLayerService.setLayerVisibility('METRO', true);
+
+        const queryTerm = params.stationName || params.name || params.query || '';
+        let matchedStation = queryTerm ? metroIntelligenceProvider.getStationByNameOrQuery(queryTerm) : undefined;
+        let metroResults: any[] = [];
+
+        if (matchedStation) {
+          metroResults = [matchedStation];
+        } else {
+          metroResults = await metroIntelligenceProvider.search(queryTerm || 'metro', currentLocation);
+          if (metroResults.length > 0) {
+            matchedStation = metroResults[0];
+          }
+        }
+
+        if (metroResults.length > 0) {
+          setSearchResults(metroResults as any);
+          setActiveTab('home');
+
+          if (matchedStation) {
+            setSelectedItem(matchedStation as any);
+            if (mapRef) {
+              if (mapRef.setView) {
+                mapRef.setView([matchedStation.location.lat, matchedStation.location.lng], 16);
+              } else if (mapRef.setCenter) {
+                mapRef.setCenter({ lat: matchedStation.location.lat, lng: matchedStation.location.lng });
+                mapRef.setZoom(16);
+              }
+            }
+          }
+        }
+
+        return { pandals: matchedStation?.nearbyPandals as any };
+      }
+
+      case 'SEARCH_BONEDI_BARI': {
+        // Automatically activate Bonedi Bari layer in Intelligence Grid
+        intelligenceLayerService.setLayerVisibility('BONEDI_BARI', true);
+
+        const queryTerm = params.name || params.query || params.nearMetro || params.area || '';
+        const bonediResults = await bonediBariIntelligenceProvider.search(queryTerm || 'bonedi bari', currentLocation);
+
+        if (bonediResults.length > 0) {
+          // If tour requested or query mentions tour, generate optimized route through these heritage houses
+          if (params.isTour || (queryTerm && queryTerm.toLowerCase().includes('tour'))) {
+            const tourStops = bonediResults.slice(0, 5);
+            setRouteStops(tourStops as any);
+            try {
+              const destItem = tourStops[tourStops.length - 1];
+              const stopsToOptimize = tourStops.slice(0, -1).map(s => ({
+                name: s.name,
+                location: s.location,
+                isPandalOrEvent: true,
+                itemId: s.id,
+              }));
+
+              const result = await routingService.optimizeRoute(
+                currentLocation,
+                destItem.location,
+                stopsToOptimize
+              );
+
+              const reorderedWaypoints = result.optimizedStops.map(wp => {
+                return tourStops.find(s => s.id === wp.itemId)!;
+              });
+
+              setRouteStops([...reorderedWaypoints, destItem] as any);
+              setActiveRoute(result.optimizedRoute);
+            } catch (tourErr) {
+              console.warn('Failed to calculate automated Bonedi Bari tour route:', tourErr);
+            }
+          }
+
+          setSearchResults(bonediResults as any);
+          setActiveTab('home');
+
+          if (bonediResults.length === 1) {
+            const single = bonediResults[0];
+            setSelectedItem(single as any);
+            if (mapRef) {
+              if (mapRef.setView) {
+                mapRef.setView([single.location.lat, single.location.lng], 16);
+              } else if (mapRef.setCenter) {
+                mapRef.setCenter({ lat: single.location.lat, lng: single.location.lng });
+                mapRef.setZoom(16);
+              }
+            }
+          } else if (mapRef) {
+            const lats = bonediResults.map(p => p.location.lat);
+            const lngs = bonediResults.map(p => p.location.lng);
+            const minLat = Math.min(...lats);
+            const maxLat = Math.max(...lats);
+            const minLng = Math.min(...lngs);
+            const maxLng = Math.max(...lngs);
+            if (mapRef.fitBounds) {
+              mapRef.fitBounds([[minLat, minLng], [maxLat, maxLng]]);
+            }
+          }
+        }
+
+        return { bonediBaris: bonediResults };
+      }
+
+      case 'VIEW_PUJA_CALENDAR': {
+        // Automatically activate Puja Calendar layer in Intelligence Grid
+        intelligenceLayerService.setLayerVisibility('PUJA_CALENDAR', true);
+
+        // Switch to events tab to reveal the dedicated Puja Calendar view
+        setActiveTab('events');
+
+        const dayQuery = params.day || params.query || '';
+        let pandalResults: any[] = [];
+        if (dayQuery) {
+          const events = await pujaCalendarIntelligenceProvider.search(dayQuery, currentLocation);
+          if (events.length > 0) {
+            setSearchResults(events as any);
+            const firstWithLocation = events.find(e => e.associatedLocations && e.associatedLocations.length > 0);
+            if (firstWithLocation && firstWithLocation.associatedLocations) {
+              pandalResults = firstWithLocation.associatedLocations.map((p, idx) => ({
+                id: `fest-loc-${idx}-${p.name.toLowerCase().replace(/\s+/g, '-')}`,
+                name: p.name,
+                address: p.type ? `Venue Type: ${p.type}` : 'Festival Venue',
+                location: { lat: p.lat, lng: p.lng },
+                category: 'pandal',
+              }));
+            }
+          }
+        }
+
+        return { pandals: pandalResults.length > 0 ? pandalResults : undefined };
+      }
+
+      case 'QUERY_CROWD_INTELLIGENCE': {
+        // Automatically activate CROWD layer in Intelligence Grid
+        intelligenceLayerService.setLayerVisibility('CROWD', true);
+        setActiveTab('home');
+
+        const queryTerm = (params.pandalName || params.name || params.query || '').toLowerCase();
+        const allCrowd = crowdIntelligenceService.getAllCrowdItems(pandals, pandalCrowdCounts, pandalCrowdTrends);
+
+        let filteredPandals: any[] = [];
+        if (queryTerm) {
+          // Specific pandal crowd check
+          const match = pandals.find(p => p.name.toLowerCase().includes(queryTerm));
+          if (match) {
+            filteredPandals = [match];
+            setSelectedItem(match);
+            if (mapRef) {
+              if (mapRef.setView) mapRef.setView([match.location.lat, match.location.lng], 16);
+              else if (mapRef.setCenter) { mapRef.setCenter({ lat: match.location.lat, lng: match.location.lng }); mapRef.setZoom(16); }
+            }
+          }
+        } else {
+          // Find low/moderate crowd pandals
+          const lowCrowdIds = new Set(
+            allCrowd
+              .filter(c => c.crowdLevel === 'LOW' || c.crowdLevel === 'MODERATE')
+              .map(c => c.pandalId)
+          );
+          filteredPandals = pandals.filter(p => lowCrowdIds.has(p.id)).slice(0, 8);
+          if (filteredPandals.length > 0 && mapRef) {
+            const lats = filteredPandals.map(p => p.location.lat);
+            const lngs = filteredPandals.map(p => p.location.lng);
+            if (mapRef.fitBounds) {
+              mapRef.fitBounds([[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]]);
+            }
+          }
+        }
+
+        if (filteredPandals.length > 0) {
+          setSearchResults(filteredPandals as any);
+        }
+
+        return { pandals: filteredPandals };
+      }
+
+      case 'QUERY_TRAFFIC_INTELLIGENCE': {
+        // Automatically activate TRAFFIC layer in Intelligence Grid
+        intelligenceLayerService.setLayerVisibility('TRAFFIC', true);
+        setActiveTab('home');
+
+        const queryTerm = (params.corridorName || params.area || params.query || '').toLowerCase();
+        const corridors = trafficIntelligenceService.getAllCorridors();
+
+        let matchedCorridor = corridors[0];
+        if (queryTerm) {
+          const found = corridors.find(c =>
+            c.corridorName.toLowerCase().includes(queryTerm) ||
+            c.affectedRoad.toLowerCase().includes(queryTerm)
+          );
+          if (found) matchedCorridor = found;
+        }
+
+        if (matchedCorridor && mapRef) {
+          if (mapRef.setView) mapRef.setView([matchedCorridor.location.lat, matchedCorridor.location.lng], 15);
+          else if (mapRef.setCenter) {
+            mapRef.setCenter({ lat: matchedCorridor.location.lat, lng: matchedCorridor.location.lng });
+            mapRef.setZoom(15);
+          }
+        }
+
+        // Find pandals near this traffic corridor
+        const nearbyPandals = pandals.filter(p => {
+          if (!matchedCorridor) return false;
+          const d = Math.hypot(p.location.lat - matchedCorridor.location.lat, p.location.lng - matchedCorridor.location.lng);
+          return d < 0.025; // ~2.5km
+        }).slice(0, 5);
+
+        if (nearbyPandals.length > 0) {
+          setSearchResults(nearbyPandals as any);
+        }
+
+        return { pandals: nearbyPandals };
+      }
+
+      case 'SMART_VISIT_RECOMMENDATION': {
+        // Turn on both CROWD and TRAFFIC layers
+        intelligenceLayerService.setLayerVisibility('CROWD', true);
+        intelligenceLayerService.setLayerVisibility('TRAFFIC', true);
+        setActiveTab('home');
+
+        const queryTerm = (params.pandalName || params.name || params.query || '').toLowerCase();
+        let targetPandal = pandals[0];
+        if (queryTerm) {
+          const found = pandals.find(p => p.name.toLowerCase().includes(queryTerm));
+          if (found) targetPandal = found;
+        }
+
+        if (targetPandal) {
+          setSelectedItem(targetPandal);
+          if (mapRef) {
+            if (mapRef.setView) mapRef.setView([targetPandal.location.lat, targetPandal.location.lng], 16);
+            else if (mapRef.setCenter) {
+              mapRef.setCenter({ lat: targetPandal.location.lat, lng: targetPandal.location.lng });
+              mapRef.setZoom(16);
+            }
+          }
+        }
+
+        return { pandals: targetPandal ? [targetPandal] : [] };
+      }
+
       case 'SEARCH_NEARBY_PANDALS':
       case 'SEARCH_PANDALS_BY_NAME':
       case 'SEARCH_PANDALS_BY_AREA':
@@ -1462,28 +1729,32 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
 
         const queryTerm = params.name || params.query || (actionType === 'SEARCH_PANDALS_BY_AREA' ? params.area : '');
-        const discoveryResult = await pandalDiscoveryService.discoverPandals({
-          near: currentLocation,
-          radius: params.radius || 5000,
-          query: queryTerm,
-          area: params.area,
-          mode: actionType === 'SEARCH_PANDALS_BY_NAME' ? 'name' : actionType === 'SEARCH_PANDALS_BY_AREA' ? 'area' : 'nearby',
-        });
+        // Search unified PANDALS intelligence provider first for real verified multi-source data
+        const intelligenceResults = await pandalIntelligenceProvider.search(queryTerm || 'pandal', currentLocation);
+        const resolvedPandals = intelligenceResults.length > 0
+          ? intelligenceResults
+          : (await pandalDiscoveryService.discoverPandals({
+              near: currentLocation,
+              radius: params.radius || 5000,
+              query: queryTerm,
+              area: params.area,
+              mode: actionType === 'SEARCH_PANDALS_BY_NAME' ? 'name' : actionType === 'SEARCH_PANDALS_BY_AREA' ? 'area' : 'nearby',
+            })).pandals;
 
-        if (discoveryResult.pandals.length > 0) {
-          setPandals(discoveryResult.pandals);
-          setSearchResults(discoveryResult.pandals);
+        if (resolvedPandals.length > 0) {
+          setPandals(resolvedPandals);
+          setSearchResults(resolvedPandals);
           setActiveTab('home');
 
-          if (discoveryResult.pandals.length === 1) {
-            const single = discoveryResult.pandals[0];
+          if (resolvedPandals.length === 1) {
+            const single = resolvedPandals[0];
             setSelectedItem(single);
             if (mapRef) {
               mapRef.setView([single.location.lat, single.location.lng], 16);
             }
           } else if (mapRef && mapRef.fitBounds) {
-            const lats = discoveryResult.pandals.map(p => p.location.lat);
-            const lngs = discoveryResult.pandals.map(p => p.location.lng);
+            const lats = resolvedPandals.map(p => p.location.lat);
+            const lngs = resolvedPandals.map(p => p.location.lng);
             const minLat = Math.min(...lats);
             const maxLat = Math.max(...lats);
             const minLng = Math.min(...lngs);
@@ -1492,7 +1763,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         }
 
-        return { pandals: discoveryResult.pandals };
+        return { pandals: resolvedPandals };
       }
 
       case 'SEARCH_EVENTS':
@@ -1542,11 +1813,12 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
         break;
 
-      case 'OPTIMIZE_ROUTE':
-        if (params.pandalIds && Array.isArray(params.pandalIds)) {
-          const selectedItems = params.pandalIds
-            .map(id => eventsService.getItemById(id) || pandals.find(p => p.id === id))
-            .filter(Boolean) as (Pandal | Event)[];
+      case 'OPTIMIZE_ROUTE': {
+        const candidateIds = params.bonediBariIds || params.pandalIds;
+        if (candidateIds && Array.isArray(candidateIds)) {
+          const selectedItems = candidateIds
+            .map(id => bonediBariIntelligenceProvider.getById(id) || eventsService.getItemById(id) || pandals.find(p => p.id === id))
+            .filter(Boolean) as (any)[];
 
           if (selectedItems.length > 0) {
             setRouteStops(selectedItems);
@@ -1584,13 +1856,15 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         }
         break;
+      }
 
       case 'NAVIGATE_TO': {
-        let item = params.itemId ? eventsService.getItemById(params.itemId) : null;
+        let item = params.itemId ? (bonediBariIntelligenceProvider.getById(params.itemId) || eventsService.getItemById(params.itemId)) : null;
         if (!item) {
           const targetName = params.locationName || params.name || params.query || params.destination;
           if (targetName) {
-            item = pandals.find(p => p.name.toLowerCase().includes(targetName.toLowerCase())) ||
+            const bonediMatch = bonediBariIntelligenceProvider.getData().find(b => b.name.toLowerCase().includes(targetName.toLowerCase()));
+            item = (bonediMatch as any) || pandals.find(p => p.name.toLowerCase().includes(targetName.toLowerCase())) ||
                    (curatedEclipsePandals.find(p => p.name.toLowerCase().includes(targetName.toLowerCase())) as any);
           }
         }

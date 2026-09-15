@@ -5,6 +5,19 @@ import { CrowdBadge } from '../../components/ui/CrowdBadge';
 import { Navigation, Play, Plus, Check, Star, CornerDownRight, Locate, HelpCircle, Users, Compass } from 'lucide-react';
 import { isFirebaseConfigured } from '../../services/firebase';
 import { getPandalCrowdMetrics } from '../../utils/crowdUtils';
+import { intelligenceGridStore } from '../../services/intelligence/intelligenceGridStore';
+import { intelligenceLayerService } from '../../services/intelligence/intelligenceLayerService';
+import { useIntelligenceGrid } from '../../hooks/useIntelligenceGrid';
+import { usePandalIntelligence } from '../../hooks/usePandalIntelligence';
+import { useBonediBariIntelligence } from '../../hooks/useBonediBariIntelligence';
+import { useMetroIntelligence } from '../../hooks/useMetroIntelligence';
+import { PandalIntelligenceCard } from './PandalIntelligenceCard';
+import { BonediBariIntelligenceCard } from './BonediBariIntelligenceCard';
+import { MetroIntelligenceCard } from './MetroIntelligenceCard';
+import { PandalEmptyStateBanner } from './PandalEmptyStateBanner';
+import { PandalCoverageBadge } from './PandalCoverageBadge';
+import { crowdIntelligenceService } from '../../services/intelligence/crowdIntelligenceService';
+import { trafficIntelligenceService } from '../../services/intelligence/trafficIntelligenceService';
 import L from 'leaflet';
 
 export const LeafletMapView: React.FC = () => {
@@ -17,6 +30,8 @@ export const LeafletMapView: React.FC = () => {
   const gpsAccuracyCircleRef = useRef<L.Circle | null>(null);
   const groupMarkersRef = useRef<L.LayerGroup | null>(null);
   const friendMarkersRef = useRef<L.LayerGroup | null>(null);
+  const crowdLayerRef = useRef<L.LayerGroup | null>(null);
+  const trafficLayerRef = useRef<L.LayerGroup | null>(null);
 
   const {
     currentLocation,
@@ -35,6 +50,7 @@ export const LeafletMapView: React.FC = () => {
     setCurrentStepIndex,
     routeStops,
     addStop,
+    calculateRouteToItem,
     isSaved,
     saveLocation,
     unsaveLocation,
@@ -56,6 +72,51 @@ export const LeafletMapView: React.FC = () => {
   } = useAppState();
 
   const [activeInstruction, setActiveInstruction] = useState<any>(null);
+  const { isLayerVisible, layerVisibility } = useIntelligenceGrid();
+  const {
+    isPandalVisible,
+    pandals: intelligencePandals,
+    clusteredItems,
+    isLoading: isPandalLoading,
+    emptyMessage: pandalEmptyMessage,
+  } = usePandalIntelligence(currentLocation);
+  const {
+    bonediBaris,
+    isBonediBariVisible,
+    isLoading: isBonediBariLoading,
+  } = useBonediBariIntelligence(currentLocation);
+  const {
+    metroStations,
+    isMetroVisible,
+    isLoading: isMetroLoading,
+  } = useMetroIntelligence(currentLocation);
+
+  // Keep intelligence layer item counts synchronized
+  useEffect(() => {
+    intelligenceLayerService.updateItemCount('PANDALS', intelligencePandals.length || pandals.length);
+  }, [intelligencePandals.length, pandals.length]);
+
+  useEffect(() => {
+    intelligenceLayerService.updateItemCount('BONEDI_BARI', bonediBaris.length);
+  }, [bonediBaris.length]);
+
+  useEffect(() => {
+    intelligenceLayerService.updateItemCount('METRO', metroStations.length);
+  }, [metroStations.length]);
+
+  useEffect(() => {
+    intelligenceLayerService.updateItemCount('EVENTS', events.length);
+  }, [events.length]);
+
+  useEffect(() => {
+    const activeCrowd = crowdIntelligenceService.getAllCrowdItems(pandals, pandalCrowdCounts, pandalCrowdTrends)
+      .filter(c => c.crowdLevel !== 'UNAVAILABLE').length;
+    intelligenceLayerService.updateItemCount('CROWD', activeCrowd);
+  }, [pandals.length, pandalCrowdCounts, pandalCrowdTrends]);
+
+  useEffect(() => {
+    intelligenceLayerService.updateItemCount('TRAFFIC', trafficIntelligenceService.getAllCorridors().length);
+  }, []);
 
   // Initialize Map
   useEffect(() => {
@@ -76,10 +137,33 @@ export const LeafletMapView: React.FC = () => {
 
     mapInstanceRef.current = map;
 
-    // Track map center on pan
+    // Update Intelligence Grid viewport bounds & zoom
+    const updateViewport = () => {
+      try {
+        const bounds = map.getBounds();
+        intelligenceGridStore.setViewport({
+          north: bounds.getNorth(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          west: bounds.getWest(),
+          zoom: map.getZoom(),
+        });
+      } catch (e) {
+        // Bounds may not be ready immediately on first tick
+      }
+    };
+
+    updateViewport();
+
+    // Track map center and viewport on pan / move
     map.on('moveend', () => {
       const center = map.getCenter();
       setMapCenter({ lat: center.lat, lng: center.lng });
+      updateViewport();
+    });
+
+    map.on('zoomend', () => {
+      updateViewport();
     });
     
     // Abstract the setView into our AppState mapRef
@@ -103,6 +187,14 @@ export const LeafletMapView: React.FC = () => {
     // Layer group to hold live friend location markers
     const friendMarkers = L.layerGroup().addTo(map);
     friendMarkersRef.current = friendMarkers;
+
+    // Layer group to hold crowd intensity circles and badges
+    const crowdLayer = L.layerGroup().addTo(map);
+    crowdLayerRef.current = crowdLayer;
+
+    // Layer group to hold arterial traffic corridors and advisory markers
+    const trafficLayer = L.layerGroup().addTo(map);
+    trafficLayerRef.current = trafficLayer;
 
     // Resize observer handling
     const resizeObserver = new ResizeObserver(() => {
@@ -245,9 +337,13 @@ export const LeafletMapView: React.FC = () => {
     markersGroup.clearLayers();
 
     // Custom marker icon drawer helper
-    const addMarkerToGroup = (item: any, type: 'pandal' | 'event' | 'search') => {
+    const addMarkerToGroup = (item: any, type: 'pandal' | 'event' | 'bonedi_bari' | 'metro' | 'search') => {
       let pinColor = 'bg-emerald-500 shadow-emerald-500/50';
-      if (type === 'pandal') {
+      if (type === 'metro') {
+        pinColor = 'bg-blue-600 shadow-blue-500/60 ring-2 ring-blue-400';
+      } else if (type === 'bonedi_bari') {
+        pinColor = 'bg-amber-500 shadow-amber-500/50';
+      } else if (type === 'pandal') {
         if (item.crowdLevel === 'EXTREME') pinColor = 'bg-rose-500 shadow-rose-500/50 animate-pulse';
         else if (item.crowdLevel === 'HEAVY') pinColor = 'bg-orange-500 shadow-orange-500/50';
         else if (item.crowdLevel === 'MODERATE') pinColor = 'bg-amber-400 shadow-amber-400/50';
@@ -257,16 +353,17 @@ export const LeafletMapView: React.FC = () => {
       }
 
       const isVisited = visitedIds.includes(item.id);
+      const isMetro = type === 'metro';
 
       const html = `
         <div class="relative flex flex-col items-center justify-center group pointer-events-auto">
           <!-- Text Label -->
-          <div class="absolute -top-7 bg-neutral-950/90 text-[10px] font-bold text-neutral-200 px-2 py-0.5 rounded-md border border-neutral-800/80 shadow-md whitespace-nowrap opacity-80 group-hover:opacity-100 transition-opacity pointer-events-none">
-            ${item.name.split(' ')[0]}
+          <div class="absolute -top-7 ${isMetro ? 'bg-blue-950/90 text-blue-200 border-blue-700/80' : 'bg-neutral-950/90 text-neutral-200 border-neutral-800/80'} text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-md whitespace-nowrap opacity-80 group-hover:opacity-100 transition-opacity pointer-events-none">
+            ${isMetro ? '🚇 ' + item.name.replace(/metro/i, '').trim() : item.name.split(' ')[0]}
           </div>
-          <!-- Pulse Dot -->
-          <div class="w-4 h-4 rounded-full ${pinColor} border-2 border-neutral-950 flex items-center justify-center relative shadow-lg cursor-pointer">
-            ${isVisited ? '<div class="w-1.5 h-1.5 rounded-full bg-white"></div>' : ''}
+          <!-- Pulse Dot / Icon -->
+          <div class="w-5 h-5 rounded-full ${pinColor} border-2 border-neutral-950 flex items-center justify-center relative shadow-lg cursor-pointer text-[10px] text-white font-bold">
+            ${isMetro ? 'M' : (isVisited ? '<div class="w-1.5 h-1.5 rounded-full bg-white"></div>' : '')}
           </div>
         </div>
       `;
@@ -285,15 +382,59 @@ export const LeafletMapView: React.FC = () => {
       markersGroup.addLayer(marker);
     };
 
-    // Plot search results or default catalogs
+    // Plot search results or default catalogs respecting Intelligence Grid layer visibility
     if (searchResults.length > 0) {
-      searchResults.forEach(res => addMarkerToGroup(res, res.type === 'pandal' ? 'pandal' : 'search'));
+      searchResults.forEach(res => {
+        const isMetro = (res as any).line || (res as any).entrancesExits || res.type === 'metro';
+        const markerType = isMetro
+          ? 'metro'
+          : ((res as any).pujaSince || (res as any).family ? 'bonedi_bari' : (res.type === 'pandal' ? 'pandal' : 'search'));
+        addMarkerToGroup(res, markerType as any);
+      });
     } else {
-      pandals.forEach(p => addMarkerToGroup(p, 'pandal'));
-      events.forEach(e => addMarkerToGroup(e, 'event'));
+      if (isPandalVisible) {
+        clusteredItems.forEach(entry => {
+          if (entry.isCluster) {
+            const cluster = entry.cluster;
+            const clusterHtml = `
+              <div class="relative flex items-center justify-center cursor-pointer group pointer-events-auto">
+                <div class="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-extrabold flex items-center justify-center border-2 border-slate-950 shadow-xl shadow-amber-500/40 text-xs transition-transform group-hover:scale-110">
+                  ${cluster.count}
+                </div>
+                <div class="absolute -top-6 bg-slate-900/90 text-[10px] font-semibold text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                  ${cluster.count} Pandals
+                </div>
+              </div>
+            `;
+            const clusterIcon = L.divIcon({
+              html: clusterHtml,
+              className: '',
+              iconSize: [32, 32],
+              iconAnchor: [16, 16],
+            });
+            const clusterMarker = L.marker([cluster.location.lat, cluster.location.lng], { icon: clusterIcon });
+            clusterMarker.on('click', () => {
+              const currentZoom = map.getZoom();
+              map.setView([cluster.location.lat, cluster.location.lng], Math.min(17, currentZoom + 2));
+            });
+            markersGroup.addLayer(clusterMarker);
+          } else {
+            addMarkerToGroup(entry.item, 'pandal');
+          }
+        });
+      }
+      if (isBonediBariVisible) {
+        bonediBaris.forEach(b => addMarkerToGroup(b, 'bonedi_bari'));
+      }
+      if (isMetroVisible) {
+        metroStations.forEach(m => addMarkerToGroup(m, 'metro'));
+      }
+      if (isLayerVisible('EVENTS')) {
+        events.forEach(e => addMarkerToGroup(e, 'event'));
+      }
     }
 
-  }, [pandals, events, searchResults, visitedIds]);
+  }, [clusteredItems, isPandalVisible, isBonediBariVisible, isMetroVisible, bonediBaris, metroStations, events, searchResults, visitedIds, layerVisibility.EVENTS, layerVisibility.METRO]);
 
   // Render group members and meeting point on Leaflet Map
   useEffect(() => {
@@ -396,6 +537,128 @@ export const LeafletMapView: React.FC = () => {
     });
 
   }, [friendsList, friendsLocations, isLostInCrowdActive]);
+
+  // Draw Crowd Intelligence Layer (halos + status badges)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const crowdLayer = crowdLayerRef.current;
+    if (!map || !crowdLayer) return;
+
+    crowdLayer.clearLayers();
+    if (!isLayerVisible('CROWD')) return;
+
+    const crowdItems = crowdIntelligenceService.getAllCrowdItems(
+      pandals,
+      pandalCrowdCounts,
+      pandalCrowdTrends
+    );
+
+    crowdItems.forEach((item) => {
+      if (item.crowdLevel === 'UNAVAILABLE') return;
+
+      const radius = item.crowdLevel === 'HEAVY' ? 260 : item.crowdLevel === 'HIGH' ? 200 : item.crowdLevel === 'MODERATE' ? 140 : 90;
+      const color = item.crowdLevel === 'HEAVY' ? '#f43f5e' : item.crowdLevel === 'HIGH' ? '#f97316' : item.crowdLevel === 'MODERATE' ? '#f59e0b' : '#10b981';
+      const opacity = item.crowdLevel === 'HEAVY' ? 0.28 : item.crowdLevel === 'HIGH' ? 0.22 : 0.16;
+
+      // 1. Density circle halo
+      const circle = L.circle([item.location.lat, item.location.lng], {
+        radius,
+        color,
+        fillColor: color,
+        fillOpacity: opacity,
+        weight: item.crowdLevel === 'HEAVY' ? 2 : 1.5,
+        interactive: false,
+      });
+      crowdLayer.addLayer(circle);
+
+      // 2. Crowd HUD pill badge above pandal
+      const trendSymbol = item.crowdTrend === 'RISING' ? '↑' : item.crowdTrend === 'FALLING' ? '↓' : '→';
+      const badgeHtml = `
+        <div class="relative flex flex-col items-center pointer-events-auto cursor-pointer" style="transform: translate(-50%, -100%);">
+          <div class="px-2 py-0.5 rounded-full text-[9px] font-bold shadow-lg border flex items-center gap-1 whitespace-nowrap"
+               style="background: rgba(10, 10, 15, 0.94); color: ${color}; border-color: ${color};">
+            <span>👥 ${item.crowdLevel} ${trendSymbol}</span>
+            <span class="text-[8px] opacity-75 font-mono">(${item.source})</span>
+          </div>
+        </div>
+      `;
+      const badgeIcon = L.divIcon({
+        html: badgeHtml,
+        className: '',
+        iconSize: [0, 0],
+      });
+      const badgeMarker = L.marker([item.location.lat, item.location.lng], { icon: badgeIcon });
+      badgeMarker.on('click', () => {
+        const matched = pandals.find(p => p.id === item.pandalId);
+        if (matched) setSelectedItem(matched);
+      });
+      crowdLayer.addLayer(badgeMarker);
+    });
+  }, [isLayerVisible('CROWD'), pandals, pandalCrowdCounts, pandalCrowdTrends, layerVisibility.CROWD]);
+
+  // Draw Traffic Intelligence Layer (corridors + advisory markers)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const trafficLayer = trafficLayerRef.current;
+    if (!map || !trafficLayer) return;
+
+    trafficLayer.clearLayers();
+    if (!isLayerVisible('TRAFFIC')) return;
+
+    const corridors = trafficIntelligenceService.getAllCorridors();
+
+    corridors.forEach((corridor) => {
+      const color = corridor.status === 'CONGESTED' ? '#f43f5e' : corridor.status === 'SLOW' ? '#f59e0b' : '#10b981';
+      const weight = corridor.status === 'CONGESTED' ? 7 : corridor.status === 'SLOW' ? 6 : 5;
+
+      // 1. Draw corridor polyline if coordinates available
+      if (corridor.polyPoints && corridor.polyPoints.length > 1) {
+        const polyline = L.polyline(
+          corridor.polyPoints.map(p => [p.lat, p.lng]),
+          {
+            color,
+            weight,
+            opacity: 0.85,
+            dashArray: corridor.status === 'SLOW' ? '8, 6' : undefined,
+          }
+        );
+        polyline.bindTooltip(
+          `<strong>${corridor.corridorName}</strong><br/>Status: <b>${corridor.status}</b> (${corridor.estimatedDelayMinutes > 0 ? `+${corridor.estimatedDelayMinutes}m delay` : 'Flowing'})<br/>Advisory: ${corridor.alternativeRoute || 'Normal festival flow'}`,
+          { sticky: true }
+        );
+        trafficLayer.addLayer(polyline);
+      }
+
+      // 2. Draw traffic advisory node marker
+      const delayBadge = corridor.estimatedDelayMinutes > 0 ? `+${corridor.estimatedDelayMinutes}m` : 'Flowing';
+      const markerHtml = `
+        <div class="relative flex flex-col items-center pointer-events-auto cursor-pointer">
+          <div class="px-2 py-0.5 rounded-md text-[10px] font-bold shadow-md border flex items-center gap-1 whitespace-nowrap"
+               style="background: rgba(10, 10, 15, 0.95); color: ${color}; border-color: ${color};">
+            <span>🚗 ${corridor.status}</span>
+            <span class="font-mono text-[9px] opacity-80">${delayBadge}</span>
+          </div>
+        </div>
+      `;
+      const markerIcon = L.divIcon({
+        html: markerHtml,
+        className: '',
+        iconSize: [60, 24],
+        iconAnchor: [30, 12],
+      });
+      const tMarker = L.marker([corridor.location.lat, corridor.location.lng], { icon: markerIcon });
+      tMarker.bindPopup(`
+        <div style="color: #fff; font-size: 12px; max-width: 240px;">
+          <h4 style="font-weight: bold; margin-bottom: 4px; color: ${color};">${corridor.corridorName}</h4>
+          <p style="margin: 2px 0;">Road: ${corridor.affectedRoad}</p>
+          <p style="margin: 2px 0;">Status: <b>${corridor.status}</b> (${delayBadge})</p>
+          ${corridor.alternativeRoute ? `<p style="margin: 4px 0 0 0; color: #aaa; font-size: 11px;">Advisory: ${corridor.alternativeRoute}</p>` : ''}
+          <div style="margin-top: 6px; font-size: 9px; color: #888;">Provenance: ${corridor.source} (${corridor.sourceLabel})</div>
+        </div>
+      `);
+      trafficLayer.addLayer(tMarker);
+    });
+  }, [isLayerVisible('TRAFFIC'), layerVisibility.TRAFFIC]);
 
   // Handle activeRoute Polyline Draw and flyBounds
   useEffect(() => {
@@ -587,92 +850,134 @@ export const LeafletMapView: React.FC = () => {
         </div>
       )}
 
+      {/* Pandal Coverage Badge (Requirement 8) */}
+      {isPandalVisible && intelligencePandals.length > 0 && searchResults.length === 0 && (
+        <div className="absolute top-20 left-4 z-10">
+          <PandalCoverageBadge
+            pandals={intelligencePandals}
+            isLoading={isPandalLoading}
+          />
+        </div>
+      )}
+
+      {/* Pandal Empty State Banner (Requirement 10) */}
+      {isPandalVisible && clusteredItems.length === 0 && !isPandalLoading && searchResults.length === 0 && (
+        <div className="absolute top-20 left-4 z-10">
+          <PandalEmptyStateBanner
+            onRecenterKolkata={() => {
+              mapInstanceRef.current?.setView([22.5697, 88.3639], 14);
+            }}
+          />
+        </div>
+      )}
+
       {/* Selected Item Drawer HUD */}
       {selectedItem && !isNavigating && (
         <div className="absolute bottom-24 left-4 right-4 z-10 max-w-md mx-auto">
-          <GlassPanel className="p-4 transition-all duration-300">
-            <div className="flex items-start justify-between">
-              <div className="flex-1 min-w-0 pr-4">
-                <div className="flex items-center space-x-2">
-                  <span className="text-[10px] tracking-widest font-bold text-neutral-500 uppercase">
-                    {selectedItem.theme ? 'Durga Puja Pandal' : 'Event Venue'}
-                  </span>
-                  {selectedItem.crowdLevel && <CrowdBadge level={selectedItem.crowdLevel} />}
+          {Boolean((selectedItem as any).line || (selectedItem as any).nearbyPandalIds) ? (
+            <MetroIntelligenceCard
+              metroStation={selectedItem as any}
+              currentLocation={currentLocation}
+              onClose={() => setSelectedItem(null)}
+              onShowOnMap={(loc) => {
+                mapInstanceRef.current?.setView([loc.lat, loc.lng], 16);
+              }}
+              onNavigateToStation={async (station) => {
+                await calculateRouteToItem(station);
+                setIsNavigating(true);
+                setCurrentStepIndex(0);
+              }}
+              onNavigateToPuja={async (_station, item) => {
+                await calculateRouteToItem(item);
+                setIsNavigating(true);
+                setCurrentStepIndex(0);
+              }}
+              onAddStop={(item) => addStop(item)}
+            />
+          ) : Boolean((selectedItem as any).pujaSince || (selectedItem as any).family) ? (
+            <BonediBariIntelligenceCard
+              bonediBari={selectedItem as any}
+              currentLocation={currentLocation}
+              onClose={() => setSelectedItem(null)}
+              onShowOnMap={(b) => {
+                mapInstanceRef.current?.setView([b.location.lat, b.location.lng], 16);
+              }}
+              onNavigate={async () => {
+                setIsNavigating(true);
+                setCurrentStepIndex(0);
+              }}
+              onAddStop={(b) => addStop(b)}
+              isFavorite={isSaved(selectedItem.id)}
+              onToggleFavorite={() => handleToggleFav(selectedItem)}
+              isVisited={visitedIds.includes(selectedItem.id)}
+              onToggleVisited={() => toggleVisited(selectedItem.id)}
+            />
+          ) : Boolean((selectedItem as any).source || (selectedItem as any).theme || (selectedItem as any).zone) ? (
+            <PandalIntelligenceCard
+              pandal={selectedItem}
+              currentLocation={currentLocation}
+              onClose={() => setSelectedItem(null)}
+              onShowOnMap={(p) => {
+                mapInstanceRef.current?.setView([p.location.lat, p.location.lng], 16);
+              }}
+              onNavigate={async () => {
+                setIsNavigating(true);
+                setCurrentStepIndex(0);
+              }}
+              onAddStop={(p) => addStop(p)}
+              isFavorite={isSaved(selectedItem.id)}
+              onToggleFavorite={() => handleToggleFav(selectedItem)}
+              isVisited={visitedIds.includes(selectedItem.id)}
+              onToggleVisited={() => toggleVisited(selectedItem.id)}
+            />
+          ) : (
+            <GlassPanel className="p-4 transition-all duration-300">
+              <div className="flex items-start justify-between">
+                <div className="flex-1 min-w-0 pr-4">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] tracking-widest font-bold text-neutral-500 uppercase">
+                      Event Venue
+                    </span>
+                    {selectedItem.crowdLevel && <CrowdBadge level={selectedItem.crowdLevel} />}
+                  </div>
+                  <h4 className="text-base font-bold text-neutral-100 truncate mt-1">{selectedItem.name}</h4>
+                  <p className="text-xs text-neutral-400 mt-1 truncate">{selectedItem.address}</p>
                 </div>
-                <h4 className="text-base font-bold text-neutral-100 truncate mt-1">{selectedItem.name}</h4>
-                <p className="text-xs text-neutral-400 mt-1 truncate">{selectedItem.address}</p>
-                {selectedItem.theme && (
-                  <p className="text-xs text-indigo-400 mt-1 font-semibold italic">Theme: {selectedItem.theme}</p>
-                )}
+                <button
+                  onClick={() => handleToggleFav(selectedItem)}
+                  className="p-2 rounded-xl border border-neutral-800/80 bg-neutral-900/60 text-neutral-400 hover:text-rose-500 hover:border-rose-500/30 transition-colors"
+                >
+                  <Star size={16} fill={isSaved(selectedItem.id) ? '#ef4444' : 'none'} className={isSaved(selectedItem.id) ? 'text-rose-500' : ''} />
+                </button>
               </div>
-              <button
-                onClick={() => handleToggleFav(selectedItem)}
-                className="p-2 rounded-xl border border-neutral-800/80 bg-neutral-900/60 text-neutral-400 hover:text-rose-500 hover:border-rose-500/30 transition-colors"
-              >
-                <Star size={16} fill={isSaved(selectedItem.id) ? '#ef4444' : 'none'} className={isSaved(selectedItem.id) ? 'text-rose-500' : ''} />
-              </button>
-            </div>
 
-            {selectedItem.description && (
-              <p className="text-[11px] text-neutral-400 mt-3 leading-relaxed border-t border-neutral-800/40 pt-2 line-clamp-2">
-                {selectedItem.description}
-              </p>
-            )}
+              {selectedItem.description && (
+                <p className="text-[11px] text-neutral-400 mt-3 leading-relaxed border-t border-neutral-800/40 pt-2 line-clamp-2">
+                  {selectedItem.description}
+                </p>
+              )}
 
-            {/* Live Crowd Intelligence Block */}
-            {isFirebaseConfigured() && (
-              <div className="mt-3 p-2.5 bg-neutral-950/60 rounded-xl border border-neutral-800/40 text-[11px] flex flex-col space-y-1">
-                <span className="text-[9px] text-indigo-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                  <Users size={10} /> Live Crowd Intelligence
-                </span>
-                {(() => {
-                  const metrics = getPandalCrowdMetrics(selectedItem.id, pandalCrowdCounts, pandalCrowdTrends);
-                  if (!metrics.available) {
-                    return <p className="text-neutral-500 italic mt-0.5">Live crowd data unavailable</p>;
-                  }
-                  return (
-                    <div className="flex items-center justify-between mt-0.5">
-                      <span className="text-neutral-200 font-semibold">👥 {metrics.count} Eclipse users nearby</span>
-                      <span className="flex items-center space-x-1.5">
-                        <span className={`font-bold ${metrics.levelColorClass}`}>{metrics.levelLabel}</span>
-                        <span className="text-neutral-400 font-semibold">• {metrics.trendLabel}</span>
-                      </span>
-                    </div>
-                  );
-                })()}
+              <div className="flex items-center space-x-3 mt-4">
+                <button
+                  onClick={() => {
+                    setIsNavigating(true);
+                    setCurrentStepIndex(0);
+                  }}
+                  className="flex-1 flex items-center justify-center space-x-2 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold tracking-wider text-xs rounded-xl transition-colors uppercase"
+                >
+                  <Navigation size={13} className="fill-white" />
+                  <span>Navigate</span>
+                </button>
+                <button
+                  onClick={() => addStop(selectedItem)}
+                  className="flex items-center justify-center space-x-2 py-2 px-4 bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white font-bold tracking-wider text-xs rounded-xl transition-colors uppercase"
+                >
+                  <Plus size={13} />
+                  <span>Add Stop</span>
+                </button>
               </div>
-            )}
-
-            <div className="flex items-center space-x-3 mt-4">
-              <button
-                onClick={() => {
-                  setIsNavigating(true);
-                  setCurrentStepIndex(0);
-                }}
-                className="flex-1 flex items-center justify-center space-x-2 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold tracking-wider text-xs rounded-xl transition-colors uppercase"
-              >
-                <Navigation size={13} className="fill-white" />
-                <span>Navigate</span>
-              </button>
-              <button
-                onClick={() => addStop(selectedItem)}
-                className="flex items-center justify-center space-x-2 py-2 px-4 bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white font-bold tracking-wider text-xs rounded-xl transition-colors uppercase"
-              >
-                <Plus size={13} />
-                <span>Add Stop</span>
-              </button>
-              <button
-                onClick={() => toggleVisited(selectedItem.id)}
-                className={`p-2.5 rounded-xl border transition-colors ${
-                  visitedIds.includes(selectedItem.id)
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25'
-                    : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-neutral-200'
-                }`}
-              >
-                <Check size={14} className="stroke-[3]" />
-              </button>
-            </div>
-          </GlassPanel>
+            </GlassPanel>
+          )}
         </div>
       )}
     </div>

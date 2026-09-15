@@ -2,6 +2,7 @@ import { Location, Place, Event, Pandal } from '../../types';
 import { demoPandals } from '../../data/demoPandals';
 import { demoEvents } from '../../data/demoEvents';
 import { curatedEclipsePandals } from '../../data/curatedPandals';
+import { curatedMetroStations } from '../../data/curatedMetroStations';
 import { validateAndNormalizeCoordinates, verifyPandalAreaMatch } from '../../utils/coordinateValidation';
 
 export interface ISearchResult {
@@ -68,6 +69,30 @@ export class NominatimPlacesProvider implements IPlacesProvider {
           description: e.description,
           crowdLevel: e.crowdLevel,
           rawItem: e,
+        });
+      }
+    }
+
+    // Search Metro stations
+    const cleanMetroQuery = lowerQuery.replace(/metro\s*station|metro/g, '').trim();
+    for (const m of curatedMetroStations) {
+      const mName = m.name.toLowerCase();
+      const mLine = m.line.toLowerCase();
+      if (
+        (cleanMetroQuery && mName.includes(cleanMetroQuery)) ||
+        mName.includes(lowerQuery) ||
+        mLine.includes(lowerQuery) ||
+        (lowerQuery.includes('metro') && (cleanMetroQuery.length === 0 || mName.includes(cleanMetroQuery)))
+      ) {
+        results.push({
+          id: m.id,
+          name: m.name,
+          type: 'place',
+          location: m.location,
+          address: `${m.name}, Kolkata Metro (${m.line})`,
+          description: `${m.line} • ${m.nearbyPandalIds.length} nearby Pandals • ${m.nearbyBonediBariIds.length} Bonedi Baris`,
+          crowdLevel: 'MODERATE',
+          rawItem: m,
         });
       }
     }

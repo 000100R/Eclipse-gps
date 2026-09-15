@@ -3,6 +3,7 @@ import { useAppState } from '../../hooks/AppStateProvider';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { Send, Sparkles, AlertCircle, Compass, HelpCircle } from 'lucide-react';
 import { PandalCardList } from '../pandals/PandalCardList';
+import { BonediBariCardList } from '../bonediBari/BonediBariCardList';
 
 export const EclipseAIChat: React.FC = () => {
   const {
@@ -38,6 +39,8 @@ export const EclipseAIChat: React.FC = () => {
 
   const quickPrompts = [
     'Find pandals near me',
+    'Show Bonedi Bari near me',
+    'Plan a Bonedi Bari tour',
     'Suggest a low-crowd route',
     'Navigate to Sreebhumi',
     'List active traffic alerts',
@@ -115,6 +118,14 @@ export const EclipseAIChat: React.FC = () => {
                   {msg.discoveredPandals && msg.discoveredPandals.length > 0 && (
                     <PandalCardList
                       pandals={msg.discoveredPandals}
+                      onActionComplete={() => setIsAiSheetOpen(false)}
+                    />
+                  )}
+
+                  {/* Discovered Bonedi Bari Heritage Houses */}
+                  {msg.discoveredBonediBaris && msg.discoveredBonediBaris.length > 0 && (
+                    <BonediBariCardList
+                      bonediBaris={msg.discoveredBonediBaris}
                       onActionComplete={() => setIsAiSheetOpen(false)}
                     />
                   )}

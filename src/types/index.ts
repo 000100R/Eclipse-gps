@@ -44,8 +44,22 @@ export interface Pandal {
   zone: string; // Keep for backwards compatibility
   city: string;
   theme: string;
+  themeDescription?: string;
+  establishedYear?: number;
+  landmark?: string;
+  nearestMetro?: string;
+  metroDistance?: string;
+  bestVisitingTime?: string;
+  entryGuide?: string;
+  exitGuide?: string;
+  organizer?: string;
+  helpline?: string;
+  officialWebsite?: string;
+  lastVerifiedAt?: string | number;
+  dataSources?: any[];
   description: string;
   images: string[];
+  photos?: string[];
   openingTime: string;
   closingTime: string;
   openingHours: string; // Keep for backwards compatibility
@@ -55,12 +69,12 @@ export interface Pandal {
   parkingAvailability: 'available' | 'limited' | 'none';
   parkingStatus: 'easy' | 'moderate' | 'full'; // Keep for backwards compatibility
   estimatedVisitDuration: number; // in minutes
-  accessibility: boolean;
+  accessibility: boolean | string;
   rating: number;
   source: string;
   sourceType: 'VERIFIED' | 'ORGANIZER' | 'COMMUNITY' | 'PUBLIC_DATA' | 'AI_ESTIMATE' | 'DEMO';
   sourceId: string;
-  verificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'PENDING' | 'COMMUNITY_VERIFIED';
+  verificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'PENDING' | 'COMMUNITY_VERIFIED' | 'EXTERNAL';
   verified: boolean;
   visitedStatus: boolean;
   favouriteStatus: boolean;
@@ -160,6 +174,7 @@ export type AIActionType =
   | 'SEARCH_NEARBY_PANDALS'
   | 'SEARCH_PANDALS_BY_NAME'
   | 'SEARCH_PANDALS_BY_AREA'
+  | 'SEARCH_BONEDI_BARI'
   | 'SEARCH_PLACES'
   | 'SEARCH_EVENTS'
   | 'SEARCH_PANDALS'
@@ -182,6 +197,7 @@ export interface AIAction {
     query?: string;
     name?: string;
     area?: string;
+    nearMetro?: string;
     category?: string;
     locationName?: string;
     itemId?: string;
@@ -191,6 +207,8 @@ export interface AIAction {
     radius?: number; // meters
     duration?: number; // minutes
     pandalIds?: string[];
+    bonediBariIds?: string[];
+    isTour?: boolean;
     [key: string]: any;
   };
 }
@@ -202,6 +220,7 @@ export interface AIMessage {
   action?: AIAction;
   timestamp: number;
   discoveredPandals?: any[];
+  discoveredBonediBaris?: any[];
 }
 
 export interface AIConversation {
@@ -210,3 +229,5 @@ export interface AIConversation {
 }
 
 export * from './geoImport';
+export * from './intelligence';
+export * from './bonediBari';

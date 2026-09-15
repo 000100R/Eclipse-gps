@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { LeafletMapView } from './LeafletMapView';
 import { GoogleMapView } from './GoogleMapView';
+import { IntelligenceGridControl } from './IntelligenceGridControl';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import { Layers, Globe, Compass, Cpu, Check } from 'lucide-react';
 
@@ -29,85 +30,90 @@ export const MapView: React.FC = () => {
         <LeafletMapView />
       )}
 
-      {/* 🗺️ MAP TYPE SWITCHER (Floating Top-Left Corner, Usable on Mobile with >44px touch targets) */}
-      <div id="map-style-selector-hud" className="absolute top-24 left-4 z-20 flex flex-col items-start space-y-2">
+      {/* 🗺️ MAP HUD CONTROLS (Top-Left: Map Type Switcher + Intelligence Grid HUD) */}
+      <div id="map-left-hud-controls" className="absolute top-24 left-4 z-20 flex items-start space-x-2">
         {/* Clearly visible, easy-to-tap map control button */}
-        <button
-          id="btn-toggle-map-style"
-          onClick={() => setIsMenuOpen(!isMenuOpen)}
-          className="flex items-center space-x-2 px-4 py-2 bg-neutral-950/90 hover:bg-neutral-900 border border-neutral-800/80 text-white font-bold text-xs rounded-2xl shadow-2xl transition-all duration-300 select-none cursor-pointer h-11"
-          style={{ minHeight: '44px' }}
-          title="Change Map Style (Standard, Satellite, Hybrid, 3D)"
-        >
-          <span className="text-base">🗺️</span>
-          <span className="tracking-wider uppercase">MAP: {mapStyle.toUpperCase()}</span>
-          <Layers size={13} className="text-indigo-400 ml-1" />
-        </button>
+        <div id="map-style-selector-hud" className="flex flex-col items-start space-y-2">
+          <button
+            id="btn-toggle-map-style"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="flex items-center space-x-2 px-4 py-2 bg-neutral-950/90 hover:bg-neutral-900 border border-neutral-800/80 text-white font-bold text-xs rounded-2xl shadow-2xl transition-all duration-300 select-none cursor-pointer h-11"
+            style={{ minHeight: '44px' }}
+            title="Change Map Style (Standard, Satellite, Hybrid, 3D)"
+          >
+            <span className="text-base">🗺️</span>
+            <span className="tracking-wider uppercase">MAP: {mapStyle.toUpperCase()}</span>
+            <Layers size={13} className="text-indigo-400 ml-1" />
+          </button>
 
-        {/* Floating Menu Popover (Opens above the map) */}
-        {isMenuOpen && (
-          <GlassPanel className="p-2 w-48 flex flex-col space-y-1 border border-neutral-800/90 shadow-2xl rounded-2xl animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest px-2.5 pb-1 border-b border-neutral-900/60">
-              Select Map Type
-            </div>
+          {/* Floating Menu Popover (Opens above the map) */}
+          {isMenuOpen && (
+            <GlassPanel className="p-2 w-48 flex flex-col space-y-1 border border-neutral-800/90 shadow-2xl rounded-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest px-2.5 pb-1 border-b border-neutral-900/60">
+                Select Map Type
+              </div>
 
-            {/* Standard Mode */}
-            <button
-              onClick={() => {
-                setMapStyle('standard');
-                setIsMenuOpen(false);
-              }}
-              className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all hover:bg-neutral-900/60 text-left h-10"
-              style={{ minHeight: '40px' }}
-            >
-              <span className={mapStyle === 'standard' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
-                {mapStyle === 'standard' ? '✓ ' : '  '}Standard
-              </span>
-            </button>
+              {/* Standard Mode */}
+              <button
+                onClick={() => {
+                  setMapStyle('standard');
+                  setIsMenuOpen(false);
+                }}
+                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all hover:bg-neutral-900/60 text-left h-10"
+                style={{ minHeight: '40px' }}
+              >
+                <span className={mapStyle === 'standard' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
+                  {mapStyle === 'standard' ? '✓ ' : '  '}Standard
+                </span>
+              </button>
 
-            {/* Satellite Mode */}
-            <button
-              onClick={() => {
-                setMapStyle('satellite');
-                setIsMenuOpen(false);
-              }}
-              className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60"
-              style={{ minHeight: '40px' }}
-            >
-              <span className={mapStyle === 'satellite' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
-                {mapStyle === 'satellite' ? '✓ ' : '  '}Satellite
-              </span>
-            </button>
+              {/* Satellite Mode */}
+              <button
+                onClick={() => {
+                  setMapStyle('satellite');
+                  setIsMenuOpen(false);
+                }}
+                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60"
+                style={{ minHeight: '40px' }}
+              >
+                <span className={mapStyle === 'satellite' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
+                  {mapStyle === 'satellite' ? '✓ ' : '  '}Satellite
+                </span>
+              </button>
 
-            {/* Hybrid Mode */}
-            <button
-              onClick={() => {
-                setMapStyle('hybrid');
-                setIsMenuOpen(false);
-              }}
-              className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60"
-              style={{ minHeight: '40px' }}
-            >
-              <span className={mapStyle === 'hybrid' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
-                {mapStyle === 'hybrid' ? '✓ ' : '  '}Hybrid
-              </span>
-            </button>
+              {/* Hybrid Mode */}
+              <button
+                onClick={() => {
+                  setMapStyle('hybrid');
+                  setIsMenuOpen(false);
+                }}
+                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60"
+                style={{ minHeight: '40px' }}
+              >
+                <span className={mapStyle === 'hybrid' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
+                  {mapStyle === 'hybrid' ? '✓ ' : '  '}Hybrid
+                </span>
+              </button>
 
-            {/* 3D Mode */}
-            <button
-              onClick={() => {
-                setMapStyle('3d');
-                setIsMenuOpen(false);
-              }}
-              className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60"
-              style={{ minHeight: '40px' }}
-            >
-              <span className={mapStyle === '3d' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
-                {mapStyle === '3d' ? '✓ ' : '  '}3D View
-              </span>
-            </button>
-          </GlassPanel>
-        )}
+              {/* 3D Mode */}
+              <button
+                onClick={() => {
+                  setMapStyle('3d');
+                  setIsMenuOpen(false);
+                }}
+                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60"
+                style={{ minHeight: '40px' }}
+              >
+                <span className={mapStyle === '3d' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
+                  {mapStyle === '3d' ? '✓ ' : '  '}3D View
+                </span>
+              </button>
+            </GlassPanel>
+          )}
+        </div>
+
+        {/* Intelligence Grid Control HUD */}
+        <IntelligenceGridControl />
       </div>
 
       {/* Map Provider Selector HUD (Floating Top-Right Corner Overlay) */}
