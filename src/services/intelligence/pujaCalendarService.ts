@@ -550,6 +550,21 @@ export class PujaCalendarService {
   }
 
   /**
+   * Check if the reference date is within the actual festival active period
+   * (e.g. Mahalaya / Shashthi through Dashami / Carnival).
+   * Used to prevent displaying festival crowd levels outside festival dates.
+   */
+  public isFestivalPeriod(refDate: Date = new Date(), year: number = this.currentYear): boolean {
+    const todayStr = refDate.toISOString().split('T')[0];
+    const events = this.getEventsForYear(year);
+    if (!events.length) return false;
+    const dates = events.map((e) => e.date).sort();
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1];
+    return todayStr >= startDate && todayStr <= endDate;
+  }
+
+  /**
    * Get the primary festival event for today, if one matches
    */
   public getTodayEvent(refDate: Date = new Date(), year: number = this.currentYear): FestivalEvent | undefined {

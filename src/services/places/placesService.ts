@@ -1,4 +1,4 @@
-import { Location, Place, Event, Pandal } from '../../types';
+import { Location, Place, Event, Pandal, CrowdLevel } from '../../types';
 import { demoPandals } from '../../data/demoPandals';
 import { demoEvents } from '../../data/demoEvents';
 import { curatedEclipsePandals } from '../../data/curatedPandals';
@@ -12,7 +12,7 @@ export interface ISearchResult {
   location: Location;
   address: string;
   description: string;
-  crowdLevel?: 'LOW' | 'MODERATE' | 'HEAVY' | 'EXTREME';
+  crowdLevel?: CrowdLevel;
   rawItem?: any;
 }
 

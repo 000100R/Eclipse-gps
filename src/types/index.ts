@@ -1,6 +1,6 @@
-export type CrowdLevel = 'LOW' | 'MODERATE' | 'HEAVY' | 'EXTREME';
+export type CrowdLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'HEAVY' | 'EXTREME' | 'UNAVAILABLE';
 
-export type ReportSource = 'LIVE API' | 'COMMUNITY REPORT' | 'ORGANIZER' | 'DEMO' | 'AI ESTIMATE';
+export type ReportSource = 'LIVE API' | 'COMMUNITY REPORT' | 'ORGANIZER' | 'DEMO' | 'AI ESTIMATE' | 'UNAVAILABLE';
 
 export interface Location {
   lat: number;
@@ -182,6 +182,7 @@ export type AIActionType =
   | 'SHOW_LOCATION'
   | 'CREATE_ROUTE'
   | 'OPTIMIZE_ROUTE'
+  | 'SMART_PUJA_ROUTE'
   | 'NAVIGATE_TO'
   | 'UPDATE_ROUTE'
   | 'SAVE_LOCATION'

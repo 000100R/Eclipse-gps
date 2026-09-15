@@ -5,7 +5,7 @@
  * Durga Puja pandals and heritage Bonedi Baris.
  */
 
-import { Location, Pandal } from './index';
+import { Location, Pandal, CrowdLevel } from './index';
 import { BonediBari } from './bonediBari';
 
 export type MetroLine =
@@ -26,7 +26,7 @@ export interface NearbyPandalRef {
   name: string;
   distanceMeters: number;
   walkingMinutes: number;
-  crowdLevel?: 'LOW' | 'MODERATE' | 'HEAVY' | 'EXTREME';
+  crowdLevel?: CrowdLevel;
   theme?: string;
   location: Location;
   address?: string;

@@ -1,22 +1,31 @@
 import { Event, Pandal } from '../../types';
 import { demoPandals } from '../../data/demoPandals';
 import { demoEvents } from '../../data/demoEvents';
+import { crowdIntelligenceService } from '../intelligence/crowdIntelligenceService';
 
 export class EventsService {
   private favoritesKey = 'eclipse_gps_favorites';
   private visitedKey = 'eclipse_gps_visited';
 
   getPandals(): Pandal[] {
-    if (typeof window === 'undefined') return demoPandals;
-    
     const favs = this.getFavorites();
     const visited = this.getVisited();
 
-    return demoPandals.map(p => ({
-      ...p,
-      favouriteStatus: favs.includes(p.id),
-      visitedStatus: visited.includes(p.id),
-    }));
+    return demoPandals.map(p => {
+      // Crowd level must NEVER hallucinate or use static demo values.
+      // Evaluated strictly via crowdIntelligenceService from live presence/geofence data.
+      const crowdItem = crowdIntelligenceService.getCrowdForPandal(p.id, p);
+      const isUnavailable = crowdItem.crowdLevel === 'UNAVAILABLE';
+
+      return {
+        ...p,
+        crowdLevel: crowdItem.crowdLevel,
+        queueTimeMinutes: isUnavailable ? 0 : (crowdItem.queueWaitMinutes ?? 0),
+        queueEstimate: isUnavailable ? 'Unavailable' : `${crowdItem.queueWaitMinutes ?? 5} mins`,
+        favouriteStatus: favs.includes(p.id),
+        visitedStatus: visited.includes(p.id),
+      };
+    });
   }
 
   getEvents(): Event[] {

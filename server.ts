@@ -305,6 +305,14 @@ You support the following validated ACTION_TYPE values. You must select the sing
 - SHOW_LOCATION: Fly to or display a specific place on the map. (Parameters: itemId, locationName)
 - CREATE_ROUTE: Create a direct route. (Parameters: origin, destination, waypoints)
 - OPTIMIZE_ROUTE: Plan and optimize a multi-stop route through selected pandals/events. (Parameters: pandalIds, bonediBariIds)
+- SMART_PUJA_ROUTE: Use when the user asks to plan a Puja night route, tour, or hopping itinerary, or asks queries like:
+  * "Plan my Puja night for 5 hours" (availableTimeMinutes: 300)
+  * "Give me a route from Shyambazar Metro covering the best nearby pandals" (startLocationQuery: "Shyambazar Metro")
+  * "I want minimum walking" (priority: "LESS_WALKING", transportMode: "METRO" or "MIXED")
+  * "Add two Bonedi Baris" (addBonediBarisCount: 2)
+  * "Remove the most crowded stop" (removeMostCrowded: true)
+  * "Can I finish this route before 10 PM?" (checkFinishBeforeTime: "22:00")
+  (Parameters: availableTimeMinutes, transportMode, priority, startLocationQuery, pandalIds, bonediBariIds, addBonediBarisCount, removeMostCrowded, checkFinishBeforeTime, query)
 - NAVIGATE_TO: Turn on navigation mode to a destination. (Parameters: itemId, locationName)
 - SAVE_LOCATION: Save a place or pandal to the saved list. (Parameters: itemId)
 - REMOVE_SAVED_LOCATION: Remove a location from the saved list. (Parameters: itemId)
@@ -510,12 +518,76 @@ function generateFallbackIntent(promptText: string, userLocation?: { lat: number
     };
   }
 
-  // 4. Tour planning & itineraries
-  if (p.includes('tour') || p.includes('plan') || p.includes('itinerary') || p.includes('route') || p.includes('hours')) {
+  // 4. Tour planning & Smart Puja Route Planner (Phase 13.8)
+  if (
+    p.includes('plan') ||
+    p.includes('route') ||
+    p.includes('tour') ||
+    p.includes('itinerary') ||
+    p.includes('hop') ||
+    p.includes('hours') ||
+    p.includes('walking') ||
+    p.includes('crowded stop') ||
+    p.includes('finish before')
+  ) {
+    // Check for specific intent modifiers
+    let availableTimeMinutes = 240; // 4h default
+    const hourMatch = p.match(/(\d+)\s*(?:hours|hour|hrs|hr)/);
+    if (hourMatch) {
+      availableTimeMinutes = parseInt(hourMatch[1], 10) * 60;
+    }
+
+    let transportMode = 'MIXED';
+    if (p.includes('metro')) transportMode = 'METRO';
+    if (p.includes('walk') && !p.includes('minimum walking') && !p.includes('less walking')) transportMode = 'WALK';
+    if (p.includes('drive') || p.includes('car')) transportMode = 'DRIVE';
+
+    let priority = 'MORE_PLACES';
+    if (p.includes('minimum walking') || p.includes('less walking') || p.includes('least walking')) {
+      priority = 'LESS_WALKING';
+      transportMode = 'METRO';
+    } else if (p.includes('less traffic') || p.includes('avoid traffic')) {
+      priority = 'LESS_TRAFFIC';
+    } else if (p.includes('less crowd') || p.includes('avoid crowd')) {
+      priority = 'LESS_CROWD';
+    }
+
+    let startLocationQuery = undefined;
+    if (p.includes('shyambazar')) startLocationQuery = 'Shyambazar Metro';
+    else if (p.includes('kalighat')) startLocationQuery = 'Kalighat Metro';
+    else if (p.includes('esplanade')) startLocationQuery = 'Esplanade Metro';
+    else if (p.includes('shobhabazar') || p.includes('sovabazar')) startLocationQuery = 'Shobhabazar Sutanuti Metro';
+
+    const addBonediBarisCount = p.includes('bonedi bari') ? (p.includes('two') || p.includes('2') ? 2 : 1) : 0;
+    const removeMostCrowded = p.includes('remove') && (p.includes('crowd') || p.includes('crowded'));
+    
+    let checkFinishBeforeTime = undefined;
+    const timeMatch = p.match(/(?:before|by)\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+    if (timeMatch) checkFinishBeforeTime = timeMatch[1];
+
+    let pandalIds: string[] = [];
+    if (startLocationQuery?.includes('Shyambazar')) {
+      pandalIds = ['pandal-bagbazar', 'pandal-kumartuli-park', 'pandal-ahiritola', 'pandal-hatibagan'];
+    } else if (priority === 'LESS_WALKING') {
+      pandalIds = ['pandal-maddox', 'pandal-ballygunge-cultural', 'pandal-tridhara-sammilani'];
+    } else {
+      pandalIds = ['pandal-maddox', 'pandal-ballygunge-cultural', 'pandal-ekdalia-evergreen', 'pandal-tridhara-sammilani', 'pandal-deshapriya'];
+    }
+
     return {
-      text: "Crafting an optimized Durga Puja itinerary balancing proximity, Sabeki tradition, and live crowd levels.",
-      action: "OPTIMIZE_ROUTE",
-      parameters: { pandalIds: ["pandal-maddox", "pandal-ballygunge-cultural", "pandal-ekdalia-evergreen", "pandal-tridhara-sammilani"] },
+      text: `Optimizing your Smart Puja Route with authentic Eclipse intelligence (${Math.round(availableTimeMinutes / 60)}h window, ${transportMode} mode, prioritizing ${priority.replace('_', ' ')}). Loading route schedule and live corridor status on your map!`,
+      action: "SMART_PUJA_ROUTE",
+      parameters: {
+        availableTimeMinutes,
+        transportMode,
+        priority,
+        startLocationQuery,
+        pandalIds,
+        addBonediBarisCount,
+        removeMostCrowded,
+        checkFinishBeforeTime,
+        query: promptText,
+      },
     };
   }
 

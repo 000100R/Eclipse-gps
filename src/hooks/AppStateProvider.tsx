@@ -14,6 +14,9 @@ import { trafficIntelligenceService } from '../services/intelligence/trafficInte
 import { smartVisitService } from '../services/intelligence/smartVisitService';
 import { intelligenceLayerService } from '../services/intelligence/intelligenceLayerService';
 import { curatedEclipsePandals } from '../data/curatedPandals';
+import { curatedBonediBariList } from '../data/curatedBonediBari';
+import { SmartRoutePlan, StartLocationOption, DestinationItem } from '../types/smartRoute';
+import { smartPujaRoutePlannerService } from '../services/routing/smartPujaRoutePlannerService';
 import { ref, set, remove, onDisconnect, serverTimestamp, onValue, off } from 'firebase/database';
 import { isFirebaseConfigured, getFirebaseDatabase } from '../services/firebase';
 import {
@@ -107,6 +110,14 @@ interface AppStateContextType {
   isSaved: (itemId: string) => boolean;
   visitedIds: string[];
   toggleVisited: (itemId: string) => void;
+
+  // Smart Puja Route Planner (Phase 13.8)
+  smartRoutePlan: SmartRoutePlan | null;
+  setSmartRoutePlan: React.Dispatch<React.SetStateAction<SmartRoutePlan | null>>;
+  savedSmartRoutes: SmartRoutePlan[];
+  saveSmartRoute: (plan: SmartRoutePlan) => void;
+  deleteSmartRoute: (planId: string) => void;
+  applySmartRoute: (plan: SmartRoutePlan) => void;
 
   // Alerts & Rerouting Dialogue
   alerts: Alert[];
@@ -226,6 +237,49 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Saved / Visited Lists
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
   const [visitedIds, setVisitedIds] = useState<string[]>([]);
+
+  // Smart Puja Route Planner (Phase 13.8)
+  const [smartRoutePlan, setSmartRoutePlan] = useState<SmartRoutePlan | null>(null);
+  const [savedSmartRoutes, setSavedSmartRoutes] = useState<SmartRoutePlan[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('eclipse_saved_smart_routes') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const saveSmartRoute = (plan: SmartRoutePlan) => {
+    setSavedSmartRoutes(prev => {
+      const filtered = prev.filter(p => p.id !== plan.id);
+      const updated = [plan, ...filtered];
+      localStorage.setItem('eclipse_saved_smart_routes', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const deleteSmartRoute = (planId: string) => {
+    setSavedSmartRoutes(prev => {
+      const updated = prev.filter(p => p.id !== planId);
+      localStorage.setItem('eclipse_saved_smart_routes', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const applySmartRoute = (plan: SmartRoutePlan) => {
+    setSmartRoutePlan(plan);
+    const stopsItems = plan.stops.map(s => s.rawItem || {
+      id: s.id,
+      name: s.name,
+      location: s.location,
+      address: s.address,
+      theme: s.theme,
+    });
+    setRouteStops(stopsItems);
+    if (plan.osrmRoute) {
+      setActiveRoute(plan.osrmRoute);
+    }
+    setActiveTab('routes');
+  };
 
   // Alerts and Reroute Suggestions
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -1858,6 +1912,124 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         break;
       }
 
+      case 'SMART_PUJA_ROUTE': {
+        const availableTime = Number(params.availableTimeMinutes) || 240;
+        const mode = (params.transportMode as any) || 'MIXED';
+        const priority = (params.priority as any) || 'MORE_PLACES';
+
+        // 1. Resolve Start Location
+        let startOption: StartLocationOption = {
+          id: 'start-gps',
+          name: 'Current Location (GPS)',
+          location: currentLocation,
+          type: 'GPS',
+          subtitle: 'Live GPS Coordinates',
+        };
+
+        const startQuery = (params.startLocationQuery || params.origin || '').toLowerCase();
+        if (startQuery) {
+          const matchedStation = metroIntelligenceProvider.getStationByNameOrQuery(startQuery);
+          if (matchedStation) {
+            startOption = {
+              id: `start-metro-${matchedStation.id}`,
+              name: matchedStation.name,
+              location: matchedStation.location,
+              type: 'METRO',
+              subtitle: matchedStation.line,
+            };
+          } else {
+            const friendMatch = friendsList.find(f => f.friendName.toLowerCase().includes(startQuery));
+            if (friendMatch && friendsLocations[friendMatch.friendId]) {
+              const fl = friendsLocations[friendMatch.friendId];
+              startOption = {
+                id: `start-friend-${friendMatch.friendId}`,
+                name: `${friendMatch.friendName}'s Location`,
+                location: { lat: fl.lat, lng: fl.lng },
+                type: 'FRIEND',
+                subtitle: 'Friend Live Location',
+              };
+            }
+          }
+        }
+
+        // 2. Resolve Candidate Destinations
+        let candidateItems: DestinationItem[] = [];
+        const requestedIds = [...(params.pandalIds || []), ...(params.bonediBariIds || [])];
+
+        if (requestedIds.length > 0) {
+          candidateItems = requestedIds
+            .map(id => smartPujaRoutePlannerService.getDestinationById(id))
+            .filter(Boolean) as DestinationItem[];
+        }
+
+        // Add requested Bonedi Baris if instructed
+        const bonediCount = Number(params.addBonediBarisCount) || 0;
+        if (bonediCount > 0) {
+          const allBonedi = curatedBonediBariList.map(b => smartPujaRoutePlannerService.toDestinationItem(b));
+          for (const b of allBonedi) {
+            if (!candidateItems.some(c => c.id === b.id)) {
+              candidateItems.push(b);
+              if (candidateItems.filter(c => c.type === 'bonedi_bari').length >= bonediCount) break;
+            }
+          }
+        }
+
+        // Remove most crowded stop if requested (only when trustworthy data exists!)
+        if (params.removeMostCrowded && candidateItems.length > 1) {
+          let mostCrowdedIdx = -1;
+          let maxWait = -1;
+          candidateItems.forEach((c, idx) => {
+            const crowd = crowdIntelligenceService.getCrowdForPandal(c.id, c.rawItem);
+            if (crowd && crowd.crowdLevel !== 'UNAVAILABLE' && (crowd.queueWaitMinutes || 0) > maxWait) {
+              maxWait = crowd.queueWaitMinutes || 0;
+              mostCrowdedIdx = idx;
+            }
+          });
+          if (mostCrowdedIdx !== -1) {
+            candidateItems.splice(mostCrowdedIdx, 1);
+          }
+        }
+
+        // If no stops or too few stops, auto-select prominent pandals near start location
+        if (candidateItems.length < 2) {
+          const allPandals = smartPujaRoutePlannerService.getAllDestinations().filter(d => d.type === 'pandal');
+          allPandals.sort((a, b) => {
+            const da = metroIntelligenceProvider.calculateDistanceInMeters(startOption.location, a.location);
+            const db = metroIntelligenceProvider.calculateDistanceInMeters(startOption.location, b.location);
+            return da - db;
+          });
+          candidateItems = allPandals.slice(0, 4);
+        }
+
+        // 3. Plan and Optimize Smart Route
+        try {
+          const plan = await smartPujaRoutePlannerService.planSmartRoute({
+            startLocation: startOption,
+            destinations: candidateItems,
+            availableTimeMinutes: availableTime,
+            preferredTransport: mode,
+            priority,
+          });
+
+          setSmartRoutePlan(plan);
+          applySmartRoute(plan);
+          setActiveTab('routes');
+
+          if (mapRef && plan.fullGeometry.length > 0) {
+            const lats = plan.fullGeometry.map(p => p.lat);
+            const lngs = plan.fullGeometry.map(p => p.lng);
+            if (mapRef.fitBounds) {
+              mapRef.fitBounds([[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]]);
+            }
+          }
+
+          return { pandals: plan.stops.map(s => s.rawItem || s) };
+        } catch (planErr) {
+          console.error('[SmartPujaRoute] Planning error:', planErr);
+        }
+        break;
+      }
+
       case 'NAVIGATE_TO': {
         let item = params.itemId ? (bonediBariIntelligenceProvider.getById(params.itemId) || eventsService.getItemById(params.itemId)) : null;
         if (!item) {
@@ -1955,6 +2127,14 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         isSaved,
         visitedIds,
         toggleVisited,
+
+        // Smart Puja Route Planner (Phase 13.8)
+        smartRoutePlan,
+        setSmartRoutePlan,
+        savedSmartRoutes,
+        saveSmartRoute,
+        deleteSmartRoute,
+        applySmartRoute,
 
         alerts,
         rerouteSuggestion,

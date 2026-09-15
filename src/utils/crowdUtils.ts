@@ -3,7 +3,7 @@ import { isFirebaseConfigured } from '../services/firebase';
 export interface PandalCrowdMetrics {
   available: boolean;
   count: number;
-  level: 'LOW' | 'MODERATE' | 'HIGH' | 'VERY HIGH';
+  level: 'LOW' | 'MODERATE' | 'HIGH' | 'VERY HIGH' | 'UNAVAILABLE';
   levelLabel: string;
   levelColorClass: string;
   trendLabel: string;
@@ -18,7 +18,7 @@ export function getPandalCrowdMetrics(
     return {
       available: false,
       count: 0,
-      level: 'LOW',
+      level: 'UNAVAILABLE',
       levelLabel: 'Live crowd data unavailable',
       levelColorClass: 'text-neutral-500',
       trendLabel: '',
@@ -26,13 +26,28 @@ export function getPandalCrowdMetrics(
   }
 
   const count = pandalCrowdCounts[pandalId] ?? 0;
+  if (count <= 0) {
+    return {
+      available: false,
+      count: 0,
+      level: 'UNAVAILABLE',
+      levelLabel: 'Crowd data unavailable',
+      levelColorClass: 'text-neutral-500',
+      trendLabel: '',
+    };
+  }
+
   const trend = pandalCrowdTrends[pandalId] ?? 'STABLE';
 
-  let level: 'LOW' | 'MODERATE' | 'HIGH' | 'VERY HIGH' = 'LOW';
+  let level: 'LOW' | 'MODERATE' | 'HIGH' | 'VERY HIGH' | 'UNAVAILABLE' = 'LOW';
   let levelLabel = '🟢 Low Crowd';
   let levelColorClass = 'text-emerald-400';
 
-  if (count >= 3 && count <= 5) {
+  if (count >= 1 && count <= 2) {
+    level = 'LOW';
+    levelLabel = '🟢 Low Crowd';
+    levelColorClass = 'text-emerald-400';
+  } else if (count >= 3 && count <= 5) {
     level = 'MODERATE';
     levelLabel = '🟡 Moderate Crowd';
     levelColorClass = 'text-amber-400';

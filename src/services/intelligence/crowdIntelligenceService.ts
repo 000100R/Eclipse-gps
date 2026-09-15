@@ -24,6 +24,8 @@ import {
 import { intelligenceLayerService } from './intelligenceLayerService';
 import { curatedEclipsePandals } from '../../data/curatedPandals';
 import { DiscoveredPandal } from '../../types/discovery';
+import { pujaCalendarService } from './pujaCalendarService';
+import { crowdService } from '../realtime/crowdService';
 
 class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntelligenceItem> {
   public readonly layerId = 'CROWD' as const;
@@ -69,6 +71,15 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
 
   /**
    * Evaluates crowd intelligence for a single pandal with strict provenance distinction.
+   * 
+   * STRICT INTEGRITY RULES:
+   * 1. NEVER generate or randomly assign LOW/MODERATE/HIGH/HEAVY crowd levels.
+   * 2. NEVER treat static/demo crowd values as LIVE.
+   * 3. A LIVE crowd level may ONLY be calculated from actual Eclipse live presence/geofence data.
+   * 4. If there are insufficient real users/data to calculate crowd: crowdLevel = UNAVAILABLE.
+   * 5. If the current date is before the actual Puja/event period and there is no real live
+   *    presence data, do NOT show a festival crowd level.
+   * 6. Eclipse must prefer saying "Crowd data unavailable" over displaying an unverified crowd level.
    */
   public getCrowdForPandal(
     pandalId: string,
@@ -83,7 +94,7 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
     const liveCount = presenceCounts[pId] ?? 0;
     const rawTrend = presenceTrends[pId] ?? 'STABLE';
 
-    // 1. LIVE DATA: Active Firebase user presence sessions within 200m
+    // 1. LIVE DATA: Calculated ONLY from actual active Firebase user presence sessions within 200m
     if (liveCount > 0) {
       let level: CrowdStatusLevel = 'LOW';
       let waitMins = 5;
@@ -125,69 +136,36 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
       return item;
     }
 
-    // 2. Check for Curated / Baseline Historical Record in curatedEclipsePandals
-    const curatedMatch = curatedEclipsePandals.find(
-      (cp) => cp.id === pId || cp.name.toLowerCase() === pName.toLowerCase()
-    );
-
-    if (curatedMatch && curatedMatch.crowdLevel) {
-      let level: CrowdStatusLevel = 'MODERATE';
-      if (curatedMatch.crowdLevel === 'EXTREME' || curatedMatch.crowdLevel === 'HEAVY') {
-        level = 'HEAVY';
-      } else if (curatedMatch.crowdLevel === 'MODERATE') {
-        level = 'MODERATE';
-      } else if (curatedMatch.crowdLevel === 'LOW') {
-        level = 'LOW';
-      }
-
-      let trend: CrowdTrend = 'STABLE';
-      if (curatedMatch.crowdTrend === 'RISING') trend = 'RISING';
-      else if (curatedMatch.crowdTrend === 'FALLING') trend = 'FALLING';
-
-      const now = new Date();
-      const hour = now.getHours();
-      // Estimate variation based on daytime vs evening peak in Kolkata
-      const isEveningPeak = hour >= 18 && hour <= 23;
-      const isNightPeak = hour >= 0 && hour <= 4;
-      const isMorningLull = hour >= 6 && hour <= 12;
-
-      let adjustedLevel: CrowdStatusLevel = level;
-      let notes = 'Based on Kolkata Police festival crowd logs & annual Bengal Panjika records.';
-      let source: 'HISTORICAL' | 'ESTIMATED' = 'HISTORICAL';
-
-      if (isMorningLull && level === 'HEAVY') {
-        adjustedLevel = 'MODERATE';
-        source = 'ESTIMATED';
-        notes = 'Adjusted for morning lull period (06:00 AM – 12:00 PM). Historical baseline is Heavy.';
-      } else if (isEveningPeak && level === 'MODERATE') {
-        adjustedLevel = 'HIGH';
-        source = 'ESTIMATED';
-        notes = 'Adjusted for evening peak rush hours (06:00 PM – 11:30 PM).';
-      }
-
+    // 2. Verified Community Reports (only if genuinely submitted by a user within 30 mins)
+    const communityStatus = crowdService.getLatestCrowdStatus(pId);
+    if (
+      communityStatus.source === 'COMMUNITY REPORT' &&
+      communityStatus.level !== 'UNAVAILABLE' &&
+      Date.now() - communityStatus.timestamp < 30 * 60 * 1000
+    ) {
+      const reportLevel = communityStatus.level as CrowdStatusLevel;
       const item: CrowdIntelligenceItem = {
         id: `crowd-${pId}`,
         pandalId: pId,
         pandalName: pName,
-        location: curatedMatch.location || pLoc,
-        crowdLevel: adjustedLevel,
-        crowdTrend: isEveningPeak ? 'RISING' : isNightPeak ? 'FALLING' : trend,
-        queueWaitMinutes: adjustedLevel === 'HEAVY' ? 75 : adjustedLevel === 'HIGH' ? 40 : adjustedLevel === 'MODERATE' ? 15 : 5,
-        source,
-        sourceLabel: source === 'HISTORICAL'
-          ? 'Kolkata Police Historical Archive & Festival Logs'
-          : 'Eclipse Time-Decay Model (Historical Baseline Adjusted)',
+        location: pLoc,
+        crowdLevel: reportLevel,
+        crowdTrend: 'STABLE',
+        queueWaitMinutes: reportLevel === 'HEAVY' ? 60 : reportLevel === 'MODERATE' ? 20 : 5,
+        source: 'ESTIMATED',
+        sourceLabel: 'Verified Community Report (last 30m)',
         confidence: 'MEDIUM',
-        lastUpdated: Date.now() - 15 * 60 * 1000,
-        historicalPeakWindow: '07:30 PM – 11:30 PM',
-        notes,
+        lastUpdated: communityStatus.timestamp,
+        notes: communityStatus.description || 'Verified report submitted on-site by community member.',
       };
 
       this.crowdCache.set(pId, item);
       return item;
     }
 
-    // 3. UNAVAILABLE: No live presence and no verified historical records
+    // 3. UNAVAILABLE: Zero real live telemetry or outside festival period
+    // No mock/static fallback is permitted. Eclipse strictly prefers "Crowd data unavailable".
+    const isFestival = pujaCalendarService.isFestivalPeriod();
     const unavailableItem: CrowdIntelligenceItem = {
       id: `crowd-${pId}`,
       pandalId: pId,
@@ -196,10 +174,14 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
       crowdLevel: 'UNAVAILABLE',
       crowdTrend: 'UNKNOWN',
       source: 'UNAVAILABLE',
-      sourceLabel: 'No live telemetry or verified historical records available',
+      sourceLabel: isFestival
+        ? 'No live telemetry detected within geofence'
+        : 'Festival period not yet started — no live presence data',
       confidence: 'NONE',
       lastUpdated: Date.now(),
-      notes: 'Telemetry unavailable for this location. Real-time updates depend on visiting active users.',
+      notes: isFestival
+        ? 'Crowd data unavailable. Awaiting live user check-ins on-site.'
+        : 'Durga Puja 2026 begins in October. Live crowd telemetry activates when devotees arrive on-site.',
     };
 
     this.crowdCache.set(pId, unavailableItem);
@@ -222,7 +204,8 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
       results.push(item);
     }
 
-    intelligenceLayerService.updateItemCount('CROWD', results.filter(i => i.crowdLevel !== 'UNAVAILABLE').length);
+    const activeCount = results.filter(i => i.crowdLevel !== 'UNAVAILABLE').length;
+    intelligenceLayerService.updateItemCount('CROWD', activeCount);
     return results;
   }
 

@@ -5,46 +5,27 @@ export class CrowdService {
   private rateLimitKey = 'eclipse_gps_last_report_time';
 
   constructor() {
-    this.seedInitialReports();
+    this.purgeDemoReports();
   }
 
-  private seedInitialReports() {
-    if (typeof window !== 'undefined' && !localStorage.getItem(this.reportsKey)) {
-      const initialReports: CrowdReport[] = [
-        {
-          id: 'rep-1',
-          itemId: 'pandal-1', // Sreebhumi
-          level: 'EXTREME',
-          description: 'The queue starts from the main bypass. Police are managing traffic. Avoid taking cars!',
-          timestamp: Date.now() - 5 * 60000, // 5 min ago
-          source: 'COMMUNITY REPORT',
-        },
-        {
-          id: 'rep-2',
-          itemId: 'pandal-2', // Santosh Mitra
-          level: 'HEAVY',
-          description: 'Main gate entry is slow. Queue is moving but it is crowded.',
-          timestamp: Date.now() - 12 * 60000, // 12 min ago
-          source: 'ORGANIZER',
-        },
-        {
-          id: 'rep-3',
-          itemId: 'pandal-3', // Maddox Square
-          level: 'MODERATE',
-          description: 'Spacious grounds, perfect time for Adda. Entry is very easy.',
-          timestamp: Date.now() - 25 * 60000,
-          source: 'COMMUNITY REPORT',
-        },
-        {
-          id: 'rep-4',
-          itemId: 'pandal-4', // Ballygunge Cultural
-          level: 'LOW',
-          description: 'Almost no queue right now. Smooth entry.',
-          timestamp: Date.now() - 1 * 60000,
-          source: 'LIVE API',
-        },
-      ];
-      localStorage.setItem(this.reportsKey, JSON.stringify(initialReports));
+  /**
+   * Purges any historical mock or demo reports from storage.
+   * Only real user-submitted community reports are preserved.
+   */
+  private purgeDemoReports() {
+    if (typeof window !== 'undefined') {
+      const data = localStorage.getItem(this.reportsKey);
+      if (data) {
+        try {
+          const reports: CrowdReport[] = JSON.parse(data);
+          const realReports = reports.filter(
+            (r) => !['rep-1', 'rep-2', 'rep-3', 'rep-4'].includes(r.id) && r.source !== 'DEMO'
+          );
+          localStorage.setItem(this.reportsKey, JSON.stringify(realReports));
+        } catch {
+          localStorage.removeItem(this.reportsKey);
+        }
+      }
     }
   }
 
@@ -58,23 +39,27 @@ export class CrowdService {
     return this.getAllReports().filter(r => r.itemId === itemId);
   }
 
-  getLatestCrowdStatus(itemId: string, defaultLevel: CrowdLevel = 'MODERATE'): { level: CrowdLevel; source: ReportSource; timestamp: number; description?: string } {
+  getLatestCrowdStatus(itemId: string): { level: CrowdLevel; source: ReportSource; timestamp: number; description?: string } {
     const itemReports = this.getReportsForItem(itemId);
     if (itemReports.length > 0) {
       // Sort descending by timestamp
       const sorted = [...itemReports].sort((a, b) => b.timestamp - a.timestamp);
-      return {
-        level: sorted[0].level,
-        source: sorted[0].source,
-        timestamp: sorted[0].timestamp,
-        description: sorted[0].description,
-      };
+      // Only treat as valid if within the last 45 minutes
+      if (Date.now() - sorted[0].timestamp < 45 * 60 * 1000) {
+        return {
+          level: sorted[0].level,
+          source: sorted[0].source,
+          timestamp: sorted[0].timestamp,
+          description: sorted[0].description,
+        };
+      }
     }
     
+    // Strict requirement: Never fabricate crowd levels. Return UNAVAILABLE when no real report exists.
     return {
-      level: defaultLevel,
-      source: 'DEMO',
-      timestamp: Date.now() - 24 * 3600000, // older mock
+      level: 'UNAVAILABLE',
+      source: 'UNAVAILABLE',
+      timestamp: Date.now(),
     };
   }
 

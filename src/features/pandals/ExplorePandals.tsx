@@ -104,6 +104,7 @@ export const ExplorePandals: React.FC = () => {
             <option value="MODERATE">Moderate</option>
             <option value="HEAVY">Heavy</option>
             <option value="EXTREME">Extreme</option>
+            <option value="UNAVAILABLE">Data Unavailable</option>
           </select>
         </div>
       </GlassPanel>
@@ -161,7 +162,11 @@ export const ExplorePandals: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider">Queue Time (Est.)</span>
-                    <p className="text-emerald-400 font-bold mt-0.5">⏱ {pandal.queueTimeMinutes} mins wait</p>
+                    {pandal.crowdLevel === 'UNAVAILABLE' ? (
+                      <p className="text-neutral-500 font-medium mt-0.5">⏱ Unavailable</p>
+                    ) : (
+                      <p className="text-emerald-400 font-bold mt-0.5">⏱ {pandal.queueTimeMinutes} mins wait</p>
+                    )}
                   </div>
                   <div>
                     <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider">Darshan Hours</span>
