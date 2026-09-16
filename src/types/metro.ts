@@ -12,7 +12,16 @@ export type MetroLine =
   | 'Blue Line (North-South)'
   | 'Green Line (East-West)'
   | 'Purple Line (Joka-Majerhat)'
-  | 'Orange Line (Kavi Subhash-Ruby)';
+  | 'Yellow Line (Noapara-Airport)'
+  | 'Orange Line (Kavi Subhash-Ruby)'
+  | string;
+
+export type MetroLineCategory =
+  | 'ALL'
+  | 'BLUE'
+  | 'GREEN'
+  | 'PURPLE'
+  | 'YELLOW';
 
 export interface MetroEntranceExit {
   gateNumber: string; // e.g. "Gate 1", "Gate 2"
@@ -48,6 +57,8 @@ export interface MetroStation {
   id: string;
   name: string;
   line: MetroLine | string;
+  lines?: string[];
+  status?: string;
   latitude: number;
   longitude: number;
   location: Location;

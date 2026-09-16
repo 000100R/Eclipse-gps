@@ -86,6 +86,7 @@ export const MetroIntelligenceCard: React.FC<MetroIntelligenceCardProps> = ({
     if (l.includes('blue')) return { text: 'text-blue-400', bg: 'bg-blue-500/20', border: 'border-blue-500/40', badge: 'bg-blue-600' };
     if (l.includes('green')) return { text: 'text-emerald-400', bg: 'bg-emerald-500/20', border: 'border-emerald-500/40', badge: 'bg-emerald-600' };
     if (l.includes('purple')) return { text: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-500/40', badge: 'bg-purple-600' };
+    if (l.includes('yellow')) return { text: 'text-amber-400', bg: 'bg-amber-500/20', border: 'border-amber-500/40', badge: 'bg-amber-600' };
     if (l.includes('orange')) return { text: 'text-orange-400', bg: 'bg-orange-500/20', border: 'border-orange-500/40', badge: 'bg-orange-600' };
     return { text: 'text-cyan-400', bg: 'bg-cyan-500/20', border: 'border-cyan-500/40', badge: 'bg-cyan-600' };
   };
@@ -106,6 +107,11 @@ export const MetroIntelligenceCard: React.FC<MetroIntelligenceCardProps> = ({
             <Train className="w-3.5 h-3.5" />
             {metroStation.line}
           </span>
+          {metroStation.status && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-950/70 border border-emerald-700/60 text-emerald-300">
+              {metroStation.status}
+            </span>
+          )}
           <span className="text-[10px] text-neutral-400 font-mono">
             {allNearbyPujas.length} Nearby Pujas
           </span>

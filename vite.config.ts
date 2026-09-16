@@ -1,10 +1,23 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'fs';
 import {defineConfig} from 'vite';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+// Ensure variables from /app/.dev.env.json are loaded into process.env if present
+try {
+  if (fs.existsSync('/app/.dev.env.json')) {
+    const devEnv = JSON.parse(fs.readFileSync('/app/.dev.env.json', 'utf8'));
+    for (const [k, v] of Object.entries(devEnv)) {
+      if (!process.env[k] && typeof v === 'string') {
+        process.env[k] = v;
+      }
+    }
+  }
+} catch (e) {}
 
 const cleanEnvVar = (val: string | undefined): string => {
   if (!val) return '';
@@ -12,6 +25,9 @@ const cleanEnvVar = (val: string | undefined): string => {
 };
 
 export default defineConfig(() => {
+  const mapsApiKey = cleanEnvVar(process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY);
+  const mapsMapId = cleanEnvVar(process.env.VITE_GOOGLE_MAPS_MAP_ID || process.env.GOOGLE_MAPS_MAP_ID);
+
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -20,8 +36,8 @@ export default defineConfig(() => {
       },
     },
     define: {
-      'import.meta.env.VITE_GOOGLE_MAPS_API_KEY': JSON.stringify(cleanEnvVar(process.env.VITE_GOOGLE_MAPS_API_KEY)),
-      'import.meta.env.VITE_GOOGLE_MAPS_MAP_ID': JSON.stringify(cleanEnvVar(process.env.VITE_GOOGLE_MAPS_MAP_ID)),
+      'import.meta.env.VITE_GOOGLE_MAPS_API_KEY': JSON.stringify(mapsApiKey),
+      'import.meta.env.VITE_GOOGLE_MAPS_MAP_ID': JSON.stringify(mapsMapId),
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

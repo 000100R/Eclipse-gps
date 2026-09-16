@@ -616,6 +616,7 @@ export class PandalGridSearchEngine {
   private getPriorityScore(item: DiscoveredPandal): number {
     if (item.source === 'ECLIPSE_CURATED') return 1;
     if (item.source === 'GOOGLE_EARTH' && item.verificationStatus === 'VERIFIED') return 2;
+    if (item.source === 'AGAMONI') return 2;
     if (item.source === 'GOOGLE_PLACES') return 3;
     return 4;
   }
@@ -625,7 +626,13 @@ export class PandalGridSearchEngine {
    */
   private applyNaktalaSafeguard(item: DiscoveredPandal): DiscoveredPandal {
     const norm = this.normalizePandalName(item.name);
-    if (norm.includes('naktala') || norm.includes('udayan')) {
+    const isNaktalaUdayan =
+      (norm.includes('naktala') && norm.includes('udayan')) ||
+      (item.name.toLowerCase().includes('naktala') && item.name.toLowerCase().includes('udayan')) ||
+      item.id === 'pandal-naktala-udayan-sangha' ||
+      item.id === 'agamoni-pandal-naktala-udayan-sangha';
+
+    if (isNaktalaUdayan) {
       return {
         ...item,
         latitude: VERIFIED_NAKTALA_COORDINATES.lat,

@@ -1,11 +1,24 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
 // Load environment variables
 dotenv.config();
+
+// Ensure variables from /app/.dev.env.json are loaded into process.env if present
+try {
+  if (fs.existsSync('/app/.dev.env.json')) {
+    const devEnv = JSON.parse(fs.readFileSync('/app/.dev.env.json', 'utf8'));
+    for (const [k, v] of Object.entries(devEnv)) {
+      if (!process.env[k] && typeof v === 'string') {
+        process.env[k] = v;
+      }
+    }
+  }
+} catch (e) {}
 
 const app = express();
 const PORT = 3000;
@@ -18,13 +31,13 @@ const rawModelName = process.env.GEMINI_MODEL || '';
 // If rawModelName starts with 'AQ.', it is an internal or tuned model ID not supported by standard generateContent
 const cleanModel = rawModelName.startsWith('AQ.') ? '' : rawModelName.replace(/^models\//, '');
 
-// Official active models list ordered by active quota availability
+// Official active models list ordered by active quota availability and fast execution
 const CANDIDATE_MODELS = Array.from(
   new Set([
+    'gemini-3.1-flash-lite',
     ...(cleanModel ? [cleanModel] : []),
     'gemini-3.8-flash',
     'gemini-flash-latest',
-    'gemini-3.1-flash-lite',
   ])
 );
 
@@ -321,6 +334,12 @@ You support the following validated ACTION_TYPE values. You must select the sing
 - SHOW_ALERTS: View active warnings or crowd alerts. (Parameters: query)
 - NO_ACTION: When the user asks a general informational question or makes chit-chat that doesn't trigger map adjustments. (Parameters: query)
 
+IMPORTANT DIRECTIVE FOR NEARBY PANDAL DISCOVERY:
+When the user asks to "Find nearby pandals", "Show pandals near me", "What pandals are around me?", or similar nearby discovery queries:
+1. Select action "SEARCH_NEARBY_PANDALS" with parameters: { "radius": 5000, "category": "pandal" }.
+2. In your "text" field, give a short, immediate confirmation (e.g., "Scanning verified Durga Puja pandals near your GPS coordinates.").
+3. Do NOT execute an internal AI search for pandals, do NOT fabricate or list pandal names in your response, and do NOT include a "query" parameter for generic nearby requests. The application's local Pandal Discovery Engine will directly query the verified 531-record Eclipse pandal database using their exact GPS coordinates and render interactive pandal cards.
+
 IMPORTANT DIRECTIVE FOR METRO PUJA GUIDE & BONEDI BARI DISCOVERY:
 You determine user intent and select the appropriate action. You must NEVER fabricate metro station names, pandal names, fake coordinates, or hallucinated addresses.
 The application's high-precision Metro Intelligence Provider, Bonedi Bari Intelligence Provider, and Pandal Discovery Engine will execute the actual search against verified Kolkata Metro stations and curated Durga Puja locations, compute genuine walking routes and distances, and display interactive cards.
@@ -453,11 +472,12 @@ function generateFallbackIntent(promptText: string, userLocation?: { lat: number
       'shyambazar', 'shobhabazar', 'sovabazar', 'girish park', 'mg road', 'central',
       'chandni chowk', 'esplanade', 'park street', 'maidan', 'rabindra sadan',
       'netaji bhavan', 'jatin das park', 'kalighat', 'rabindra sarobar',
-      'mahanayak uttam kumar', 'netaji', 'masterda surya sen', 'gitanjali',
+      'mahanayak uttam kumar', 'tollygunge', 'netaji kudghat', 'netaji', 'masterda surya sen', 'bansdroni', 'gitanjali', 'naktala',
       'kavi nazrul', 'shahid khudiram', 'kavi subhash', 'dakshineswar', 'baranagar',
-      'noapara', 'dum dum', 'belgachia', 'howrah', 'sealdah', 'phoolbagan', 'salt lake stadium',
+      'noapara', 'dum dum cantonment', 'dum dum', 'belgachia', 'howrah maidan', 'howrah', 'sealdah', 'phoolbagan', 'salt lake stadium',
       'bengal chemical', 'city centre', 'central park', 'karunamoyee', 'salt lake sector v',
-      'joka', 'thakurpukur', 'sakherbazar', 'behala chowrasta', 'behala bazar', 'taratala', 'majerhat'
+      'joka', 'thakurpukur', 'sakher bazar', 'sakherbazar', 'behala chowrasta', 'behala bazar', 'taratala', 'majerhat',
+      'jessore road'
     ];
     let matchedStation = '';
     for (const name of stationNames) {
@@ -602,6 +622,8 @@ function generateFallbackIntent(promptText: string, userLocation?: { lat: number
     { name: 'Tridhara Sammilani', keys: ['tridhara'] },
     { name: 'Bagbazar Sarbojanin', keys: ['bagbazar'] },
     { name: 'Kumartuli Park', keys: ['kumartuli'] },
+    { name: 'Naktala Udayan Sangha', keys: ['naktala', 'udayan'] },
+    { name: 'Kendua Shanti Sangha', keys: ['kendua', 'shanti sangha'] },
   ];
 
   for (const fp of famousPandals) {
@@ -660,7 +682,7 @@ function setPlacesCache(key: string, places: any[]): void {
 // Secure endpoint for Google Places API (New) Text Search Proxy
 app.post('/api/places/search', async (req, res) => {
   const { query, location, radius, bounds, strictRestriction } = req.body;
-  const gApiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY;
+  const gApiKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
 
   if (!gApiKey) {
     return res.json({ places: [], status: 'NO_API_KEY' });
@@ -744,7 +766,7 @@ app.post('/api/places/search', async (req, res) => {
 // Secure endpoint for Google Places API (New) Nearby Search Proxy
 app.post('/api/places/nearby', async (req, res) => {
   const { location, radius, includedTypes } = req.body;
-  const gApiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY;
+  const gApiKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
 
   if (!gApiKey) {
     return res.json({ places: [], status: 'NO_API_KEY' });
@@ -856,6 +878,7 @@ app.post('/api/ai', async (req, res) => {
             config: {
               systemInstruction: SYSTEM_INSTRUCTION,
               responseMimeType: 'application/json',
+              thinkingConfig: { thinkingBudget: 0 },
             },
           });
           successfulModel = candidate;
@@ -879,15 +902,9 @@ app.post('/api/ai', async (req, res) => {
           }
 
           if (isHighDemand) {
-            console.warn(`[Gemini API] Model ${candidate} experiencing high demand (503) on attempt ${attempt}/${maxAttempts}.`);
-            if (attempt < maxAttempts) {
-              const jitter = 400 + Math.floor(Math.random() * 300);
-              await new Promise((resolve) => setTimeout(resolve, jitter));
-              continue;
-            } else {
-              markModelCoolingDown(candidate, 'high_demand_503', 30);
-              break;
-            }
+            console.warn(`[Gemini API] Model ${candidate} experiencing high demand (503). Switching immediately to next candidate.`);
+            markModelCoolingDown(candidate, 'high_demand_503', 30);
+            break;
           }
 
           console.warn(`[Gemini API] Attempt ${attempt} on model ${candidate} failed: ${err?.message || err}`);

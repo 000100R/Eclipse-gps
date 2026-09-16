@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { Location, Place, Event, Pandal, Route, SavedLocation, Alert, AIMessage } from '../types';
+import { Location, Place, Event, Pandal, Route, SavedLocation, Alert, AIMessage, VisitedPandalRecord } from '../types';
 import { eventsService } from '../services/events/eventsService';
+import { visitedPandalsService } from '../services/visited/visitedPandalsService';
 import { placesService } from '../services/places/placesService';
 import { routingService } from '../services/routing/routingService';
 import { alertService } from '../services/realtime/alertService';
@@ -66,8 +67,8 @@ interface AppStateContextType {
   setMapProvider: (provider: 'leaflet' | 'google') => void;
 
   // Tabs / Navigation
-  activeTab: 'home' | 'explore' | 'routes' | 'events' | 'saved' | 'group';
-  setActiveTab: (tab: 'home' | 'explore' | 'routes' | 'events' | 'saved' | 'group') => void;
+  activeTab: 'home' | 'explore' | 'routes' | 'events' | 'saved' | 'group' | 'visited' | 'journey';
+  setActiveTab: (tab: 'home' | 'explore' | 'routes' | 'events' | 'saved' | 'group' | 'visited' | 'journey') => void;
 
   // Data Catalogs
   pandals: Pandal[];
@@ -109,7 +110,9 @@ interface AppStateContextType {
   unsaveLocation: (itemId: string) => void;
   isSaved: (itemId: string) => boolean;
   visitedIds: string[];
+  visitedRecords: VisitedPandalRecord[];
   toggleVisited: (itemId: string) => void;
+  removeVisitedRecord: (pandalId: string) => void;
 
   // Smart Puja Route Planner (Phase 13.8)
   smartRoutePlan: SmartRoutePlan | null;
@@ -218,7 +221,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return isValidKey ? 'google' : 'leaflet';
   });
 
-  const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'routes' | 'events' | 'saved' | 'group'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'routes' | 'events' | 'saved' | 'group' | 'visited' | 'journey'>('home');
 
   const [pandals, setPandals] = useState<Pandal[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
@@ -236,7 +239,10 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Saved / Visited Lists
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
-  const [visitedIds, setVisitedIds] = useState<string[]>([]);
+  const [visitedIds, setVisitedIds] = useState<string[]>(() => eventsService.getVisited());
+  const [visitedRecords, setVisitedRecords] = useState<VisitedPandalRecord[]>(() => {
+    return visitedPandalsService.getRecords();
+  });
 
   // Smart Puja Route Planner (Phase 13.8)
   const [smartRoutePlan, setSmartRoutePlan] = useState<SmartRoutePlan | null>(null);
@@ -403,7 +409,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Pandal Discovery 2.0 State
   const [discoveryRadius, setDiscoveryRadius] = useState<number>(5);
-  const [discoverySort, setDiscoverySort] = useState<'recommended' | 'nearest' | 'fastest' | 'least_crowded'>('recommended');
+  const [discoverySort, setDiscoverySort] = useState<'recommended' | 'nearest' | 'fastest' | 'least_crowded'>('nearest');
   const [discoveryCenter, setDiscoveryCenter] = useState<Location>(KOLKATA_CENTER);
   const [mapCenter, setMapCenter] = useState<Location | null>(null);
   const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
@@ -437,8 +443,55 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         visitedStatus: visitedIds.includes(up.id),
       }));
 
-      const merged = [...result.pandals, ...(userPandalsInRadius as any[])];
-      setPandals(merged);
+      const hydratedPandals = result.pandals.map(p => ({
+        ...p,
+        distance: p.distance ?? calculateDistanceInMeters(center, p.location),
+        favouriteStatus: savedLocations.some(sl => sl.itemId === p.id),
+        visitedStatus: visitedIds.includes(p.id),
+      }));
+
+      const merged = [...hydratedPandals, ...(userPandalsInRadius as any[])];
+      if (sortBy === 'nearest') {
+        // 2. First find the nearest candidates using the existing geographic-distance search
+        merged.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+
+        // 3. Take only the closest 10 candidates
+        const closestCandidates = merged.slice(0, 10);
+        const remainingCandidates = merged.slice(10);
+
+        // 4. Use the EXISTING OSRM routing service to calculate walking distance and walking time for those candidates
+        const routedCandidates = await Promise.all(
+          closestCandidates.map(async (candidate) => {
+            try {
+              const route = await routingService.calculateRoute(
+                center,
+                candidate.location,
+                [],
+                false,
+                'foot'
+              );
+              if (route && !route.id.startsWith('route-fallback-') && typeof route.distance === 'number') {
+                const walkingMeters = Math.round(route.distance);
+                const walkingMinutes = Math.max(1, Math.round(route.duration / 60));
+                return {
+                  ...candidate,
+                  distance: walkingMeters,
+                  estimatedTravelTime: `${walkingMinutes} min walk`,
+                };
+              }
+            } catch (err) {
+              // If walking-route data is unavailable, keep the existing geographic distance
+            }
+            return candidate;
+          })
+        );
+
+        // 5. Display/sort those 10 candidates by actual walking distance when available
+        routedCandidates.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+        setPandals([...routedCandidates, ...remainingCandidates]);
+      } else {
+        setPandals(merged);
+      }
     } catch (e) {
       console.error('Error during nearby pandal discovery:', e);
     } finally {
@@ -983,6 +1036,45 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     if (watchLocation) {
       setGpsStatus('tracking');
+
+      // Request immediate high-accuracy position fix
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          };
+          setCurrentLocation(loc);
+          setDiscoveryCenter((prev) => {
+            // If discovery center was at default Kolkata center, center it on the user's real GPS
+            if (prev.lat === KOLKATA_CENTER.lat && prev.lng === KOLKATA_CENTER.lng) {
+              return loc;
+            }
+            return prev;
+          });
+          setGpsAccuracy(pos.coords.accuracy);
+          setSpeed(pos.coords.speed || 0);
+          setHeading(pos.coords.heading || 0);
+          setGpsErrorMsg(null);
+          setGpsStatus('tracking');
+        },
+        (err) => {
+          console.warn('Initial geolocation error:', err);
+          if (err.code === 1) {
+            setGpsStatus('denied');
+            setGpsErrorMsg('GPS permission denied. Enable browser location access to discover pandals near your exact location.');
+          } else {
+            setGpsStatus('error');
+            setGpsErrorMsg('GPS signal unavailable. Please ensure device location is turned on.');
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        }
+      );
+
       watchIdRef.current = navigator.geolocation.watchPosition(
         (position) => {
           const loc = {
@@ -1000,13 +1092,11 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           console.warn('Geolocation Watch Position error:', error);
           if (error.code === 1) {
             setGpsStatus('denied');
-            setGpsErrorMsg('GPS permission denied. Using demo coordinates in Kolkata.');
+            setGpsErrorMsg('GPS permission denied. Enable browser location access to discover pandals near your exact location.');
           } else {
             setGpsStatus('error');
-            setGpsErrorMsg('GPS signal weak or unavailable. Using demo coordinates in Kolkata.');
+            setGpsErrorMsg('GPS signal unavailable. Please ensure device location is turned on.');
           }
-          // Default back to Kolkata center
-          setCurrentLocation(KOLKATA_CENTER);
           setGpsAccuracy(null);
         },
         {
@@ -1230,6 +1320,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setSavedLocations(JSON.parse(saved));
     }
     setVisitedIds(eventsService.getVisited());
+    setVisitedRecords(visitedPandalsService.getRecords());
   };
 
   const loadAlerts = async () => {
@@ -1282,10 +1373,46 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Visited markers
   const toggleVisited = (itemId: string) => {
-    eventsService.toggleVisited(itemId);
+    const isNowVisited = eventsService.toggleVisited(itemId);
+    setVisitedIds(eventsService.getVisited());
+
+    if (isNowVisited) {
+      const allCandidates = pandalDiscoveryService.getLocalCandidates();
+      const match = allCandidates.find((p) => p.id === itemId);
+      if (match) {
+        visitedPandalsService.recordVisit(match);
+      } else {
+        visitedPandalsService.recordVisit({
+          id: itemId,
+          name: itemId,
+        });
+      }
+    } else {
+      visitedPandalsService.removeRecord(itemId);
+    }
+    setVisitedRecords(visitedPandalsService.getRecords());
+    refreshCatalogs();
+  };
+
+  const removeVisitedRecord = (pandalId: string) => {
+    visitedPandalsService.removeRecord(pandalId);
+    setVisitedRecords(visitedPandalsService.getRecords());
     setVisitedIds(eventsService.getVisited());
     refreshCatalogs();
   };
+
+  // Geofence visit detection: automatically marks a pandal as VISITED when user's GPS enters within ~75m
+  useEffect(() => {
+    if (gpsStatus !== 'tracking' || !currentLocation || (currentLocation.lat === 0 && currentLocation.lng === 0)) {
+      return;
+    }
+    const candidates = pandalDiscoveryService.getLocalCandidates();
+    const newlyVisited = visitedPandalsService.checkGpsGeofence(currentLocation, candidates, 75);
+    if (newlyVisited.length > 0) {
+      setVisitedRecords(visitedPandalsService.getRecords());
+      setVisitedIds(eventsService.getVisited());
+    }
+  }, [currentLocation, gpsStatus]);
 
   // Recalculate route whenever routePreference changes
   useEffect(() => {
@@ -1777,23 +1904,25 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const isNearbyRequest = actionType === 'SEARCH_NEARBY_PANDALS' || (!params.query && !params.name && !params.area);
         if (isNearbyRequest && (gpsStatus === 'denied' || gpsStatus === 'error')) {
           return {
-            error: 'Location access is unavailable. Search by pandal name or area instead.',
+            error: 'GPS location is unavailable. Please enable device location access to discover pandals near your exact location, or search by pandal name or neighborhood.',
             pandals: [],
           };
         }
 
-        const queryTerm = params.name || params.query || (actionType === 'SEARCH_PANDALS_BY_AREA' ? params.area : '');
-        // Search unified PANDALS intelligence provider first for real verified multi-source data
-        const intelligenceResults = await pandalIntelligenceProvider.search(queryTerm || 'pandal', currentLocation);
-        const resolvedPandals = intelligenceResults.length > 0
-          ? intelligenceResults
-          : (await pandalDiscoveryService.discoverPandals({
-              near: currentLocation,
-              radius: params.radius || 5000,
-              query: queryTerm,
-              area: params.area,
-              mode: actionType === 'SEARCH_PANDALS_BY_NAME' ? 'name' : actionType === 'SEARCH_PANDALS_BY_AREA' ? 'area' : 'nearby',
-            })).pandals;
+        const queryTerm = isNearbyRequest ? '' : (params.name || params.query || '');
+        const searchArea = actionType === 'SEARCH_PANDALS_BY_AREA' ? (params.area || params.query) : params.area;
+
+        // Use the exact same discovery engine as the map for 100% parity
+        const discoveryResult = await pandalDiscoveryService.discoverPandals({
+          near: currentLocation,
+          radius: params.radius || (discoveryRadius * 1000) || 5000,
+          query: queryTerm,
+          area: searchArea,
+          sortBy: isNearbyRequest ? 'nearest' : (params.sortBy || discoverySort || 'nearest'),
+          mode: actionType === 'SEARCH_PANDALS_BY_NAME' ? 'name' : actionType === 'SEARCH_PANDALS_BY_AREA' ? 'area' : 'nearby',
+        });
+
+        const resolvedPandals = discoveryResult.pandals;
 
         if (resolvedPandals.length > 0) {
           setPandals(resolvedPandals);
@@ -2126,7 +2255,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         unsaveLocation,
         isSaved,
         visitedIds,
+        visitedRecords,
         toggleVisited,
+        removeVisitedRecord,
 
         // Smart Puja Route Planner (Phase 13.8)
         smartRoutePlan,

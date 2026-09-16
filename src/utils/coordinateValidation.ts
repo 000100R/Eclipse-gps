@@ -151,9 +151,9 @@ export function verifyPandalAreaMatch(
   lng: number
 ): { valid: boolean; correctedCoords?: LatLng; reason?: string } {
   const isNaktala =
-    /naktala/i.test(pandalName) ||
-    /naktala/i.test(area) ||
-    /udayan\s*sangha/i.test(pandalName);
+    /naktala\s+udayan/i.test(pandalName) ||
+    (/naktala/i.test(pandalName) && /udayan/i.test(pandalName)) ||
+    (/naktala/i.test(area) && /udayan/i.test(pandalName));
 
   if (isNaktala) {
     const inNaktalaGaria =

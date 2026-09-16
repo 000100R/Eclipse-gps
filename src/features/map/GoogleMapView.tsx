@@ -19,6 +19,7 @@ import { PandalEmptyStateBanner } from './PandalEmptyStateBanner';
 import { PandalCoverageBadge } from './PandalCoverageBadge';
 import { crowdIntelligenceService } from '../../services/intelligence/crowdIntelligenceService';
 import { trafficIntelligenceService } from '../../services/intelligence/trafficIntelligenceService';
+import { clusterMarkers } from '../../utils/markerCluster';
 
 export const GoogleMapView: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -78,6 +79,7 @@ export const GoogleMapView: React.FC = () => {
   } = useAppState();
 
   const [activeInstruction, setActiveInstruction] = useState<any>(null);
+  const [currentZoom, setCurrentZoom] = useState<number>(14);
   const { isLayerVisible, layerVisibility } = useIntelligenceGrid();
   const {
     isPandalVisible,
@@ -211,6 +213,7 @@ export const GoogleMapView: React.FC = () => {
         }
         const bounds = map.getBounds();
         const zoom = map.getZoom() || 14;
+        setCurrentZoom(zoom);
         if (bounds) {
           const ne = bounds.getNorthEast();
           const sw = bounds.getSouthWest();
@@ -482,7 +485,16 @@ export const GoogleMapView: React.FC = () => {
     const addMarker = (item: any, type: 'pandal' | 'event' | 'bonedi_bari' | 'metro' | 'search') => {
       let pinColorColor = '#10b981'; // Default green
       if (type === 'metro') {
-        pinColorColor = '#2563eb'; // Blue transit color
+        const lineStr = ((item.line || '') + ' ' + (item.lines || []).join(' ')).toLowerCase();
+        if (lineStr.includes('green') || lineStr.includes('east-west')) {
+          pinColorColor = '#059669'; // Green Line
+        } else if (lineStr.includes('purple') || lineStr.includes('joka')) {
+          pinColorColor = '#9333ea'; // Purple Line
+        } else if (lineStr.includes('yellow') || lineStr.includes('airport')) {
+          pinColorColor = '#d97706'; // Yellow Line
+        } else {
+          pinColorColor = '#2563eb'; // Blue Line
+        }
       } else if (type === 'bonedi_bari') {
         pinColorColor = '#f59e0b'; // Amber heritage color
       } else if (type === 'pandal') {
@@ -496,7 +508,7 @@ export const GoogleMapView: React.FC = () => {
 
       // Safe Unicode / SVG for custom map styling
       const pinSvg = type === 'metro'
-        ? `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="%232563eb" stroke="%23ffffff" stroke-width="2.5"/><text x="18" y="23" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="900" fill="%23ffffff" text-anchor="middle">M</text></svg>`
+        ? `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="${encodeURIComponent(pinColorColor)}" stroke="%23ffffff" stroke-width="2.5"/><text x="18" y="23" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="900" fill="%23ffffff" text-anchor="middle">M</text></svg>`
         : `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="10" fill="${encodeURIComponent(pinColorColor)}" stroke="black" stroke-width="2"/><circle cx="16" cy="16" r="4" fill="white"/></svg>`;
 
       const marker = new google.maps.Marker({
@@ -517,44 +529,69 @@ export const GoogleMapView: React.FC = () => {
       markersRef.current.push(marker);
     };
 
+    const searchPandals: any[] = [];
+    const searchNonPandals: any[] = [];
+
     if (searchResults.length > 0) {
       searchResults.forEach(res => {
         const isMetro = (res as any).line || (res as any).entrancesExits || res.type === 'metro';
-        const markerType = isMetro
-          ? 'metro'
-          : ((res as any).pujaSince || (res as any).family ? 'bonedi_bari' : (res.type === 'pandal' ? 'pandal' : 'search'));
-        addMarker(res, markerType as any);
+        const isBonedi = (res as any).pujaSince || (res as any).family;
+        const isPandal = !isMetro && !isBonedi && (res.type === 'pandal' || res.category === 'pandal' || (!res.type && res.location));
+        if (isPandal) {
+          searchPandals.push(res);
+        } else {
+          searchNonPandals.push(res);
+        }
       });
-    } else {
-      if (isPandalVisible) {
-        clusteredItems.forEach(entry => {
-          if (entry.isCluster) {
-            const cluster = entry.cluster;
-            const clusterSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="%23f59e0b" stroke="%230f172a" stroke-width="2.5"/><text x="18" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="%230f172a" text-anchor="middle">${cluster.count}</text></svg>`;
-            const clusterMarker = new google.maps.Marker({
-              position: { lat: cluster.location.lat, lng: cluster.location.lng },
-              map,
-              title: `${cluster.count} Durga Puja Pandals (Click to zoom)`,
-              zIndex: 50,
-              icon: {
-                url: clusterSvg,
-                size: new google.maps.Size(36, 36),
-                anchor: new google.maps.Point(18, 18),
-              },
-            });
+    }
 
-            clusterMarker.addListener('click', () => {
-              const currentZoom = map.getZoom() || 13;
-              map.setCenter({ lat: cluster.location.lat, lng: cluster.location.lng });
-              map.setZoom(Math.min(17, currentZoom + 2));
-            });
+    // Render non-pandal search results directly
+    searchNonPandals.forEach(res => {
+      const isMetro = (res as any).line || (res as any).entrancesExits || res.type === 'metro';
+      const markerType = isMetro
+        ? 'metro'
+        : ((res as any).pujaSince || (res as any).family ? 'bonedi_bari' : 'search');
+      addMarker(res, markerType as any);
+    });
 
-            markersRef.current.push(clusterMarker);
-          } else {
-            addMarker(entry.item, 'pandal');
-          }
-        });
-      }
+    // Select pandals to render: search pandals if present, else AppState/Intelligence pandals when layer is visible
+    const targetPandals = searchPandals.length > 0
+      ? searchPandals
+      : (isPandalVisible ? (pandals.length > 0 ? pandals : intelligencePandals) : []);
+
+    if (targetPandals.length > 0) {
+      const zoom = map.getZoom() || 14;
+      const clustered = clusterMarkers(targetPandals, zoom, (p: any) => p.location);
+      clustered.forEach(entry => {
+        if (entry.isCluster) {
+          const cluster = entry.cluster;
+          const clusterSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="%23f59e0b" stroke="%230f172a" stroke-width="2.5"/><text x="18" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="%230f172a" text-anchor="middle">${cluster.count}</text></svg>`;
+          const clusterMarker = new google.maps.Marker({
+            position: { lat: cluster.location.lat, lng: cluster.location.lng },
+            map,
+            title: `${cluster.count} Durga Puja Pandals (Click to zoom)`,
+            zIndex: 50,
+            icon: {
+              url: clusterSvg,
+              size: new google.maps.Size(36, 36),
+              anchor: new google.maps.Point(18, 18),
+            },
+          });
+
+          clusterMarker.addListener('click', () => {
+            const currentZoomLevel = map.getZoom() || 13;
+            map.setCenter({ lat: cluster.location.lat, lng: cluster.location.lng });
+            map.setZoom(Math.min(17, currentZoomLevel + 2));
+          });
+
+          markersRef.current.push(clusterMarker);
+        } else {
+          addMarker(entry.item, 'pandal');
+        }
+      });
+    }
+
+    if (searchResults.length === 0) {
       if (isBonediBariVisible) {
         bonediBaris.forEach(b => addMarker(b, 'bonedi_bari'));
       }
@@ -566,7 +603,7 @@ export const GoogleMapView: React.FC = () => {
       }
     }
 
-  }, [clusteredItems, isPandalVisible, isBonediBariVisible, isMetroVisible, bonediBaris, metroStations, events, searchResults, googleLoaded, layerVisibility.EVENTS, layerVisibility.METRO]);
+  }, [currentZoom, pandals, searchResults, googleLoaded, isPandalVisible, isBonediBariVisible, isMetroVisible, bonediBaris, metroStations, events, visitedIds, layerVisibility.EVENTS, layerVisibility.METRO, intelligencePandals]);
 
   // Sync Group Markers (members + meeting point) on Google Map
   useEffect(() => {

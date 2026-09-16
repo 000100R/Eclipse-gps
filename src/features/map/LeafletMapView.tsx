@@ -18,6 +18,7 @@ import { PandalEmptyStateBanner } from './PandalEmptyStateBanner';
 import { PandalCoverageBadge } from './PandalCoverageBadge';
 import { crowdIntelligenceService } from '../../services/intelligence/crowdIntelligenceService';
 import { trafficIntelligenceService } from '../../services/intelligence/trafficIntelligenceService';
+import { clusterMarkers } from '../../utils/markerCluster';
 import L from 'leaflet';
 
 export const LeafletMapView: React.FC = () => {
@@ -72,6 +73,7 @@ export const LeafletMapView: React.FC = () => {
   } = useAppState();
 
   const [activeInstruction, setActiveInstruction] = useState<any>(null);
+  const [currentZoom, setCurrentZoom] = useState<number>(14);
   const { isLayerVisible, layerVisibility } = useIntelligenceGrid();
   const {
     isPandalVisible,
@@ -163,6 +165,7 @@ export const LeafletMapView: React.FC = () => {
     });
 
     map.on('zoomend', () => {
+      setCurrentZoom(map.getZoom());
       updateViewport();
     });
     
@@ -340,7 +343,16 @@ export const LeafletMapView: React.FC = () => {
     const addMarkerToGroup = (item: any, type: 'pandal' | 'event' | 'bonedi_bari' | 'metro' | 'search') => {
       let pinColor = 'bg-emerald-500 shadow-emerald-500/50';
       if (type === 'metro') {
-        pinColor = 'bg-blue-600 shadow-blue-500/60 ring-2 ring-blue-400';
+        const lineStr = ((item.line || '') + ' ' + (item.lines || []).join(' ')).toLowerCase();
+        if (lineStr.includes('green') || lineStr.includes('east-west')) {
+          pinColor = 'bg-emerald-600 shadow-emerald-500/60 ring-2 ring-emerald-400';
+        } else if (lineStr.includes('purple') || lineStr.includes('joka')) {
+          pinColor = 'bg-purple-600 shadow-purple-500/60 ring-2 ring-purple-400';
+        } else if (lineStr.includes('yellow') || lineStr.includes('airport')) {
+          pinColor = 'bg-amber-500 shadow-amber-500/60 ring-2 ring-amber-400';
+        } else {
+          pinColor = 'bg-blue-600 shadow-blue-500/60 ring-2 ring-blue-400';
+        }
       } else if (type === 'bonedi_bari') {
         pinColor = 'bg-amber-500 shadow-amber-500/50';
       } else if (type === 'pandal') {
@@ -383,46 +395,71 @@ export const LeafletMapView: React.FC = () => {
     };
 
     // Plot search results or default catalogs respecting Intelligence Grid layer visibility
+    const searchPandals: any[] = [];
+    const searchNonPandals: any[] = [];
+
     if (searchResults.length > 0) {
       searchResults.forEach(res => {
         const isMetro = (res as any).line || (res as any).entrancesExits || res.type === 'metro';
-        const markerType = isMetro
-          ? 'metro'
-          : ((res as any).pujaSince || (res as any).family ? 'bonedi_bari' : (res.type === 'pandal' ? 'pandal' : 'search'));
-        addMarkerToGroup(res, markerType as any);
+        const isBonedi = (res as any).pujaSince || (res as any).family;
+        const isPandal = !isMetro && !isBonedi && (res.type === 'pandal' || res.category === 'pandal' || (!res.type && res.location));
+        if (isPandal) {
+          searchPandals.push(res);
+        } else {
+          searchNonPandals.push(res);
+        }
       });
-    } else {
-      if (isPandalVisible) {
-        clusteredItems.forEach(entry => {
-          if (entry.isCluster) {
-            const cluster = entry.cluster;
-            const clusterHtml = `
-              <div class="relative flex items-center justify-center cursor-pointer group pointer-events-auto">
-                <div class="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-extrabold flex items-center justify-center border-2 border-slate-950 shadow-xl shadow-amber-500/40 text-xs transition-transform group-hover:scale-110">
-                  ${cluster.count}
-                </div>
-                <div class="absolute -top-6 bg-slate-900/90 text-[10px] font-semibold text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
-                  ${cluster.count} Pandals
-                </div>
+    }
+
+    // Render non-pandal search results directly
+    searchNonPandals.forEach(res => {
+      const isMetro = (res as any).line || (res as any).entrancesExits || res.type === 'metro';
+      const markerType = isMetro
+        ? 'metro'
+        : ((res as any).pujaSince || (res as any).family ? 'bonedi_bari' : 'search');
+      addMarkerToGroup(res, markerType as any);
+    });
+
+    // Select pandals to render: search pandals if present, else AppState/Intelligence pandals when layer is visible
+    const targetPandals = searchPandals.length > 0
+      ? searchPandals
+      : (isPandalVisible ? (pandals.length > 0 ? pandals : intelligencePandals) : []);
+
+    if (targetPandals.length > 0) {
+      const zoom = map.getZoom();
+      const clustered = clusterMarkers(targetPandals, zoom, (p: any) => p.location);
+      clustered.forEach(entry => {
+        if (entry.isCluster) {
+          const cluster = entry.cluster;
+          const clusterHtml = `
+            <div class="relative flex items-center justify-center cursor-pointer group pointer-events-auto">
+              <div class="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-extrabold flex items-center justify-center border-2 border-slate-950 shadow-xl shadow-amber-500/40 text-xs transition-transform group-hover:scale-110">
+                ${cluster.count}
               </div>
-            `;
-            const clusterIcon = L.divIcon({
-              html: clusterHtml,
-              className: '',
-              iconSize: [32, 32],
-              iconAnchor: [16, 16],
-            });
-            const clusterMarker = L.marker([cluster.location.lat, cluster.location.lng], { icon: clusterIcon });
-            clusterMarker.on('click', () => {
-              const currentZoom = map.getZoom();
-              map.setView([cluster.location.lat, cluster.location.lng], Math.min(17, currentZoom + 2));
-            });
-            markersGroup.addLayer(clusterMarker);
-          } else {
-            addMarkerToGroup(entry.item, 'pandal');
-          }
-        });
-      }
+              <div class="absolute -top-6 bg-slate-900/90 text-[10px] font-semibold text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                ${cluster.count} Pandals
+              </div>
+            </div>
+          `;
+          const clusterIcon = L.divIcon({
+            html: clusterHtml,
+            className: '',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16],
+          });
+          const clusterMarker = L.marker([cluster.location.lat, cluster.location.lng], { icon: clusterIcon });
+          clusterMarker.on('click', () => {
+            const z = map.getZoom();
+            map.setView([cluster.location.lat, cluster.location.lng], Math.min(17, z + 2));
+          });
+          markersGroup.addLayer(clusterMarker);
+        } else {
+          addMarkerToGroup(entry.item, 'pandal');
+        }
+      });
+    }
+
+    if (searchResults.length === 0) {
       if (isBonediBariVisible) {
         bonediBaris.forEach(b => addMarkerToGroup(b, 'bonedi_bari'));
       }
@@ -434,7 +471,7 @@ export const LeafletMapView: React.FC = () => {
       }
     }
 
-  }, [clusteredItems, isPandalVisible, isBonediBariVisible, isMetroVisible, bonediBaris, metroStations, events, searchResults, visitedIds, layerVisibility.EVENTS, layerVisibility.METRO]);
+  }, [currentZoom, pandals, searchResults, isPandalVisible, isBonediBariVisible, isMetroVisible, bonediBaris, metroStations, events, visitedIds, layerVisibility.EVENTS, layerVisibility.METRO, intelligencePandals]);
 
   // Render group members and meeting point on Leaflet Map
   useEffect(() => {

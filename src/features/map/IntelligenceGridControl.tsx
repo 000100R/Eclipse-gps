@@ -17,10 +17,12 @@
  * Does not generate fake markers or data.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import { useIntelligenceGrid } from '../../hooks/useIntelligenceGrid';
 import { IntelligenceLayerId } from '../../types/intelligence';
+import { MetroLineCategory } from '../../types/metro';
+import { metroIntelligenceProvider } from '../../services/intelligence/metroIntelligenceProvider';
 import {
   Layers,
   Check,
@@ -44,6 +46,50 @@ const LAYER_ORDER: IntelligenceLayerId[] = [
   'ALERTS',
 ];
 
+const METRO_LINE_OPTIONS: Array<{
+  id: MetroLineCategory;
+  label: string;
+  dotClass: string;
+  activeClass: string;
+  badgeClass: string;
+}> = [
+  {
+    id: 'ALL',
+    label: 'All Metro',
+    dotClass: 'bg-indigo-400 shadow-sm shadow-indigo-400/50',
+    activeClass: 'bg-indigo-950/80 text-indigo-200 border-indigo-500/60',
+    badgeClass: 'bg-indigo-900/60 text-indigo-300 border border-indigo-500/40',
+  },
+  {
+    id: 'BLUE',
+    label: 'Blue Line',
+    dotClass: 'bg-blue-500 shadow-sm shadow-blue-500/50',
+    activeClass: 'bg-blue-950/80 text-blue-200 border-blue-500/60',
+    badgeClass: 'bg-blue-900/60 text-blue-300 border border-blue-500/40',
+  },
+  {
+    id: 'GREEN',
+    label: 'Green Line',
+    dotClass: 'bg-emerald-500 shadow-sm shadow-emerald-500/50',
+    activeClass: 'bg-emerald-950/80 text-emerald-200 border-emerald-500/60',
+    badgeClass: 'bg-emerald-900/60 text-emerald-300 border border-emerald-500/40',
+  },
+  {
+    id: 'PURPLE',
+    label: 'Purple Line',
+    dotClass: 'bg-purple-500 shadow-sm shadow-purple-500/50',
+    activeClass: 'bg-purple-950/80 text-purple-200 border-purple-500/60',
+    badgeClass: 'bg-purple-900/60 text-purple-300 border border-purple-500/40',
+  },
+  {
+    id: 'YELLOW',
+    label: 'Yellow Line',
+    dotClass: 'bg-amber-400 shadow-sm shadow-amber-400/50',
+    activeClass: 'bg-amber-950/80 text-amber-200 border-amber-500/60',
+    badgeClass: 'bg-amber-900/60 text-amber-300 border border-amber-500/40',
+  },
+];
+
 interface IntelligenceGridControlProps {
   className?: string;
 }
@@ -52,6 +98,10 @@ export const IntelligenceGridControl: React.FC<IntelligenceGridControlProps> = (
   className = '',
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [activeLine, setActiveLine] = useState<MetroLineCategory>(() =>
+    metroIntelligenceProvider.getLineFilter()
+  );
+
   const {
     layers,
     activeLayers,
@@ -59,6 +109,18 @@ export const IntelligenceGridControl: React.FC<IntelligenceGridControlProps> = (
     viewport,
   } = useIntelligenceGrid();
 
+  useEffect(() => {
+    return metroIntelligenceProvider.subscribeLineFilter((newFilter) => {
+      setActiveLine(newFilter);
+    });
+  }, []);
+
+  const handleSelectLine = (e: React.MouseEvent, line: MetroLineCategory) => {
+    e.stopPropagation();
+    metroIntelligenceProvider.setLineFilter(line);
+  };
+
+  const lineCounts = metroIntelligenceProvider.getLineCounts();
   const activeCount = activeLayers.length;
 
   return (
@@ -151,60 +213,107 @@ export const IntelligenceGridControl: React.FC<IntelligenceGridControlProps> = (
                 const hasRealData = layer.itemCount > 0;
 
                 return (
-                  <div
-                    key={layer.id}
-                    id={`layer-toggle-row-${layer.id.toLowerCase()}`}
-                    onClick={() => toggleLayer(layer.id)}
-                    className={`flex items-center justify-between px-2.5 py-2 rounded-xl transition-all cursor-pointer select-none group border ${
-                      isChecked
-                        ? 'bg-neutral-900/90 border-neutral-700/80 hover:border-indigo-500/50'
-                        : 'bg-neutral-950/40 border-transparent hover:bg-neutral-900/40 hover:border-neutral-800/60'
-                    }`}
-                    style={{ minHeight: '44px' }}
-                  >
-                    {/* Checkbox & Layer Name */}
-                    <div className="flex items-center space-x-2.5 min-w-0">
-                      {/* Checkbox Target */}
-                      <div
-                        className={`w-4 h-4 rounded flex items-center justify-center transition-all ${
-                          isChecked
-                            ? 'bg-indigo-600 border border-indigo-500 text-white'
-                            : 'bg-neutral-900 border border-neutral-700 group-hover:border-neutral-500'
-                        }`}
-                      >
-                        {isChecked && <Check size={12} strokeWidth={3} />}
-                      </div>
-
-                      {/* Name & Details */}
-                      <div className="flex flex-col min-w-0">
-                        <span
-                          className={`text-xs font-bold leading-tight truncate ${
+                  <React.Fragment key={layer.id}>
+                    <div
+                      id={`layer-toggle-row-${layer.id.toLowerCase()}`}
+                      onClick={() => toggleLayer(layer.id)}
+                      className={`flex items-center justify-between px-2.5 py-2 rounded-xl transition-all cursor-pointer select-none group border ${
+                        isChecked
+                          ? 'bg-neutral-900/90 border-neutral-700/80 hover:border-indigo-500/50'
+                          : 'bg-neutral-950/40 border-transparent hover:bg-neutral-900/40 hover:border-neutral-800/60'
+                      }`}
+                      style={{ minHeight: '44px' }}
+                    >
+                      {/* Checkbox & Layer Name */}
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        {/* Checkbox Target */}
+                        <div
+                          className={`w-4 h-4 rounded flex items-center justify-center transition-all ${
                             isChecked
-                              ? 'text-white'
-                              : 'text-neutral-300 group-hover:text-white'
+                              ? 'bg-indigo-600 border border-indigo-500 text-white'
+                              : 'bg-neutral-900 border border-neutral-700 group-hover:border-neutral-500'
                           }`}
                         >
-                          {layer.name}
-                        </span>
-                        <span className="text-[10px] text-neutral-500 truncate leading-tight hidden sm:inline">
-                          {layer.description}
-                        </span>
+                          {isChecked && <Check size={12} strokeWidth={3} />}
+                        </div>
+
+                        {/* Name & Details */}
+                        <div className="flex flex-col min-w-0">
+                          <span
+                            className={`text-xs font-bold leading-tight truncate ${
+                              isChecked
+                                ? 'text-white'
+                                : 'text-neutral-300 group-hover:text-white'
+                            }`}
+                          >
+                            {layer.name}
+                          </span>
+                          <span className="text-[10px] text-neutral-500 truncate leading-tight hidden sm:inline">
+                            {layer.description}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Status Badge / Notice */}
+                      <div className="flex items-center ml-2 shrink-0">
+                        {hasRealData ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950/70 border border-emerald-700/60 text-emerald-300">
+                            {layer.itemCount}
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-neutral-900/80 border border-neutral-800 text-neutral-400">
+                            Data layer coming soon
+                          </span>
+                        )}
                       </div>
                     </div>
 
-                    {/* Status Badge / Notice */}
-                    <div className="flex items-center ml-2 shrink-0">
-                      {hasRealData ? (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950/70 border border-emerald-700/60 text-emerald-300">
-                          {layer.itemCount}
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-neutral-900/80 border border-neutral-800 text-neutral-400">
-                          Data layer coming soon
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                    {/* Metro Line Sub-Filters (When Metro Layer is enabled) */}
+                    {layer.id === 'METRO' && isChecked && (
+                      <div
+                        id="metro-line-filters-container"
+                        onClick={(e) => e.stopPropagation()}
+                        className="ml-4 mr-1 my-1 p-2 rounded-xl bg-neutral-950/90 border border-neutral-800/90 flex flex-col space-y-1.5 shadow-inner"
+                      >
+                        <div className="flex items-center justify-between text-[10px] text-neutral-400 font-bold uppercase tracking-wider px-1">
+                          <span>Filter by Line</span>
+                          <span className="font-mono text-neutral-500">{lineCounts[activeLine]} stations</span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-1">
+                          {METRO_LINE_OPTIONS.map((opt) => {
+                            const isSelected = activeLine === opt.id;
+                            return (
+                              <button
+                                key={opt.id}
+                                id={`btn-metro-line-${opt.id.toLowerCase()}`}
+                                onClick={(e) => handleSelectLine(e, opt.id)}
+                                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                                  isSelected
+                                    ? `${opt.activeClass} font-bold border`
+                                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900/60 border border-transparent font-medium'
+                                }`}
+                                style={{ minHeight: '36px' }}
+                              >
+                                <div className="flex items-center space-x-2 min-w-0">
+                                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${opt.dotClass}`} />
+                                  <span className="truncate">{opt.label}</span>
+                                </div>
+                                <span
+                                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                                    isSelected
+                                      ? opt.badgeClass
+                                      : 'bg-neutral-900 text-neutral-500 border border-neutral-800'
+                                  }`}
+                                >
+                                  {lineCounts[opt.id]}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </div>

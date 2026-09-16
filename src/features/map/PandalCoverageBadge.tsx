@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, FileSpreadsheet, Globe, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { ShieldCheck, FileSpreadsheet, Globe, Sparkles, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import { DiscoveredPandal } from '../../types/discovery';
 
@@ -21,6 +21,7 @@ export const PandalCoverageBadge: React.FC<PandalCoverageBadgeProps> = ({
   let eclipseCount = 0;
   let googleEarthCount = 0;
   let googlePlacesCount = 0;
+  let agamoniCount = 0;
 
   for (const p of pandals) {
     if (p.source === 'ECLIPSE_CURATED') {
@@ -29,6 +30,8 @@ export const PandalCoverageBadge: React.FC<PandalCoverageBadgeProps> = ({
       googleEarthCount++;
     } else if (p.source === 'GOOGLE_PLACES') {
       googlePlacesCount++;
+    } else if (p.source === 'AGAMONI' || p.source === 'OFFICIAL_COMMITTEE') {
+      agamoniCount++;
     }
   }
 
@@ -68,6 +71,16 @@ export const PandalCoverageBadge: React.FC<PandalCoverageBadgeProps> = ({
               </span>
               <span className="font-mono font-bold text-neutral-200">{eclipseCount}</span>
             </div>
+
+            {agamoniCount > 0 && (
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex items-center gap-1.5 text-purple-300">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  Agamoni Directory
+                </span>
+                <span className="font-mono font-bold text-neutral-200">{agamoniCount}</span>
+              </div>
+            )}
 
             <div className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-1.5 text-emerald-300">

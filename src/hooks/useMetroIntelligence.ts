@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MetroStation } from '../types/metro';
+import { MetroStation, MetroLineCategory } from '../types/metro';
 import { Location } from '../types';
 import { useIntelligenceGrid } from './useIntelligenceGrid';
 import { metroIntelligenceProvider } from '../services/intelligence/metroIntelligenceProvider';
@@ -17,6 +17,10 @@ export function useMetroIntelligence(userLocation?: Location) {
   const { isLayerVisible, viewport, layers } = useIntelligenceGrid();
   const isMetroVisible = isLayerVisible('METRO');
   const metroLayer = layers.METRO;
+
+  const [activeLineFilter, setActiveLineFilterState] = useState<MetroLineCategory>(() =>
+    metroIntelligenceProvider.getLineFilter()
+  );
 
   const [metroStations, setMetroStations] = useState<MetroStation[]>(() =>
     isMetroVisible ? metroIntelligenceProvider.getData() : []
@@ -74,6 +78,19 @@ export function useMetroIntelligence(userLocation?: Location) {
     userLocation,
   ]);
 
+  // Subscribe to line filter changes
+  useEffect(() => {
+    const unsubscribe = metroIntelligenceProvider.subscribeLineFilter((newFilter) => {
+      setActiveLineFilterState(newFilter);
+      fetchMetroForViewport();
+    });
+    return unsubscribe;
+  }, [fetchMetroForViewport]);
+
+  const setLineFilter = useCallback((filter: MetroLineCategory) => {
+    metroIntelligenceProvider.setLineFilter(filter);
+  }, []);
+
   // Debounced viewport and visibility effect
   useEffect(() => {
     isMountedRef.current = true;
@@ -113,6 +130,9 @@ export function useMetroIntelligence(userLocation?: Location) {
     isMetroVisible,
     isLoading,
     lastError,
+    activeLineFilter,
+    setLineFilter,
+    lineCounts: metroIntelligenceProvider.getLineCounts(),
     refresh: fetchMetroForViewport,
   };
 }

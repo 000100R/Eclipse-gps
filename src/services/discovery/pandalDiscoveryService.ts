@@ -10,6 +10,7 @@ import {
 import { pandalGridSearchEngine } from './pandalGridSearchEngine';
 import { googleEarthImportService } from '../geoImport/googleEarthImportService';
 import { pandalEnrichmentService } from '../intelligence/pandalEnrichmentService';
+import { loadAgamoniPandals } from './agamoniPandalLoader';
 
 // Known Kolkata neighborhoods for area-based resolution
 const KNOWN_AREAS: Record<string, Location> = {
@@ -37,6 +38,15 @@ const KNOWN_AREAS: Record<string, Location> = {
   'jodhpur park': { lat: 22.5034, lng: 88.3631 },
   'dhakuria': { lat: 22.5098, lng: 88.3689 },
   'naktala': { lat: 22.47449, lng: 88.36658 },
+  'kendua': { lat: 22.47193, lng: 88.380997 },
+  'patuli': { lat: 22.4720, lng: 88.3810 },
+  'jadavpur': { lat: 22.4955, lng: 88.3708 },
+  'tollygunge': { lat: 22.4988, lng: 88.3468 },
+  'ranikuthi': { lat: 22.4837, lng: 88.3537 },
+  'bansdroni': { lat: 22.4789, lng: 88.3564 },
+  'kudghat': { lat: 22.4912, lng: 88.3498 },
+  'kasba': { lat: 22.5186, lng: 88.3832 },
+  'santoshpur': { lat: 22.4975, lng: 88.3875 },
   'garia': { lat: 22.4640, lng: 88.3832 },
   'maidan': { lat: 22.5535, lng: 88.3480 },
   'park street': { lat: 22.5512, lng: 88.3524 },
@@ -58,6 +68,7 @@ const RADIUS_EXPANSION_STEPS = [1000, 3000, 5000, 10000, 20000];
 export class PandalDiscoveryService {
   private static instance: PandalDiscoveryService;
   private userSubmissions: DiscoveredPandal[] = [];
+  private cachedLocalCandidates: DiscoveredPandal[] | null = null;
 
   private constructor() {
     this.loadUserSubmissions();
@@ -68,6 +79,44 @@ export class PandalDiscoveryService {
       PandalDiscoveryService.instance = new PandalDiscoveryService();
     }
     return PandalDiscoveryService.instance;
+  }
+
+  /**
+   * Indexed/Cached local Eclipse database records (Curated + Google Earth + Agamoni)
+   */
+  public getLocalCandidates(): DiscoveredPandal[] {
+    if (this.cachedLocalCandidates) {
+      return this.cachedLocalCandidates;
+    }
+
+    const googleEarthCandidates: DiscoveredPandal[] = googleEarthImportService.getImportedRecords()
+      .filter((r) => r.category === 'PANDAL' || /pandal|puja|mandap/i.test(r.name))
+      .map((rec) => ({
+        id: `kml-${rec.id}`,
+        name: rec.name,
+        latitude: rec.latitude,
+        longitude: rec.longitude,
+        location: { lat: rec.latitude, lng: rec.longitude },
+        address: rec.description || `${rec.folderHierarchy?.[0] || 'Kolkata'}, Kolkata`,
+        area: rec.folderHierarchy?.[0] || 'Kolkata',
+        city: 'Kolkata',
+        source: 'GOOGLE_EARTH' as const,
+        sourceId: rec.id,
+        verificationStatus: rec.verificationStatus === 'verified' ? ('VERIFIED' as const) : ('UNVERIFIED' as const),
+        rating: 4.8,
+        userRatingCount: 350,
+        description: rec.description,
+        verified: rec.verificationStatus === 'verified',
+        crowdLevel: 'MODERATE' as const,
+      }));
+
+    const agamoniCandidates = loadAgamoniPandals();
+    this.cachedLocalCandidates = [
+      ...curatedEclipsePandals,
+      ...googleEarthCandidates,
+      ...agamoniCandidates,
+    ];
+    return this.cachedLocalCandidates;
   }
 
   private loadUserSubmissions() {
@@ -178,39 +227,47 @@ export class PandalDiscoveryService {
       }
     }
 
-    // 3. Dynamic Multi-Pass Discovery with Radius Expansion (1km -> 3km -> 5km -> 10km -> 20km)
-    let discoveredPandals: DiscoveredPandal[] = [];
+    // 3. Local-First Discovery: Check the verified local Eclipse database (531 records) first
+    const userSpecifiedRadius = params.radius;
     let finalRadius = initialRadius;
+    let discoveredPandals: DiscoveredPandal[] = this.mergeAndDeduplicate(
+      [],
+      effectiveCenter,
+      initialRadius,
+      rawQuery
+    );
 
-    // Select expansion steps starting from or equal to initialRadius
-    const stepsToTry = RADIUS_EXPANSION_STEPS.filter(r => r >= initialRadius);
-    if (stepsToTry.length === 0) stepsToTry.push(initialRadius);
-
-    for (const radius of stepsToTry) {
-      finalRadius = radius;
-      const passResults = await this.runMultiPassDiscovery(effectiveCenter, radius, rawQuery);
-
-      // Merge and deduplicate with curated and user submitted
+    // Avoid unnecessary Google Places requests when the local Eclipse database already has nearby results.
+    // Only perform external multi-pass search if the local database has 0 results in this area.
+    if (discoveredPandals.length === 0) {
+      const passResults = await this.runMultiPassDiscovery(effectiveCenter, initialRadius, rawQuery);
       discoveredPandals = this.mergeAndDeduplicate(
         passResults,
         effectiveCenter,
-        radius,
+        initialRadius,
         rawQuery
       );
 
-      // If we found at least 3 relevant pandals, stop expanding
-      if (discoveredPandals.length >= 3) {
-        break;
+      // If no pandals found in the initial radius and user did not specify a strict radius, adaptively expand
+      if (discoveredPandals.length === 0 && !userSpecifiedRadius) {
+        for (const radius of RADIUS_EXPANSION_STEPS) {
+          if (radius <= initialRadius) continue;
+          finalRadius = radius;
+          const expandedResults = await this.runMultiPassDiscovery(effectiveCenter, radius, rawQuery);
+          discoveredPandals = this.mergeAndDeduplicate(
+            expandedResults,
+            effectiveCenter,
+            radius,
+            rawQuery
+          );
+          if (discoveredPandals.length > 0) {
+            break;
+          }
+        }
       }
     }
 
-    // Fallback: If still under 3, fetch within 25km of center
-    if (discoveredPandals.length < 3) {
-      finalRadius = 25000;
-      discoveredPandals = this.mergeAndDeduplicate([], effectiveCenter, finalRadius, rawQuery);
-    }
-
-    // 4. Sort results according to sortBy preference or distance
+    // 4. Sort results according to sortBy preference (default: nearest)
     const sortBy = params.sortBy || 'nearest';
     if (sortBy === 'least_crowded') {
       const crowdWeight: Record<string, number> = { LOW: 1, MODERATE: 2, HEAVY: 3, EXTREME: 4 };
@@ -233,8 +290,8 @@ export class PandalDiscoveryService {
         return scoreB - scoreA;
       });
     } else {
-      // Default: nearest
-      discoveredPandals.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+      // Default: nearest (strictly ascending by distance from user location)
+      discoveredPandals.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
     }
 
     // 5. Discover associated cultural events around discovered pandals
@@ -255,7 +312,8 @@ export class PandalDiscoveryService {
    */
   private async searchPandalByName(name: string, userLoc: Location): Promise<DiscoveredPandal[]> {
     const cleanName = name.toLowerCase().trim();
-    const allKnown = [...curatedEclipsePandals, ...this.userSubmissions];
+    const agamoniCandidates = loadAgamoniPandals();
+    const allKnown = [...curatedEclipsePandals, ...agamoniCandidates, ...this.userSubmissions];
 
     const matched = allKnown.filter(p => {
       const pName = p.name.toLowerCase();
@@ -270,7 +328,9 @@ export class PandalDiscoveryService {
     });
 
     if (matched.length > 0) {
-      return matched.map(p => this.enrichPandalWithMetrics(p, userLoc));
+      return matched
+        .map(p => this.enrichPandalWithMetrics(p, userLoc))
+        .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
     }
 
     // If not in curated, try Nominatim Place Geocoding for Kolkata landmarks
@@ -553,30 +613,9 @@ export class PandalDiscoveryService {
     radius: number,
     queryText?: string
   ): DiscoveredPandal[] {
-    const googleEarthCandidates: DiscoveredPandal[] = googleEarthImportService.getImportedRecords()
-      .filter((r) => r.category === 'PANDAL' || /pandal|puja|mandap/i.test(r.name))
-      .map((rec) => ({
-        id: `kml-${rec.id}`,
-        name: rec.name,
-        latitude: rec.latitude,
-        longitude: rec.longitude,
-        location: { lat: rec.latitude, lng: rec.longitude },
-        address: rec.description || `${rec.folderHierarchy?.[0] || 'Kolkata'}, Kolkata`,
-        area: rec.folderHierarchy?.[0] || 'Kolkata',
-        city: 'Kolkata',
-        source: 'GOOGLE_EARTH' as const,
-        sourceId: rec.id,
-        verificationStatus: rec.verificationStatus === 'verified' ? ('VERIFIED' as const) : ('UNVERIFIED' as const),
-        rating: 4.8,
-        userRatingCount: 350,
-        description: rec.description,
-        verified: rec.verificationStatus === 'verified',
-        crowdLevel: 'MODERATE' as const,
-      }));
-
+    const localCandidates = this.getLocalCandidates();
     const candidates = [
-      ...curatedEclipsePandals,
-      ...googleEarthCandidates,
+      ...localCandidates,
       ...this.userSubmissions,
       ...externalPlaces,
     ];
@@ -604,7 +643,7 @@ export class PandalDiscoveryService {
         candidate.sourceId = candidate.id;
       }
       if (!candidate.verificationStatus) {
-        candidate.verificationStatus = candidate.source === 'ECLIPSE_CURATED' ? 'VERIFIED' : 'UNVERIFIED';
+        candidate.verificationStatus = candidate.source === 'ECLIPSE_CURATED' || candidate.source === 'AGAMONI' ? 'VERIFIED' : 'UNVERIFIED';
       }
 
       // Calculate distance from search center
@@ -639,11 +678,14 @@ export class PandalDiscoveryService {
         const distBetween = this.calculateDistanceInMeters(p.location, candidate.location);
         if (distBetween < 75) return true;
 
-        // Match by normalized name
+        // Match by normalized name within same neighborhood (< 500 meters)
         const normA = this.normalizePandalName(p.name);
         const normB = this.normalizePandalName(candidate.name);
-        if (normA && normB && (normA.includes(normB) || normB.includes(normA))) {
-          return true;
+        if (normA && normB && normA.length >= 4 && normB.length >= 4) {
+          const isNameMatch = normA === normB || normA.includes(normB) || normB.includes(normA);
+          if (isNameMatch && distBetween < 500) {
+            return true;
+          }
         }
 
         return false;

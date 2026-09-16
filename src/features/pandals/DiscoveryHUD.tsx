@@ -21,6 +21,9 @@ export const DiscoveryHUD: React.FC = () => {
     calculateRouteToItem,
     submitUserPandal,
     setSelectedItem,
+    gpsStatus,
+    gpsErrorMsg,
+    visitedIds,
   } = useAppState();
 
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -85,10 +88,10 @@ export const DiscoveryHUD: React.FC = () => {
     });
   };
 
-  // Get Top 3 closest pandals
+  // Get Top 10 closest pandals
   const topPandals = [...pandals]
     .filter(p => p.zone !== 'EVENTS')
-    .slice(0, 3);
+    .slice(0, 10);
 
   return (
     <div className="absolute inset-0 pointer-events-none z-30">
@@ -179,6 +182,16 @@ export const DiscoveryHUD: React.FC = () => {
             </div>
           </div>
 
+          {/* GPS Status Notification */}
+          {(gpsStatus === 'denied' || gpsStatus === 'error') && (
+            <div className="bg-amber-950/40 border border-amber-800/60 rounded-xl px-2.5 py-1.5 text-[11px] text-amber-200/90 flex items-start gap-1.5">
+              <span className="text-amber-400 font-bold shrink-0">⚠️</span>
+              <span>
+                {gpsErrorMsg || 'GPS location is unavailable. Results are relative to current map center.'}
+              </span>
+            </div>
+          )}
+
           {/* Inline Slider / Top 3 Discovered Highlights */}
           {topPandals.length > 0 && (
             <div className="space-y-2 border-t border-neutral-900 pt-3">
@@ -199,14 +212,19 @@ export const DiscoveryHUD: React.FC = () => {
                         className="flex-1 cursor-pointer min-w-0"
                         onClick={() => setSelectedItem(pandal)}
                       >
-                        <div className="flex items-center space-x-1.5">
+                        <div className="flex items-center space-x-1.5 flex-wrap">
                           <p className="text-xs font-semibold text-neutral-200 truncate">{pandal.name}</p>
+                          {visitedIds.includes(pandal.id) && (
+                            <span className="text-[8px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1 py-0.5 rounded uppercase font-bold flex items-center gap-0.5">
+                              VISITED
+                            </span>
+                          )}
                           {!pandal.verified && (
                             <span className="text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1 py-0.5 rounded uppercase font-bold">Unverified</span>
                           )}
                         </div>
                         <p className="text-[10px] text-neutral-400 mt-0.5">
-                          {distKm} km • {durationMins} mins travel
+                          {pandal.estimatedTravelTime ? `${distKm} km • ${pandal.estimatedTravelTime}` : `${distKm} km • ${durationMins} mins travel`}
                         </p>
                       </div>
 

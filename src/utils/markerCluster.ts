@@ -28,12 +28,14 @@ export type ClusterOrItem<T> =
  * Cluster radius threshold in meters based on zoom level
  */
 function getClusterDistanceThresholdMeters(zoom: number): number {
-  if (zoom <= 9) return 4000;
-  if (zoom === 10) return 2500;
-  if (zoom === 11) return 1400;
-  if (zoom === 12) return 700;
-  // Zoom 13 and above: no clustering (or very small 150m for identical colocations)
-  return 120;
+  if (zoom <= 9) return 5000;
+  if (zoom === 10) return 3000;
+  if (zoom === 11) return 1800;
+  if (zoom === 12) return 1000;
+  if (zoom === 13) return 600;
+  if (zoom === 14) return 350;
+  if (zoom === 15) return 180;
+  return 60;
 }
 
 function calculateDistanceInMeters(
@@ -63,8 +65,8 @@ export function clusterMarkers<T>(
 ): ClusterOrItem<T>[] {
   if (items.length === 0) return [];
 
-  // At zoom 14 and above, individual display is preferred unless exactly superimposed
-  if (zoom >= 14) {
+  // Close zoom (zoom >= 16): show individual pandal markers
+  if (zoom >= 16) {
     return items.map((item) => ({ isCluster: false, item }));
   }
 

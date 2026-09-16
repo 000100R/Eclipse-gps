@@ -18,6 +18,7 @@ export const ExplorePandals: React.FC = () => {
     toggleVisited,
     visitedIds,
     refreshCatalogs,
+    setActiveTab,
     pandalCrowdCounts,
     pandalCrowdTrends,
   } = useAppState();
@@ -72,6 +73,17 @@ export const ExplorePandals: React.FC = () => {
           <div className="w-1.5 h-6 rounded-full bg-indigo-500" />
           <h2 className="text-lg font-bold text-neutral-100 tracking-wide uppercase">Durga Puja Pandals</h2>
         </div>
+        {visitedIds.length > 0 && (
+          <button
+            id="btn-explore-view-visited"
+            onClick={() => setActiveTab('visited')}
+            className="px-2 py-1 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 hover:bg-emerald-500/25 transition-colors"
+            title="View Visited Pandals"
+          >
+            <Check size={11} className="stroke-[3]" />
+            <span>{visitedIds.length} Visited</span>
+          </button>
+        )}
       </div>
 
       {/* Filter Toolbar */}
@@ -124,9 +136,15 @@ export const ExplorePandals: React.FC = () => {
               <GlassPanel key={pandal.id} className="p-4 flex flex-col space-y-3.5">
                 <div className="flex items-start justify-between">
                   <div className="min-w-0 pr-2">
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">{pandal.zone} Kolkata</span>
                       <CrowdBadge level={pandal.crowdLevel} />
+                      {isVisited && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                          <Check size={10} className="stroke-[3]" />
+                          VISITED
+                        </span>
+                      )}
                     </div>
                     <h3 className="text-sm font-bold text-neutral-100 mt-1 truncate">{pandal.name}</h3>
                     <p className="text-xs text-neutral-400 mt-0.5 truncate">{pandal.address}</p>

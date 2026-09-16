@@ -12,6 +12,8 @@ import { DiscoveryHUD } from './features/pandals/DiscoveryHUD';
 import { ExploreEvents } from './features/events/ExploreEvents';
 import { RoutePlanner } from './features/navigation/RoutePlanner';
 import { SavedItems } from './features/saved/SavedItems';
+import { VisitedPandalsView } from './features/visited/VisitedPandalsView';
+import { MyPujaJourney } from './features/journey/MyPujaJourney';
 import { GroupPanel } from './features/groups/GroupPanel';
 import { GlassPanel } from './components/ui/GlassPanel';
 import { AlertTriangle, ShieldCheck, HelpCircle } from 'lucide-react';
@@ -49,6 +51,8 @@ const AppContent: React.FC = () => {
           {activeTab === 'routes' && <RoutePlanner />}
           {activeTab === 'events' && <ExploreEvents />}
           {activeTab === 'saved' && <SavedItems />}
+          {activeTab === 'visited' && <VisitedPandalsView />}
+          {activeTab === 'journey' && <MyPujaJourney />}
           {activeTab === 'group' && <GroupPanel />}
         </div>
       )}

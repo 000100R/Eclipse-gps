@@ -6,7 +6,8 @@ export type PandalSource =
   | 'USER_CONTRIBUTION'
   | 'OSM_NOMINATIM'
   | 'OFFICIAL_COMMITTEE'
-  | 'GOOGLE_EARTH';
+  | 'GOOGLE_EARTH'
+  | 'AGAMONI';
 
 export interface PandalDataSourceRecord {
   field?: string;

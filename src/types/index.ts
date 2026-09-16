@@ -78,6 +78,8 @@ export interface Pandal {
   verified: boolean;
   visitedStatus: boolean;
   favouriteStatus: boolean;
+  distance?: number;
+  estimatedTravelTime?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -227,6 +229,18 @@ export interface AIMessage {
 export interface AIConversation {
   id: string;
   messages: AIMessage[];
+}
+
+export interface VisitedPandalRecord {
+  pandalId: string;
+  pandalName: string;
+  coordinates: {
+    lat: number;
+    lng: number;
+  };
+  firstVisitedAt: number;
+  latestVisitedAt: number;
+  visitCount: number;
 }
 
 export * from './geoImport';

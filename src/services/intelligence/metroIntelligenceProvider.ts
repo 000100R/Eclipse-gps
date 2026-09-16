@@ -23,6 +23,7 @@ import {
   MetroStation,
   NearbyPandalRef,
   NearbyBonediBariRef,
+  MetroLineCategory,
 } from '../../types/metro';
 import { Location } from '../../types';
 import { curatedMetroStations } from '../../data/curatedMetroStations';
@@ -48,6 +49,8 @@ export class MetroIntelligenceProvider
   private cachedViewportStations: MetroStation[] = [];
   private lastBounds?: MapViewportBounds;
   private userLocation?: Location;
+  private activeLineFilter: MetroLineCategory = 'ALL';
+  private lineFilterListeners: Set<(filter: MetroLineCategory) => void> = new Set();
 
   constructor() {
     this.allStations = [...curatedMetroStations];
@@ -57,6 +60,59 @@ export class MetroIntelligenceProvider
 
   public setUserLocation(loc?: Location): void {
     this.userLocation = loc;
+  }
+
+  public getLineFilter(): MetroLineCategory {
+    return this.activeLineFilter;
+  }
+
+  public setLineFilter(filter: MetroLineCategory): void {
+    if (this.activeLineFilter === filter) return;
+    this.activeLineFilter = filter;
+    this.lineFilterListeners.forEach((listener) => {
+      try {
+        listener(filter);
+      } catch (e) {
+        console.error('Error notifying line filter listener', e);
+      }
+    });
+    // Trigger refresh with new line filter
+    this.refresh();
+  }
+
+  public subscribeLineFilter(listener: (filter: MetroLineCategory) => void): () => void {
+    this.lineFilterListeners.add(listener);
+    return () => this.lineFilterListeners.delete(listener);
+  }
+
+  public matchesLineFilter(station: MetroStation, filter: MetroLineCategory = this.activeLineFilter): boolean {
+    if (filter === 'ALL') return true;
+    const line = (station.line || '').toLowerCase();
+    const lines = (station.lines || []).map((l) => l.toLowerCase());
+    const combined = [line, ...lines].join(' ');
+
+    switch (filter) {
+      case 'BLUE':
+        return combined.includes('blue') || combined.includes('north-south') || combined.includes('line 1');
+      case 'GREEN':
+        return combined.includes('green') || combined.includes('east-west') || combined.includes('line 2');
+      case 'PURPLE':
+        return combined.includes('purple') || combined.includes('joka') || combined.includes('line 3');
+      case 'YELLOW':
+        return combined.includes('yellow') || combined.includes('airport') || combined.includes('noapara-barasat') || combined.includes('line 4');
+      default:
+        return true;
+    }
+  }
+
+  public getLineCounts(): Record<MetroLineCategory, number> {
+    return {
+      ALL: this.allStations.length,
+      BLUE: this.allStations.filter((s) => this.matchesLineFilter(s, 'BLUE')).length,
+      GREEN: this.allStations.filter((s) => this.matchesLineFilter(s, 'GREEN')).length,
+      PURPLE: this.allStations.filter((s) => this.matchesLineFilter(s, 'PURPLE')).length,
+      YELLOW: this.allStations.filter((s) => this.matchesLineFilter(s, 'YELLOW')).length,
+    };
   }
 
   /**
@@ -96,13 +152,16 @@ export class MetroIntelligenceProvider
     intelligenceLayerService.updateLoadingState('METRO', true);
 
     try {
-      // Filter stations by viewport with 20% geographic buffer
-      const filtered = this.filterByViewportBounds(this.allStations, bounds);
+      // 1. Filter stations by selected metro line
+      const lineStations = this.allStations.filter((st) => this.matchesLineFilter(st, this.activeLineFilter));
 
-      // Enrich with user distance if GPS location available
+      // 2. Filter stations by viewport with 20% geographic buffer
+      const filtered = this.filterByViewportBounds(lineStations, bounds);
+
+      // 3. Enrich with user distance if GPS location available
       const enriched = filtered.map((st) => this.enrichWithUserMetrics(st, this.userLocation));
 
-      // Sort stations: by user distance if known, else North-to-South
+      // 4. Sort stations: by user distance if known, else North-to-South
       enriched.sort((a, b) => {
         if (a.distance !== undefined && b.distance !== undefined) {
           return a.distance - b.distance;
@@ -125,7 +184,8 @@ export class MetroIntelligenceProvider
     if (this.lastBounds) {
       return this.load(this.lastBounds, 14, this.userLocation);
     }
-    const enriched = this.allStations.map((st) => this.enrichWithUserMetrics(st, this.userLocation));
+    const lineStations = this.allStations.filter((st) => this.matchesLineFilter(st, this.activeLineFilter));
+    const enriched = lineStations.map((st) => this.enrichWithUserMetrics(st, this.userLocation));
     this.cachedViewportStations = enriched;
     intelligenceLayerService.updateItemCount('METRO', enriched.length);
     return enriched;
@@ -139,16 +199,20 @@ export class MetroIntelligenceProvider
 
   public destroy(): void {
     this.clear();
+    this.lineFilterListeners.clear();
   }
 
   public getData(): MetroStation[] {
-    return this.cachedViewportStations.length > 0
-      ? this.cachedViewportStations
-      : this.allStations.map((st) => this.enrichWithUserMetrics(st, this.userLocation));
+    const lineStations = this.allStations.filter((st) => this.matchesLineFilter(st, this.activeLineFilter));
+    if (this.cachedViewportStations.length > 0) {
+      return this.cachedViewportStations.filter((st) => this.matchesLineFilter(st, this.activeLineFilter));
+    }
+    return lineStations.map((st) => this.enrichWithUserMetrics(st, this.userLocation));
   }
 
-  public getAllStations(): MetroStation[] {
-    return this.allStations.map((st) => this.enrichWithUserMetrics(st, this.userLocation));
+  public getAllStations(filter: MetroLineCategory = this.activeLineFilter): MetroStation[] {
+    const lineStations = this.allStations.filter((st) => this.matchesLineFilter(st, filter));
+    return lineStations.map((st) => this.enrichWithUserMetrics(st, this.userLocation));
   }
 
   public isAvailable(): boolean {

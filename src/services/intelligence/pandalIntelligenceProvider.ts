@@ -34,6 +34,7 @@ import {
 import { intelligenceLayerService } from './intelligenceLayerService';
 import { pandalGridSearchEngine } from '../discovery/pandalGridSearchEngine';
 import { pandalEnrichmentService } from './pandalEnrichmentService';
+import { loadAgamoniPandals } from '../discovery/agamoniPandalLoader';
 
 export class PandalIntelligenceProvider implements IntelligenceDataProvider<DiscoveredPandal> {
   public readonly layerId: IntelligenceLayerId = 'PANDALS';
@@ -123,6 +124,7 @@ export class PandalIntelligenceProvider implements IntelligenceDataProvider<Disc
       // 3. Load curated and Google Earth data
       const curated = this.loadCuratedPandals();
       const googleEarth = this.loadGoogleEarthImports();
+      const agamoni = loadAgamoniPandals();
       const googlePlaces = await googlePlacesPromise;
 
       // 4. Merge and Deduplicate with strict source priority and Naktala safeguard
@@ -130,6 +132,7 @@ export class PandalIntelligenceProvider implements IntelligenceDataProvider<Disc
         ...this.allUnifiedPandals,
         ...curated,
         ...googleEarth,
+        ...agamoni,
         ...googlePlaces,
       ]);
 
@@ -219,20 +222,22 @@ export class PandalIntelligenceProvider implements IntelligenceDataProvider<Disc
       // Execute adaptive radius search (1km -> 3km -> 5km -> 10km -> 20km)
       const { pandals } = await pandalGridSearchEngine.searchAdaptiveNearby(activeLoc, 1000, 5);
 
-      // Merge with all known curated & Google Earth pandals
+      // Merge with all known curated, Google Earth & Agamoni pandals
       const curated = this.loadCuratedPandals();
       const googleEarth = this.loadGoogleEarthImports();
+      const agamoni = loadAgamoniPandals();
       const unified = pandalGridSearchEngine.deduplicateAndMerge([
         ...curated,
         ...googleEarth,
+        ...agamoni,
         ...pandals,
       ]);
 
       const enriched = unified
         .map((p) => this.enrichWithUserMetrics(p, activeLoc))
-        .sort((a, b) => (a.distance || 999999) - (b.distance || 999999));
+        .sort((a, b) => (a.distance ?? 999999) - (b.distance ?? 999999));
 
-      return enriched.slice(0, 15);
+      return enriched;
     }
 
     // 2. Check for specific area search (e.g. "Shyambazar", "Salt Lake", "Naktala", "Garia", etc.)
@@ -243,10 +248,12 @@ export class PandalIntelligenceProvider implements IntelligenceDataProvider<Disc
 
       const curated = this.loadCuratedPandals();
       const googleEarth = this.loadGoogleEarthImports();
+      const agamoni = loadAgamoniPandals();
       const unified = pandalGridSearchEngine.deduplicateAndMerge([
         ...this.allUnifiedPandals,
         ...curated,
         ...googleEarth,
+        ...agamoni,
         ...cellResults,
       ]);
       this.allUnifiedPandals = unified;
@@ -260,7 +267,7 @@ export class PandalIntelligenceProvider implements IntelligenceDataProvider<Disc
 
       return filtered
         .map((p) => this.enrichWithUserMetrics(p, activeLoc))
-        .sort((a, b) => (a.distance || 999999) - (b.distance || 999999));
+        .sort((a, b) => (a.distance ?? 999999) - (b.distance ?? 999999));
     }
 
     // 3. General Text Search across known records
@@ -476,6 +483,8 @@ export class PandalIntelligenceProvider implements IntelligenceDataProvider<Disc
       behala: { lat: 22.498, lng: 88.318 },
       haridevpur: { lat: 22.485, lng: 88.342 },
       naktala: VERIFIED_NAKTALA_COORDINATES,
+      kendua: { lat: 22.47193, lng: 88.380997 },
+      patuli: { lat: 22.4720, lng: 88.3810 },
       garia: { lat: 22.465, lng: 88.375 },
       jadavpur: { lat: 22.495, lng: 88.370 },
       'dum dum': { lat: 22.609, lng: 88.408 },
