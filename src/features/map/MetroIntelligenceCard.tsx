@@ -12,7 +12,7 @@
  * - ADD TO ITINERARY action for stations and nearby pujas
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Train,
   Navigation,
@@ -33,6 +33,8 @@ import { GlassPanel } from '../../components/ui/GlassPanel';
 import { MetroStation, NearbyPandalRef, NearbyBonediBariRef } from '../../types/metro';
 import { Location } from '../../types';
 import { CrowdBadge } from '../../components/ui/CrowdBadge';
+import { useAppState } from '../../hooks/AppStateProvider';
+import { metroIntelligenceProvider } from '../../services/intelligence/metroIntelligenceProvider';
 
 interface MetroIntelligenceCardProps {
   metroStation: MetroStation;
@@ -57,13 +59,49 @@ export const MetroIntelligenceCard: React.FC<MetroIntelligenceCardProps> = ({
   onSelectPandal,
   onSelectBonediBari,
 }) => {
+  const { setSelectedItem, calculateRouteToItem, setIsNavigating, setCurrentStepIndex } = useAppState();
+
   const [activeTab, setActiveTab] = useState<'pujas' | 'entrances'>('pujas');
   const [filterType, setFilterType] = useState<'all' | 'pandals' | 'bonedi'>('all');
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
+  // Dynamic nearby pandals with real walking routes for the closest 10
+  const [routedPandals, setRoutedPandals] = useState<NearbyPandalRef[]>(() => metroStation.nearbyPandals || []);
+  const [isCalculatingRoutes, setIsCalculatingRoutes] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsCalculatingRoutes(true);
+
+    // Seed immediately with existing station pandals if available
+    if (metroStation.nearbyPandals && metroStation.nearbyPandals.length > 0) {
+      setRoutedPandals(metroStation.nearbyPandals);
+    }
+
+    // Discover nearby pandals and calculate real walking routes for the top 10
+    metroIntelligenceProvider
+      .getNearbyPandalsForStationWithWalkingRoutes(metroStation)
+      .then((results) => {
+        if (isMounted) {
+          setRoutedPandals(results);
+          setIsCalculatingRoutes(false);
+        }
+      })
+      .catch((err) => {
+        console.warn('[MetroIntelligenceCard] Error calculating walking routes:', err);
+        if (isMounted) {
+          setIsCalculatingRoutes(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [metroStation.id, metroStation.location.lat, metroStation.location.lng]);
+
   if (!metroStation) return null;
 
-  const nearbyPandals = metroStation.nearbyPandals || [];
+  const nearbyPandals = routedPandals;
   const nearbyBonediBaris = metroStation.nearbyBonediBaris || [];
 
   // Combined list of nearby places sorted strictly by walking distance
@@ -77,6 +115,28 @@ export const MetroIntelligenceCard: React.FC<MetroIntelligenceCardProps> = ({
     if (filterType === 'bonedi') return item.itemType === 'bonedi';
     return true;
   });
+
+  const handleSelectPuja = (item: any) => {
+    if (item.itemType === 'pandal' && onSelectPandal) {
+      onSelectPandal(item.id);
+    } else if (item.itemType === 'bonedi' && onSelectBonediBari) {
+      onSelectBonediBari(item.id);
+    }
+    if (onShowOnMap) {
+      onShowOnMap(item.location);
+    }
+    setSelectedItem(item as any);
+  };
+
+  const handleNavigateToPuja = async (item: any) => {
+    if (onNavigateToPuja) {
+      onNavigateToPuja(metroStation, item);
+    } else {
+      await calculateRouteToItem(item);
+      setIsNavigating(true);
+      setCurrentStepIndex(0);
+    }
+  };
 
   const entrances = metroStation.entrancesExits || metroStation.entrances || [];
 
@@ -266,9 +326,17 @@ export const MetroIntelligenceCard: React.FC<MetroIntelligenceCardProps> = ({
             </button>
           </div>
 
-          <p className="text-[11px] text-neutral-400 italic">
-            Sorted by walking distance directly from {metroStation.name}:
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-neutral-400 italic">
+              Sorted by walking distance directly from {metroStation.name}:
+            </p>
+            {isCalculatingRoutes && (
+              <span className="text-[10px] text-blue-400 font-mono flex items-center gap-1 animate-pulse shrink-0">
+                <Clock size={10} />
+                Routing top 10...
+              </span>
+            )}
+          </div>
 
           {/* List of nearby Pujas */}
           <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
@@ -282,7 +350,8 @@ export const MetroIntelligenceCard: React.FC<MetroIntelligenceCardProps> = ({
                 return (
                   <div
                     key={`${item.id}-${idx}`}
-                    className="p-2.5 rounded-xl bg-neutral-900/80 border border-neutral-800/90 hover:border-blue-500/50 transition-all"
+                    onClick={() => handleSelectPuja(item)}
+                    className="p-2.5 rounded-xl bg-neutral-900/80 border border-neutral-800/90 hover:border-blue-500/50 hover:bg-neutral-850/80 transition-all cursor-pointer group"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -308,32 +377,46 @@ export const MetroIntelligenceCard: React.FC<MetroIntelligenceCardProps> = ({
                           )}
                         </div>
 
-                        <h4 className="text-xs sm:text-sm font-bold text-white truncate mt-1">
+                        <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-blue-300 transition-colors truncate mt-1">
                           {item.name}
                         </h4>
 
-                        <div className="flex items-center gap-2 mt-1 text-[11px] text-neutral-400">
+                        <div className="flex items-center gap-2 mt-1 text-[11px] text-neutral-400 flex-wrap">
                           <span className="font-semibold text-blue-300 flex items-center gap-0.5">
                             <Footprints size={12} className="text-blue-400" />
-                            {item.distanceMeters}m
+                            {item.distanceMeters < 1000
+                              ? `${item.distanceMeters}m`
+                              : `${(item.distanceMeters / 1000).toFixed(2)} km`}
                           </span>
                           <span>•</span>
                           <span className="text-neutral-300 font-medium">
                             {item.walkingMinutes} min walk
                           </span>
+                          {Boolean((item as any).isCalculatedRoute) && (
+                            <span
+                              className="text-[9px] px-1.5 py-0.2 rounded bg-blue-950/80 text-blue-300 border border-blue-800/60 font-mono"
+                              title="Accurate walking route via OSRM"
+                            >
+                              OSRM
+                            </span>
+                          )}
                         </div>
                       </div>
 
                       {/* Item Quick Actions */}
-                      <div className="flex flex-col gap-1 shrink-0">
+                      <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          title="Select this pandal"
+                          onClick={() => handleSelectPuja(item)}
+                          className="flex items-center justify-center gap-1 px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-[10px] font-bold transition-all border border-neutral-700 shadow-sm cursor-pointer"
+                        >
+                          <span>SELECT</span>
+                        </button>
+
                         <button
                           title="Navigate to this pandal"
-                          onClick={() => {
-                            if (onNavigateToPuja) {
-                              onNavigateToPuja(metroStation, item);
-                            }
-                          }}
-                          className="flex items-center gap-1 px-2 py-1.5 bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer"
+                          onClick={() => handleNavigateToPuja(item)}
+                          className="flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer"
                         >
                           <Navigation size={10} className="fill-current" />
                           <span>WALK</span>
@@ -352,7 +435,7 @@ export const MetroIntelligenceCard: React.FC<MetroIntelligenceCardProps> = ({
                               });
                             }
                           }}
-                          className="flex items-center gap-1 px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-[10px] font-bold transition-all border border-neutral-700 cursor-pointer"
+                          className="flex items-center justify-center gap-1 px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-[10px] font-bold transition-all border border-neutral-700 cursor-pointer"
                         >
                           <Plus size={10} />
                           <span>STOP</span>

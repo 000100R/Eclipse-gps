@@ -16,6 +16,8 @@ import { BonediBariIntelligenceCard } from './BonediBariIntelligenceCard';
 import { MetroIntelligenceCard } from './MetroIntelligenceCard';
 import { PandalEmptyStateBanner } from './PandalEmptyStateBanner';
 import { PandalCoverageBadge } from './PandalCoverageBadge';
+import { LiveNavigationHUD } from '../navigation/LiveNavigationHUD';
+import { RouteAlternativesBar } from '../navigation/RouteAlternativesBar';
 import { crowdIntelligenceService } from '../../services/intelligence/crowdIntelligenceService';
 import { trafficIntelligenceService } from '../../services/intelligence/trafficIntelligenceService';
 import { clusterMarkers } from '../../utils/markerCluster';
@@ -45,6 +47,7 @@ export const LeafletMapView: React.FC = () => {
     selectedItem,
     setSelectedItem,
     activeRoute,
+    selectAlternativeRoute,
     isNavigating,
     setIsNavigating,
     currentStepIndex,
@@ -709,6 +712,54 @@ export const LeafletMapView: React.FC = () => {
 
     if (!activeRoute || activeRoute.geometry.length === 0) return;
 
+    const layers: L.Layer[] = [];
+
+    // Draw alternative routes (behind primary route)
+    if (activeRoute.alternatives && activeRoute.alternatives.length > 0) {
+      activeRoute.alternatives.forEach((altRoute, idx) => {
+        if (!altRoute.geometry || altRoute.geometry.length === 0) return;
+        const altLatLngs = altRoute.geometry.map(pt => [pt.lat, pt.lng] as [number, number]);
+
+        // Wider hit-area for easier tapping
+        const hitArea = L.polyline(altLatLngs, {
+          color: 'transparent',
+          weight: 24,
+          opacity: 0,
+        });
+
+        // Visible dashed alternative polyline
+        const altPolyline = L.polyline(altLatLngs, {
+          color: '#94a3b8',
+          weight: 5,
+          opacity: 0.75,
+          dashArray: '6, 8',
+          lineCap: 'round',
+        });
+
+        const distKm = altRoute.distance < 1000 
+          ? `${Math.round(altRoute.distance)} m` 
+          : `${(altRoute.distance / 1000).toFixed(1)} km`;
+        const durMin = `${Math.max(1, Math.round(altRoute.duration / 60))} min`;
+
+        altPolyline.bindTooltip(
+          `<div style="font-family: inherit; font-size: 11px; font-weight: 600; padding: 2px 4px; color: #f1f5f9;">
+            Alt ${idx + 1}: ${distKm} • ${durMin}<br/><span style="font-size: 9px; color: #94a3b8; font-weight: 400;">Tap to select route</span>
+          </div>`,
+          { sticky: true, className: 'leaflet-alt-tooltip' }
+        );
+
+        const onSelect = (e: L.LeafletMouseEvent) => {
+          L.DomEvent.stopPropagation(e);
+          selectAlternativeRoute(altRoute);
+        };
+
+        hitArea.on('click', onSelect);
+        altPolyline.on('click', onSelect);
+
+        layers.push(hitArea, altPolyline);
+      });
+    }
+
     const latlngs = activeRoute.geometry.map(pt => [pt.lat, pt.lng] as [number, number]);
 
     // Translucent path aura
@@ -717,7 +768,7 @@ export const LeafletMapView: React.FC = () => {
       weight: 12,
       opacity: 0.2,
       lineCap: 'round',
-    }).addTo(map);
+    });
 
     // Glowing core path
     const polyline = L.polyline(latlngs, {
@@ -725,10 +776,12 @@ export const LeafletMapView: React.FC = () => {
       weight: 5,
       opacity: 0.9,
       lineCap: 'round',
-    }).addTo(map);
+    });
+
+    layers.push(backgroundPolyline, polyline);
 
     // Keep reference of polyline group
-    const routeGroup = L.featureGroup([backgroundPolyline, polyline]).addTo(map);
+    const routeGroup = L.featureGroup(layers).addTo(map);
     routePolylineRef.current = routeGroup as any;
 
     // Fly bounds to fit whole route comfortably
@@ -737,7 +790,7 @@ export const LeafletMapView: React.FC = () => {
       maxZoom: 16,
     });
 
-  }, [activeRoute]);
+  }, [activeRoute, selectAlternativeRoute]);
 
   // Handle selectedItem focus panning
   useEffect(() => {
@@ -835,55 +888,19 @@ export const LeafletMapView: React.FC = () => {
       )}
 
       {/* Navigation Active Dashboard HUD */}
-      {isNavigating && activeInstruction && (
-        <div className="absolute top-24 left-4 right-4 z-10 max-w-md mx-auto">
-          <GlassPanel className="p-4 border-l-4 border-l-indigo-500 shadow-2xl animate-fade-in">
-            <div className="flex items-start space-x-3">
-              <CornerDownRight className="text-indigo-400 mt-1 stroke-[2.5]" size={20} />
-              <div className="flex-1">
-                <p className="text-xs text-neutral-500 uppercase tracking-wider font-semibold">Next Instruction (2D Map)</p>
-                <p className="text-sm font-semibold text-neutral-200 mt-0.5 leading-snug">{activeInstruction.text}</p>
-                <div className="flex items-center space-x-3 mt-3 text-xs text-neutral-400">
-                  <span>In {(activeInstruction.distance).toFixed(0)}m</span>
-                  <span className="w-1 h-1 bg-neutral-700 rounded-full" />
-                  <span>ETA: {Math.ceil(activeRoute!.duration / 60)} mins</span>
-                  <span className="w-1 h-1 bg-neutral-700 rounded-full" />
-                  <span>Remaining: {(activeRoute!.distance / 1000).toFixed(1)} km</span>
-                </div>
-              </div>
-            </div>
+      {isNavigating && activeRoute && (
+        <div className="absolute top-24 left-4 right-4 z-10 max-w-md mx-auto pointer-events-auto space-y-2">
+          <LiveNavigationHUD />
+          {activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
+            <RouteAlternativesBar />
+          )}
+        </div>
+      )}
 
-            <div className="flex items-center justify-between border-t border-neutral-800/40 mt-4 pt-3">
-              <button
-                id="btn-nav-step-forward"
-                onClick={() => {
-                  if (currentStepIndex < activeRoute!.instructions.length - 1) {
-                    setCurrentStepIndex(currentStepIndex + 1);
-                  } else {
-                    setIsNavigating(false);
-                    setSelectedItem(null);
-                  }
-                }}
-                className="text-[11px] bg-indigo-600 hover:bg-indigo-500 font-bold tracking-wider text-white px-3 py-1.5 rounded-lg uppercase flex items-center space-x-1"
-              >
-                <span>Step Forward</span>
-              </button>
-              <button
-                id="btn-nav-trigger-offroute"
-                onClick={triggerOffRouteReroute}
-                className="text-[11px] hover:bg-neutral-800 text-neutral-400 font-bold tracking-wider px-3 py-1.5 rounded-lg uppercase border border-neutral-800"
-              >
-                Reroute
-              </button>
-              <button
-                id="btn-nav-stop"
-                onClick={() => setIsNavigating(false)}
-                className="text-[11px] bg-rose-950 hover:bg-rose-900 font-bold tracking-wider text-rose-200 px-3 py-1.5 rounded-lg uppercase"
-              >
-                Stop
-              </button>
-            </div>
-          </GlassPanel>
+      {/* Route Preview Alternatives (when route is calculated but before active navigation is started) */}
+      {!isNavigating && activeRoute && activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
+        <div className="absolute top-24 left-4 right-4 z-10 max-w-md mx-auto pointer-events-auto">
+          <RouteAlternativesBar />
         </div>
       )}
 

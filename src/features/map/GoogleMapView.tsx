@@ -17,6 +17,8 @@ import { BonediBariIntelligenceCard } from './BonediBariIntelligenceCard';
 import { MetroIntelligenceCard } from './MetroIntelligenceCard';
 import { PandalEmptyStateBanner } from './PandalEmptyStateBanner';
 import { PandalCoverageBadge } from './PandalCoverageBadge';
+import { LiveNavigationHUD } from '../navigation/LiveNavigationHUD';
+import { RouteAlternativesBar } from '../navigation/RouteAlternativesBar';
 import { crowdIntelligenceService } from '../../services/intelligence/crowdIntelligenceService';
 import { trafficIntelligenceService } from '../../services/intelligence/trafficIntelligenceService';
 import { clusterMarkers } from '../../utils/markerCluster';
@@ -29,6 +31,7 @@ export const GoogleMapView: React.FC = () => {
   const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
   const routePolylineRef = useRef<google.maps.Polyline | null>(null);
+  const altPolylinesRef = useRef<google.maps.Polyline[]>([]);
   const gpsMarkerRef = useRef<google.maps.Marker | null>(null);
   const gpsAccuracyCircleRef = useRef<google.maps.Circle | null>(null);
   const streetViewPanoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
@@ -49,6 +52,7 @@ export const GoogleMapView: React.FC = () => {
     selectedItem,
     setSelectedItem,
     activeRoute,
+    selectAlternativeRoute,
     isNavigating,
     setIsNavigating,
     currentStepIndex,
@@ -689,7 +693,7 @@ export const GoogleMapView: React.FC = () => {
 
   }, [friendsList, friendsLocations, googleLoaded, isLostInCrowdActive]);
 
-  // Render OSRM Polyline Path on Google Map
+  // Render OSRM Polyline Path and Alternatives on Google Map
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !googleLoaded) return;
@@ -699,12 +703,44 @@ export const GoogleMapView: React.FC = () => {
       routePolylineRef.current = null;
     }
 
+    altPolylinesRef.current.forEach(p => p.setMap(null));
+    altPolylinesRef.current = [];
+
     if (!activeRoute || activeRoute.geometry.length === 0) return;
 
+    const bounds = new google.maps.LatLngBounds();
+
+    // 1. Render alternative routes (dashed style, lower opacity, tap-to-select)
+    if (activeRoute.alternatives && activeRoute.alternatives.length > 0) {
+      activeRoute.alternatives.forEach((altRoute) => {
+        if (!altRoute.geometry || altRoute.geometry.length === 0) return;
+        const altCoords = altRoute.geometry.map(pt => ({ lat: pt.lat, lng: pt.lng }));
+        altCoords.forEach(c => bounds.extend(c));
+
+        const altPolyline = new google.maps.Polyline({
+          path: altCoords,
+          geodesic: true,
+          strokeColor: '#94a3b8',
+          strokeOpacity: 0.75,
+          strokeWeight: 5,
+          zIndex: 5,
+          map: map,
+        });
+
+        altPolyline.addListener('click', () => {
+          selectAlternativeRoute(altRoute);
+        });
+
+        altPolylinesRef.current.push(altPolyline);
+      });
+    }
+
+    // 2. Render primary active route
     const pathCoordinates = activeRoute.geometry.map(pt => ({
       lat: pt.lat,
       lng: pt.lng,
     }));
+    pathCoordinates.forEach(coord => bounds.extend(coord));
 
     const polyline = new google.maps.Polyline({
       path: pathCoordinates,
@@ -712,14 +748,13 @@ export const GoogleMapView: React.FC = () => {
       strokeColor: '#6366f1',
       strokeOpacity: 0.85,
       strokeWeight: 6,
+      zIndex: 10,
       map: map,
     });
 
     routePolylineRef.current = polyline;
 
     // Smooth camera boundary fit
-    const bounds = new google.maps.LatLngBounds();
-    pathCoordinates.forEach(coord => bounds.extend(coord));
     map.fitBounds(bounds, {
       top: 100,
       bottom: 100,
@@ -727,7 +762,7 @@ export const GoogleMapView: React.FC = () => {
       right: 60,
     });
 
-  }, [activeRoute, googleLoaded]);
+  }, [activeRoute, selectAlternativeRoute, googleLoaded]);
 
   // Sync selectedItem focus view
   useEffect(() => {
@@ -977,55 +1012,19 @@ export const GoogleMapView: React.FC = () => {
       </div>
 
       {/* 5. Navigation Active Dashboard HUD */}
-      {isNavigating && activeInstruction && (
-        <div className="absolute top-24 left-4 right-4 z-10 max-w-md mx-auto">
-          <GlassPanel className="p-4 border-l-4 border-l-indigo-500 shadow-2xl animate-fade-in">
-            <div className="flex items-start space-x-3">
-              <CornerDownRight className="text-indigo-400 mt-1 stroke-[2.5]" size={20} />
-              <div className="flex-1">
-                <p className="text-xs text-neutral-500 uppercase tracking-wider font-semibold">Active Navigation HUD (3D Vector)</p>
-                <p className="text-sm font-semibold text-neutral-200 mt-0.5 leading-snug">{activeInstruction.text}</p>
-                <div className="flex items-center space-x-3 mt-3 text-xs text-neutral-400">
-                  <span>In {(activeInstruction.distance).toFixed(0)}m</span>
-                  <span className="w-1 h-1 bg-neutral-700 rounded-full" />
-                  <span>ETA: {Math.ceil(activeRoute!.duration / 60)} mins</span>
-                  <span className="w-1 h-1 bg-neutral-700 rounded-full" />
-                  <span>Remaining: {(activeRoute!.distance / 1000).toFixed(1)} km</span>
-                </div>
-              </div>
-            </div>
+      {isNavigating && activeRoute && (
+        <div className="absolute top-24 left-4 right-4 z-10 max-w-md mx-auto pointer-events-auto space-y-2">
+          <LiveNavigationHUD />
+          {activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
+            <RouteAlternativesBar />
+          )}
+        </div>
+      )}
 
-            <div className="flex items-center justify-between border-t border-neutral-800/40 mt-4 pt-3">
-              <button
-                id="btn-nav-step-forward"
-                onClick={() => {
-                  if (currentStepIndex < activeRoute!.instructions.length - 1) {
-                    setCurrentStepIndex(currentStepIndex + 1);
-                  } else {
-                    setIsNavigating(false);
-                    setSelectedItem(null);
-                  }
-                }}
-                className="text-[11px] bg-indigo-600 hover:bg-indigo-500 font-bold tracking-wider text-white px-3 py-1.5 rounded-lg uppercase flex items-center space-x-1"
-              >
-                <span>Step Forward</span>
-              </button>
-              <button
-                id="btn-nav-trigger-offroute"
-                onClick={triggerOffRouteReroute}
-                className="text-[11px] hover:bg-neutral-800 text-neutral-400 font-bold tracking-wider px-3 py-1.5 rounded-lg uppercase border border-neutral-800"
-              >
-                Reroute
-              </button>
-              <button
-                id="btn-nav-stop"
-                onClick={() => setIsNavigating(false)}
-                className="text-[11px] bg-rose-950 hover:bg-rose-900 font-bold tracking-wider text-rose-200 px-3 py-1.5 rounded-lg uppercase"
-              >
-                Stop
-              </button>
-            </div>
-          </GlassPanel>
+      {/* Route Preview Alternatives (when route is calculated but before active navigation is started) */}
+      {!isNavigating && activeRoute && activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
+        <div className="absolute top-24 left-4 right-4 z-10 max-w-md mx-auto pointer-events-auto">
+          <RouteAlternativesBar />
         </div>
       )}
 

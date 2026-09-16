@@ -39,6 +39,7 @@ export interface NearbyPandalRef {
   theme?: string;
   location: Location;
   address?: string;
+  isCalculatedRoute?: boolean;
 }
 
 export interface NearbyBonediBariRef {

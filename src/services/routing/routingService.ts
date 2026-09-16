@@ -5,7 +5,7 @@ export interface IRoutingProvider {
     origin: Location,
     destination: Location,
     waypoints: RouteWaypoint[],
-    alternatives?: boolean,
+    alternatives?: boolean | number,
     profile?: 'driving' | 'foot'
   ): Promise<Route>;
   optimizeRoute(
@@ -35,11 +35,84 @@ function getHaversineDistance(p1: Location, p2: Location): number {
 export class OSRMRoutingProvider implements IRoutingProvider {
   isFallback: boolean = false;
 
+  private parseRouteFromOSRM(
+    osrmRoute: any,
+    origin: Location,
+    destination: Location,
+    waypoints: RouteWaypoint[],
+    index: number = 0
+  ): Route {
+    const geometry: Location[] = osrmRoute.geometry.coordinates.map((coord: [number, number]) => ({
+      lat: coord[1],
+      lng: coord[0],
+    }));
+
+    const instructions: RouteInstruction[] = [];
+    if (osrmRoute.legs) {
+      for (const leg of osrmRoute.legs) {
+        if (leg.steps) {
+          for (const step of leg.steps) {
+            const name = step.name || 'Road';
+            const type = step.maneuver.type;
+            const modifier = step.maneuver.modifier ? ` ${step.maneuver.modifier}` : '';
+            let instructionText = `${type}${modifier} on ${name}`;
+            
+            if (type === 'depart') {
+              instructionText = `Depart from starting location towards ${name}`;
+            } else if (type === 'arrive') {
+              instructionText = `Arrive at destination`;
+            } else if (type === 'turn') {
+              instructionText = `Turn ${step.maneuver.modifier} onto ${name}`;
+            } else if (type === 'new name') {
+              instructionText = `Continue onto ${name}`;
+            }
+
+            instructions.push({
+              text: instructionText,
+              distance: step.distance,
+              duration: step.duration,
+            });
+          }
+        }
+      }
+    }
+
+    if (instructions.length === 0) {
+      instructions.push({
+        text: `Depart from starting point`,
+        distance: osrmRoute.distance * 0.1,
+        duration: osrmRoute.duration * 0.1,
+      });
+      instructions.push({
+        text: `Drive on main road`,
+        distance: osrmRoute.distance * 0.8,
+        duration: osrmRoute.duration * 0.8,
+      });
+      instructions.push({
+        text: `Arrive at destination`,
+        distance: osrmRoute.distance * 0.1,
+        duration: osrmRoute.duration * 0.1,
+      });
+    }
+
+    return {
+      id: `route-${index}-${Math.random().toString(36).substr(2, 9)}`,
+      name: index === 0 ? (waypoints.length > 0 ? `Primary Route via ${waypoints.length} stops` : `Primary Route`) : `Alternative Route ${index}`,
+      origin,
+      destination,
+      waypoints,
+      geometry,
+      distance: osrmRoute.distance,
+      duration: osrmRoute.duration,
+      instructions,
+    };
+  }
+
   async calculateRoute(
     origin: Location,
     destination: Location,
     waypoints: RouteWaypoint[],
-    alternatives: boolean = false,
+    alternatives: boolean | number = false,
     profile: 'driving' | 'foot' = 'driving'
   ): Promise<Route> {
     // Semicolon-separated coordinates list: lng,lat;lng,lat...
@@ -53,7 +126,10 @@ export class OSRMRoutingProvider implements IRoutingProvider {
 
     const coordsString = coordsList.join(';');
     const osrmProfile = profile === 'foot' ? 'foot' : 'driving';
-    const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coordsString}?overview=full&geometries=geojson&steps=true&alternatives=${alternatives}`;
+    const altParam = typeof alternatives === 'number'
+      ? alternatives
+      : (alternatives ? 3 : 'false');
+    const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coordsString}?overview=full&geometries=geojson&steps=true&alternatives=${altParam}`;
 
     try {
       const response = await fetch(url);
@@ -67,75 +143,17 @@ export class OSRMRoutingProvider implements IRoutingProvider {
       }
 
       this.isFallback = false;
-      const osrmRoute = data.routes[0];
-      
-      // Parse coordinates from GeoJSON
-      const geometry: Location[] = osrmRoute.geometry.coordinates.map((coord: [number, number]) => ({
-        lat: coord[1],
-        lng: coord[0],
-      }));
+      const primaryRoute = this.parseRouteFromOSRM(data.routes[0], origin, destination, waypoints, 0);
 
-      // Parse turn-by-turn instructions
-      const instructions: RouteInstruction[] = [];
-      if (osrmRoute.legs) {
-        for (const leg of osrmRoute.legs) {
-          if (leg.steps) {
-            for (const step of leg.steps) {
-              const name = step.name || 'Road';
-              const type = step.maneuver.type;
-              const modifier = step.maneuver.modifier ? ` ${step.maneuver.modifier}` : '';
-              let instructionText = `${type}${modifier} on ${name}`;
-              
-              if (type === 'depart') {
-                instructionText = `Depart from starting location towards ${name}`;
-              } else if (type === 'arrive') {
-                instructionText = `Arrive at destination`;
-              } else if (type === 'turn') {
-                instructionText = `Turn ${step.maneuver.modifier} onto ${name}`;
-              } else if (type === 'new name') {
-                instructionText = `Continue onto ${name}`;
-              }
-
-              instructions.push({
-                text: instructionText,
-                distance: step.distance,
-                duration: step.duration,
-              });
-            }
-          }
-        }
+      // Parse up to 3 reasonable alternative routes if returned by OSRM
+      if (data.routes.length > 1) {
+        const altRoutes = data.routes
+          .slice(1, 4)
+          .map((r: any, idx: number) => this.parseRouteFromOSRM(r, origin, destination, waypoints, idx + 1));
+        primaryRoute.alternatives = altRoutes;
       }
 
-      // If no steps returned, make simulated steps
-      if (instructions.length === 0) {
-        instructions.push({
-          text: `Depart from starting point`,
-          distance: osrmRoute.distance * 0.1,
-          duration: osrmRoute.duration * 0.1,
-        });
-        instructions.push({
-          text: `Drive on main road`,
-          distance: osrmRoute.distance * 0.8,
-          duration: osrmRoute.duration * 0.8,
-        });
-        instructions.push({
-          text: `Arrive at destination`,
-          distance: osrmRoute.distance * 0.1,
-          duration: osrmRoute.duration * 0.1,
-        });
-      }
-
-      return {
-        id: `route-${Math.random().toString(36).substr(2, 9)}`,
-        name: `Road Route via ${waypoints.length} stops`,
-        origin,
-        destination,
-        waypoints,
-        geometry,
-        distance: osrmRoute.distance,
-        duration: osrmRoute.duration,
-        instructions,
-      };
+      return primaryRoute;
     } catch (err) {
       console.warn('OSRM routing failed, falling back to Haversine straight-line simulation:', err);
       this.isFallback = true;

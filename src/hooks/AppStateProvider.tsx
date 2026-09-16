@@ -18,6 +18,7 @@ import { curatedEclipsePandals } from '../data/curatedPandals';
 import { curatedBonediBariList } from '../data/curatedBonediBari';
 import { SmartRoutePlan, StartLocationOption, DestinationItem } from '../types/smartRoute';
 import { smartPujaRoutePlannerService } from '../services/routing/smartPujaRoutePlannerService';
+import { travelDistanceService } from '../services/gps/travelDistanceService';
 import { ref, set, remove, onDisconnect, serverTimestamp, onValue, off } from 'firebase/database';
 import { isFirebaseConfigured, getFirebaseDatabase } from '../services/firebase';
 import {
@@ -94,6 +95,7 @@ interface AppStateContextType {
   reorderStops: (startIndex: number, endIndex: number) => void;
   optimizeRoute: () => Promise<void>;
   calculateRouteToItem: (item: Pandal | Event | any) => Promise<void>;
+  selectAlternativeRoute: (route: Route) => void;
   routePreference: 'FASTEST' | 'SHORTEST' | 'LOW CROWD' | 'BALANCED' | 'WALKING' | 'DRIVING';
   setRoutePreference: (pref: 'FASTEST' | 'SHORTEST' | 'LOW CROWD' | 'BALANCED' | 'WALKING' | 'DRIVING') => void;
 
@@ -113,6 +115,7 @@ interface AppStateContextType {
   visitedRecords: VisitedPandalRecord[];
   toggleVisited: (itemId: string) => void;
   removeVisitedRecord: (pandalId: string) => void;
+  totalDistanceTravelledMeters: number;
 
   // Smart Puja Route Planner (Phase 13.8)
   smartRoutePlan: SmartRoutePlan | null;
@@ -243,6 +246,16 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [visitedRecords, setVisitedRecords] = useState<VisitedPandalRecord[]>(() => {
     return visitedPandalsService.getRecords();
   });
+  const [totalDistanceTravelledMeters, setTotalDistanceTravelledMeters] = useState<number>(() => {
+    return travelDistanceService.getDistanceMeters();
+  });
+
+  useEffect(() => {
+    const unsubscribe = travelDistanceService.subscribe((dist) => {
+      setTotalDistanceTravelledMeters(dist);
+    });
+    return unsubscribe;
+  }, []);
 
   // Smart Puja Route Planner (Phase 13.8)
   const [smartRoutePlan, setSmartRoutePlan] = useState<SmartRoutePlan | null>(null);
@@ -1045,6 +1058,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             lng: pos.coords.longitude,
           };
           setCurrentLocation(loc);
+          travelDistanceService.recordPosition(pos);
           setDiscoveryCenter((prev) => {
             // If discovery center was at default Kolkata center, center it on the user's real GPS
             if (prev.lat === KOLKATA_CENTER.lat && prev.lng === KOLKATA_CENTER.lng) {
@@ -1082,6 +1096,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             lng: position.coords.longitude,
           };
           setCurrentLocation(loc);
+          travelDistanceService.recordPosition(position);
           setGpsAccuracy(position.coords.accuracy);
           setSpeed(position.coords.speed || 0);
           setHeading(position.coords.heading || 0);
@@ -1466,7 +1481,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         currentLocation,
         destItem.location,
         waypointsList,
-        false,
+        3,
         osrmProfile
       );
       setActiveRoute(calculatedRoute);
@@ -1484,14 +1499,35 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         currentLocation,
         item.location,
         [],
-        false,
+        3,
         osrmProfile
       );
       setActiveRoute(calculatedRoute);
+      setCurrentStepIndex(0);
       setActiveTab('home');
     } catch (e) {
       console.error('Failed to calculate direct route:', e);
     }
+  };
+
+  // Select an alternative route to make it the active navigation route
+  const selectAlternativeRoute = (selectedAltRoute: Route) => {
+    if (!activeRoute) return;
+
+    // Combine current active route and all alternatives into one pool
+    const allRoutes = [activeRoute, ...(activeRoute.alternatives || [])];
+
+    // Find the matching chosen route
+    const newActive = allRoutes.find(r => r.id === selectedAltRoute.id) || selectedAltRoute;
+    const remainingAlternatives = allRoutes.filter(r => r.id !== newActive.id);
+
+    const updatedRoute: Route = {
+      ...newActive,
+      alternatives: remainingAlternatives,
+    };
+
+    setActiveRoute(updatedRoute);
+    setCurrentStepIndex(0);
   };
 
   // TSP optimization handler
@@ -2241,6 +2277,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         reorderStops,
         optimizeRoute,
         calculateRouteToItem,
+        selectAlternativeRoute,
         routePreference,
         setRoutePreference,
 
@@ -2258,6 +2295,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         visitedRecords,
         toggleVisited,
         removeVisitedRecord,
+        totalDistanceTravelledMeters,
 
         // Smart Puja Route Planner (Phase 13.8)
         smartRoutePlan,

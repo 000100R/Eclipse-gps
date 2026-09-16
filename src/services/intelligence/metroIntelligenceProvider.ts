@@ -31,6 +31,7 @@ import { curatedEclipsePandals } from '../../data/curatedPandals';
 import { curatedBonediBariList } from '../../data/curatedBonediBari';
 import { intelligenceLayerService } from './intelligenceLayerService';
 import { routingService } from '../routing/routingService';
+import { pandalDiscoveryService } from '../discovery/pandalDiscoveryService';
 
 export class MetroIntelligenceProvider
   implements IntelligenceDataProvider<MetroStation>
@@ -51,6 +52,7 @@ export class MetroIntelligenceProvider
   private userLocation?: Location;
   private activeLineFilter: MetroLineCategory = 'ALL';
   private lineFilterListeners: Set<(filter: MetroLineCategory) => void> = new Set();
+  private routedPandalsCache = new Map<string, NearbyPandalRef[]>();
 
   constructor() {
     this.allStations = [...curatedMetroStations];
@@ -194,6 +196,7 @@ export class MetroIntelligenceProvider
   public clear(): void {
     this.cachedViewportStations = [];
     this.lastBounds = undefined;
+    this.routedPandalsCache.clear();
     intelligenceLayerService.updateItemCount('METRO', 0);
   }
 
@@ -349,6 +352,160 @@ export class MetroIntelligenceProvider
       false,
       'foot'
     );
+  }
+
+  /**
+   * ECLIPSE GPS — Metro to Pandal Discovery
+   * When a user selects a Metro station:
+   * - Shows nearby pandals around that station using spatial discovery and pandal dataset.
+   * - Sorts pandals by walking distance from the selected Metro station.
+   * - For the closest 10 pandals, calculates walking distance and walking time using the existing routing service.
+   * - Never calculates routes for all pandals, only the closest 10 candidates.
+   * - Returns real OSRM walking distances and durations without inventing values.
+   */
+  public async getNearbyPandalsForStationWithWalkingRoutes(
+    station: MetroStation
+  ): Promise<NearbyPandalRef[]> {
+    if (this.routedPandalsCache.has(station.id)) {
+      return this.routedPandalsCache.get(station.id)!;
+    }
+
+    const candidates: NearbyPandalRef[] = [];
+    const seenIds = new Set<string>();
+
+    // 1. Use spatial discovery system to discover nearby pandals around the metro station
+    try {
+      const discovery = await pandalDiscoveryService.discoverPandals({
+        near: station.location,
+        radius: 3000,
+        mode: 'nearby',
+        sortBy: 'nearest',
+      });
+
+      if (discovery && discovery.pandals && discovery.pandals.length > 0) {
+        for (const p of discovery.pandals) {
+          if (!seenIds.has(p.id)) {
+            seenIds.add(p.id);
+            const dist = p.distance !== undefined
+              ? p.distance
+              : this.calculateDistanceInMeters(station.location, p.location);
+            candidates.push({
+              id: p.id,
+              name: p.name,
+              distanceMeters: Math.round(dist),
+              walkingMinutes: Math.max(1, Math.round(dist / 75)),
+              crowdLevel: p.crowdLevel,
+              theme: p.theme,
+              location: p.location,
+              address: p.address,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[MetroIntelligence] Spatial discovery query fallback:', err);
+    }
+
+    // 2. Ensure explicitly linked station pandals from curated dataset are included
+    for (const pid of station.nearbyPandalIds || []) {
+      if (!seenIds.has(pid)) {
+        const p = curatedEclipsePandals.find((item) => item.id === pid);
+        if (p) {
+          seenIds.add(p.id);
+          const dist = this.calculateDistanceInMeters(station.location, {
+            lat: p.latitude,
+            lng: p.longitude,
+          });
+          candidates.push({
+            id: p.id,
+            name: p.name,
+            distanceMeters: Math.round(dist),
+            walkingMinutes: Math.max(1, Math.round(dist / 75)),
+            crowdLevel: p.crowdLevel,
+            theme: p.theme,
+            location: { lat: p.latitude, lng: p.longitude },
+            address: p.address,
+          });
+        }
+      }
+    }
+
+    // 3. Fallback: if candidates empty, scan curated dataset within 2500m
+    if (candidates.length === 0) {
+      for (const p of curatedEclipsePandals) {
+        if (seenIds.has(p.id)) continue;
+        const dist = this.calculateDistanceInMeters(station.location, {
+          lat: p.latitude,
+          lng: p.longitude,
+        });
+        if (dist <= 2500) {
+          seenIds.add(p.id);
+          candidates.push({
+            id: p.id,
+            name: p.name,
+            distanceMeters: Math.round(dist),
+            walkingMinutes: Math.max(1, Math.round(dist / 75)),
+            crowdLevel: p.crowdLevel,
+            theme: p.theme,
+            location: { lat: p.latitude, lng: p.longitude },
+            address: p.address,
+          });
+        }
+      }
+    }
+
+    // Sort candidates by initial distance from metro station
+    candidates.sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+    // 4. "Do not calculate routes for all pandals. Only calculate the closest 10 candidates."
+    const closest10 = candidates.slice(0, 10);
+    const remaining = candidates.slice(10);
+
+    // 5. "For the closest 10 pandals, calculate walking distance and walking time using the existing routing service."
+    // "Do not invent distances or times."
+    const routed10 = await this.calculateWalkingRoutesInBatches(station.location, closest10, 3);
+
+    // 6. "Sort pandals by walking distance from the selected Metro station."
+    routed10.sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+    const finalResults = [...routed10, ...remaining];
+    this.routedPandalsCache.set(station.id, finalResults);
+    return finalResults;
+  }
+
+  private async calculateWalkingRoutesInBatches(
+    origin: Location,
+    pandals: NearbyPandalRef[],
+    concurrency: number = 3
+  ): Promise<NearbyPandalRef[]> {
+    const results: NearbyPandalRef[] = [];
+    for (let i = 0; i < pandals.length; i += concurrency) {
+      const batch = pandals.slice(i, i + concurrency);
+      const batchResults = await Promise.all(
+        batch.map(async (pandal) => {
+          try {
+            const route = await routingService.calculateRoute(
+              origin,
+              pandal.location,
+              [],
+              false,
+              'foot'
+            );
+            return {
+              ...pandal,
+              distanceMeters: Math.round(route.distance),
+              walkingMinutes: Math.max(1, Math.round(route.duration / 60)),
+              isCalculatedRoute: true,
+            };
+          } catch (err) {
+            console.warn('[MetroIntelligence] Route calculation failed for pandal', pandal.name, err);
+            return pandal;
+          }
+        })
+      );
+      results.push(...batchResults);
+    }
+    return results;
   }
 
   /**
