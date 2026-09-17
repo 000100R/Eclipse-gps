@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
-import { Search, Bell, AlertTriangle, X, Compass, MapPin } from 'lucide-react';
+import { Search, Bell, AlertTriangle, X, Compass, MapPin, Sparkles } from 'lucide-react';
 import { GlassPanel } from '../ui/GlassPanel';
+import { calculateBengaliDate } from '../../services/panjika/bengaliAstronomicalService';
 
 export const TopBar: React.FC = () => {
   const {
@@ -12,7 +13,10 @@ export const TopBar: React.FC = () => {
     executeSearch,
     setSelectedItem,
     alerts,
+    openPanjika,
   } = useAppState();
+
+  const todayBengali = useMemo(() => calculateBengaliDate(new Date()), []);
 
   const [inputVal, setInputVal] = useState(searchQuery);
   const [showResults, setShowResults] = useState(false);
@@ -134,6 +138,18 @@ export const TopBar: React.FC = () => {
           </div>
         )}
       </GlassPanel>
+
+      {/* Quick Bengali Panjika Trigger Button */}
+      <button
+        id="btn-topbar-panjika-pill"
+        onClick={openPanjika}
+        className="pointer-events-auto px-2.5 py-2.5 bg-neutral-900/80 backdrop-blur-md border border-amber-500/30 hover:border-amber-500/60 rounded-xl text-amber-300 hover:text-amber-200 shadow-xl transition-all duration-300 flex items-center gap-1.5 text-xs font-semibold shrink-0"
+        title="বাংলা পঞ্জিকা খুলুন (Open Bengali Panjika)"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+        <span className="hidden sm:inline font-mono">{todayBengali.dayBengali} {todayBengali.monthNameBn}</span>
+        <span className="sm:hidden font-mono text-[11px]">{todayBengali.dayBengali} {todayBengali.monthNameBn}</span>
+      </button>
 
       {/* Warnings & Alerts Bell */}
       <div ref={alertsRef} className="pointer-events-auto relative">

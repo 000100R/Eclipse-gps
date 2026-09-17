@@ -122,6 +122,13 @@ export class SmartPujaRoutePlannerService {
   }
 
   /**
+   * Calculate direct distance between two coordinates in meters
+   */
+  public calculateDistance(p1: Location, p2: Location): number {
+    return Math.round(getHaversineDistance(p1, p2));
+  }
+
+  /**
    * Find verified Metro Station closest to a given location
    */
   public findNearestMetroStation(loc: Location): {
@@ -563,11 +570,11 @@ export class SmartPujaRoutePlannerService {
   /**
    * Optimize destination order using existing TSP solver & priority weights
    */
-  private async optimizeDestinationOrder(
+  public async optimizeDestinationOrder(
     startLoc: Location,
     destinations: DestinationItem[],
-    transport: TransportMode,
-    priority: RoutePriority
+    transport: TransportMode = 'WALK',
+    priority: RoutePriority = 'MORE_PLACES'
   ): Promise<DestinationItem[]> {
     if (destinations.length <= 1) return destinations;
 

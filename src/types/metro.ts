@@ -28,6 +28,29 @@ export interface MetroEntranceExit {
   name: string;       // e.g. "Bhupen Bose Avenue", "Rashbehari Crossing"
   landmark?: string;
   accessibility?: boolean;
+  latitude?: number;
+  longitude?: number;
+  location?: Location;
+}
+
+export interface MetroGateRouteOption {
+  gate: MetroEntranceExit;
+  distanceMeters: number;
+  walkingMinutes: number;
+  geometry: Location[];
+  isRecommended: boolean;
+  walkingDistanceFormatted: string;
+  walkingTimeFormatted: string;
+}
+
+export interface MetroGateIntelligenceResult {
+  hasVerifiedGates: boolean;
+  station: MetroStation;
+  targetPandal: NearbyPandalRef | Pandal;
+  recommendedGate?: MetroGateRouteOption;
+  otherGates: MetroGateRouteOption[];
+  allGateRoutes: MetroGateRouteOption[];
+  activeGateRoute?: MetroGateRouteOption;
 }
 
 export interface NearbyPandalRef {

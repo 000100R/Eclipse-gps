@@ -16,7 +16,8 @@ import { smartVisitService } from '../services/intelligence/smartVisitService';
 import { intelligenceLayerService } from '../services/intelligence/intelligenceLayerService';
 import { curatedEclipsePandals } from '../data/curatedPandals';
 import { curatedBonediBariList } from '../data/curatedBonediBari';
-import { SmartRoutePlan, StartLocationOption, DestinationItem } from '../types/smartRoute';
+import { SmartRoutePlan, StartLocationOption, DestinationItem, PujaRouteSession } from '../types/smartRoute';
+import { MetroGateIntelligenceResult } from '../types/metro';
 import { smartPujaRoutePlannerService } from '../services/routing/smartPujaRoutePlannerService';
 import { travelDistanceService } from '../services/gps/travelDistanceService';
 import { ref, set, remove, onDisconnect, serverTimestamp, onValue, off } from 'firebase/database';
@@ -74,6 +75,9 @@ interface AppStateContextType {
   // Tabs / Navigation
   activeTab: 'home' | 'explore' | 'routes' | 'events' | 'saved' | 'group' | 'visited' | 'journey';
   setActiveTab: (tab: 'home' | 'explore' | 'routes' | 'events' | 'saved' | 'group' | 'visited' | 'journey') => void;
+  eventsSubTab: 'PANJIKA' | 'CALENDAR' | 'CULTURAL';
+  setEventsSubTab: (tab: 'PANJIKA' | 'CALENDAR' | 'CULTURAL') => void;
+  openPanjika: () => void;
 
   // Data Catalogs
   pandals: Pandal[];
@@ -112,6 +116,10 @@ interface AppStateContextType {
   setCurrentStepIndex: (idx: number) => void;
   triggerOffRouteReroute: () => Promise<void>;
 
+  // Metro Gate Intelligence
+  activeMetroGateIntelligence: MetroGateIntelligenceResult | null;
+  setActiveMetroGateIntelligence: (result: MetroGateIntelligenceResult | null) => void;
+
   // Saved / Visited places
   savedLocations: SavedLocation[];
   saveLocation: (item: Pandal | Event | Route) => void;
@@ -130,6 +138,13 @@ interface AppStateContextType {
   saveSmartRoute: (plan: SmartRoutePlan) => void;
   deleteSmartRoute: (planId: string) => void;
   applySmartRoute: (plan: SmartRoutePlan) => void;
+
+  // Multi-Pandal Puja Route Navigation Session
+  pujaRouteSession: PujaRouteSession | null;
+  setPujaRouteSession: React.Dispatch<React.SetStateAction<PujaRouteSession | null>>;
+  startPujaRouteNavigation: (stops: DestinationItem[]) => Promise<void>;
+  advancePujaRouteToNextStop: () => Promise<void>;
+  endPujaRoute: () => void;
 
   // Alerts & Rerouting Dialogue
   alerts: Alert[];
@@ -233,6 +248,12 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
 
   const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'routes' | 'events' | 'saved' | 'group' | 'visited' | 'journey'>('home');
+  const [eventsSubTab, setEventsSubTab] = useState<'PANJIKA' | 'CALENDAR' | 'CULTURAL'>('PANJIKA');
+
+  const openPanjika = useCallback(() => {
+    setActiveTab('events');
+    setEventsSubTab('PANJIKA');
+  }, []);
 
   const [pandals, setPandals] = useState<Pandal[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
@@ -247,6 +268,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [routeStops, setRouteStops] = useState<(Pandal | Event)[]>([]);
   const [isNavigating, setIsNavigating] = useState<boolean>(false);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
+  const [activeMetroGateIntelligence, setActiveMetroGateIntelligence] = useState<MetroGateIntelligenceResult | null>(null);
 
   // Saved / Visited Lists
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
@@ -307,6 +329,28 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
     setActiveTab('routes');
   };
+
+  // Multi-Pandal Puja Route Navigation Session
+  const [pujaRouteSession, setPujaRouteSession] = useState<PujaRouteSession | null>(() => {
+    try {
+      const saved = localStorage.getItem('eclipse_puja_route_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (pujaRouteSession) {
+        localStorage.setItem('eclipse_puja_route_session', JSON.stringify(pujaRouteSession));
+      } else {
+        localStorage.removeItem('eclipse_puja_route_session');
+      }
+    } catch (e) {
+      console.warn('Failed to sync pujaRouteSession to localStorage:', e);
+    }
+  }, [pujaRouteSession]);
 
   // Alerts and Reroute Suggestions
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -1646,6 +1690,133 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // Start multi-pandal Puja Route navigation using existing routing logic
+  const startPujaRouteNavigation = async (stops: DestinationItem[]) => {
+    if (!stops || stops.length === 0) return;
+
+    const session: PujaRouteSession = {
+      isActive: true,
+      stops,
+      currentStopIndex: 0,
+      completedStopIds: [],
+    };
+    setPujaRouteSession(session);
+
+    const firstStop = stops[0];
+    const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
+    const originLoc = currentLocation || firstStop.location;
+
+    setRouteStops([firstStop as any]);
+    setSelectedItem(firstStop as any);
+    setCurrentStepIndex(0);
+
+    try {
+      const calculatedRoute = await routingService.calculateRoute(
+        originLoc,
+        firstStop.location,
+        [],
+        3,
+        osrmProfile
+      );
+      setActiveRoute(calculatedRoute);
+      setIsNavigating(true);
+      setActiveTab('home');
+    } catch (err) {
+      console.error('Failed to calculate route for first puja stop, using direct fallback:', err);
+      await calculateRouteToItem(firstStop);
+      setIsNavigating(true);
+      setActiveTab('home');
+    }
+  };
+
+  // Advance to next stop in the Puja Route and automatically start navigation
+  const advancePujaRouteToNextStop = async () => {
+    if (!pujaRouteSession || !pujaRouteSession.isActive) return;
+
+    const { stops, currentStopIndex, completedStopIds } = pujaRouteSession;
+    const currentStop = stops[currentStopIndex];
+
+    // 1. Mark current stop as completed
+    const updatedCompletedIds = completedStopIds.includes(currentStop.id)
+      ? completedStopIds
+      : [...completedStopIds, currentStop.id];
+
+    if (currentStop.id) {
+      if (!eventsService.getVisited().includes(currentStop.id)) {
+        eventsService.toggleVisited(currentStop.id);
+        setVisitedIds(eventsService.getVisited());
+      }
+      const candidates = pandalDiscoveryService.getLocalCandidates();
+      const match = candidates.find(p => p.id === currentStop.id);
+      visitedPandalsService.recordVisit(match || { id: currentStop.id, name: currentStop.name });
+      setVisitedRecords(visitedPandalsService.getRecords());
+    }
+
+    const nextIndex = currentStopIndex + 1;
+
+    // Check if all stops are completed
+    if (nextIndex >= stops.length) {
+      setPujaRouteSession({
+        ...pujaRouteSession,
+        currentStopIndex: stops.length - 1,
+        completedStopIds: updatedCompletedIds,
+      });
+      return;
+    }
+
+    // 2. Automatically start navigation to the next pandal
+    const nextStop = stops[nextIndex];
+    const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
+    const originLoc = currentLocation || currentStop.location;
+
+    setPujaRouteSession({
+      isActive: true,
+      stops,
+      currentStopIndex: nextIndex,
+      completedStopIds: updatedCompletedIds,
+    });
+
+    setRouteStops([nextStop as any]);
+    setSelectedItem(nextStop as any);
+    setCurrentStepIndex(0);
+
+    try {
+      const calculatedRoute = await routingService.calculateRoute(
+        originLoc,
+        nextStop.location,
+        [],
+        3,
+        osrmProfile
+      );
+      setActiveRoute(calculatedRoute);
+      setIsNavigating(true);
+    } catch (err) {
+      console.error('Failed to calculate route to next puja stop, using direct fallback:', err);
+      await calculateRouteToItem(nextStop);
+      setIsNavigating(true);
+    }
+  };
+
+  // End Puja Route navigation
+  const endPujaRoute = () => {
+    if (pujaRouteSession && pujaRouteSession.isActive) {
+      const currentStop = pujaRouteSession.stops[pujaRouteSession.currentStopIndex];
+      if (currentStop && !pujaRouteSession.completedStopIds.includes(currentStop.id)) {
+        if (!eventsService.getVisited().includes(currentStop.id)) {
+          eventsService.toggleVisited(currentStop.id);
+          setVisitedIds(eventsService.getVisited());
+        }
+        const candidates = pandalDiscoveryService.getLocalCandidates();
+        const match = candidates.find(p => p.id === currentStop.id);
+        visitedPandalsService.recordVisit(match || { id: currentStop.id, name: currentStop.name });
+        setVisitedRecords(visitedPandalsService.getRecords());
+      }
+    }
+    setPujaRouteSession(null);
+    setIsNavigating(false);
+    setSelectedItem(null);
+  };
+
   // Select an alternative route to make it the active navigation route
   const selectAlternativeRoute = (selectedAltRoute: Route) => {
     if (!activeRoute) return;
@@ -2447,6 +2618,13 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         deleteSmartRoute,
         applySmartRoute,
 
+        // Multi-Pandal Puja Route Navigation Session
+        pujaRouteSession,
+        setPujaRouteSession,
+        startPujaRouteNavigation,
+        advancePujaRouteToNextStop,
+        endPujaRoute,
+
         alerts,
         rerouteSuggestion,
         setRerouteSuggestion,
@@ -2518,6 +2696,15 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         userPandals,
         isLostInCrowdActive,
         setIsLostInCrowdActive,
+
+        // Metro Gate Intelligence
+        activeMetroGateIntelligence,
+        setActiveMetroGateIntelligence,
+
+        // Bengali Panjika & Events
+        eventsSubTab,
+        setEventsSubTab,
+        openPanjika,
       }}
     >
       {children}

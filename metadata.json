@@ -1,6 +1,6 @@
 {
   "name": "Eclipse GPS",
-  "description": "A real-time location intelligence and navigation platform for Kolkata Durga Puja featuring interactive maps, Smart Puja Route Planner, crowd and traffic intelligence, and an AI map co-pilot.",
+  "description": "A real-time location intelligence and navigation platform for Kolkata Durga Puja featuring interactive maps, Bengali Panjika, Smart Puja Route Planner, crowd and traffic intelligence, and an AI map co-pilot.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

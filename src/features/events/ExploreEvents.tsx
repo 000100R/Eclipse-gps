@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { GlassPanel } from '../../components/ui/GlassPanel';
-import { Compass, Star, Check, Navigation, Calendar, MapPin, HelpCircle, Sparkles } from 'lucide-react';
+import { Compass, Star, Check, Navigation, Calendar, MapPin, HelpCircle, Sparkles, Sun } from 'lucide-react';
 import { PujaCalendarView } from '../calendar/PujaCalendarView';
+import { BengaliPanjikaView } from '../panjika/BengaliPanjikaView';
 
 export const ExploreEvents: React.FC = () => {
   const {
@@ -14,9 +15,10 @@ export const ExploreEvents: React.FC = () => {
     toggleVisited,
     visitedIds,
     refreshCatalogs,
+    eventsSubTab,
+    setEventsSubTab,
   } = useAppState();
 
-  const [activeSubTab, setActiveSubTab] = useState<'CALENDAR' | 'CULTURAL'>('CALENDAR');
   const [filterCategory, setFilterCategory] = useState('ALL');
 
   const filteredEvents = events.filter(e => {
@@ -34,35 +36,49 @@ export const ExploreEvents: React.FC = () => {
 
   return (
     <div id="explore-events-view" className="space-y-4 max-w-lg mx-auto pb-24">
-      {/* Sub-Navigation Switch */}
-      <div className="grid grid-cols-2 gap-1.5 p-1 bg-neutral-900/80 rounded-xl border border-neutral-800">
+      {/* Sub-Navigation Switch: Bengali Panjika | Puja Calendar | City Events */}
+      <div className="grid grid-cols-3 gap-1 p-1 bg-neutral-900/80 rounded-xl border border-neutral-800 text-[11px]">
         <button
-          id="btn-subtab-puja-calendar"
-          onClick={() => setActiveSubTab('CALENDAR')}
-          className={`py-2 px-3 rounded-lg text-xs font-bold tracking-wider uppercase flex items-center justify-center gap-1.5 transition-all ${
-            activeSubTab === 'CALENDAR'
+          id="btn-subtab-bengali-panjika"
+          onClick={() => setEventsSubTab('PANJIKA')}
+          className={`py-2 px-1.5 rounded-lg font-bold tracking-wide flex items-center justify-center gap-1 transition-all text-center ${
+            eventsSubTab === 'PANJIKA'
               ? 'bg-amber-500 text-neutral-950 shadow-sm'
               : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60'
           }`}
         >
-          <Sparkles size={13} />
-          Puja Calendar
+          <Sun size={12} className={eventsSubTab === 'PANJIKA' ? 'text-neutral-950' : 'text-amber-400'} />
+          <span className="truncate">বাংলা পঞ্জিকা</span>
+        </button>
+        <button
+          id="btn-subtab-puja-calendar"
+          onClick={() => setEventsSubTab('CALENDAR')}
+          className={`py-2 px-1.5 rounded-lg font-bold tracking-wide uppercase flex items-center justify-center gap-1 transition-all text-center ${
+            eventsSubTab === 'CALENDAR'
+              ? 'bg-amber-500 text-neutral-950 shadow-sm'
+              : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60'
+          }`}
+        >
+          <Sparkles size={12} className={eventsSubTab === 'CALENDAR' ? 'text-neutral-950' : 'text-amber-400'} />
+          <span className="truncate">Calendar</span>
         </button>
         <button
           id="btn-subtab-cultural-events"
-          onClick={() => setActiveSubTab('CULTURAL')}
-          className={`py-2 px-3 rounded-lg text-xs font-bold tracking-wider uppercase flex items-center justify-center gap-1.5 transition-all ${
-            activeSubTab === 'CULTURAL'
+          onClick={() => setEventsSubTab('CULTURAL')}
+          className={`py-2 px-1.5 rounded-lg font-bold tracking-wide uppercase flex items-center justify-center gap-1 transition-all text-center ${
+            eventsSubTab === 'CULTURAL'
               ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
               : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60'
           }`}
         >
-          <Calendar size={13} />
-          City Events ({filteredEvents.length})
+          <Calendar size={12} />
+          <span className="truncate">City Events</span>
         </button>
       </div>
 
-      {activeSubTab === 'CALENDAR' ? (
+      {eventsSubTab === 'PANJIKA' ? (
+        <BengaliPanjikaView />
+      ) : eventsSubTab === 'CALENDAR' ? (
         <PujaCalendarView />
       ) : (
         <>

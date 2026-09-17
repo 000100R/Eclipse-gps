@@ -33,9 +33,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3637,
     location: { lat: 22.654, lng: 88.3637 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Dakshineswar Temple Skywalk', landmark: 'Direct Skywalk to Kali Temple' },
-      { gateNumber: 'Gate 2', name: 'Dakshineswar Railway Station Link', landmark: 'Eastern Railway suburban link' },
-      { gateNumber: 'Gate 3', name: 'Ramkrishna Paramahansa Road', landmark: 'Towards Vivekananda Setu approach' },
+      { gateNumber: 'Gate 1', name: 'Dakshineswar Temple Skywalk', landmark: 'Direct Skywalk to Kali Temple', latitude: 22.6543, longitude: 88.3629, location: { lat: 22.6543, lng: 88.3629 } },
+      { gateNumber: 'Gate 2', name: 'Dakshineswar Railway Station Link', landmark: 'Eastern Railway suburban link', latitude: 22.6538, longitude: 88.3644, location: { lat: 22.6538, lng: 88.3644 } },
+      { gateNumber: 'Gate 3', name: 'Ramkrishna Paramahansa Road', landmark: 'Towards Vivekananda Setu approach', latitude: 22.6546, longitude: 88.3638, location: { lat: 22.6546, lng: 88.3638 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -51,9 +51,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3789,
     location: { lat: 22.6535, lng: 88.3789 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'BT Road North', landmark: 'Towards Dunlop Crossing' },
-      { gateNumber: 'Gate 2', name: 'BT Road South', landmark: 'Towards Bonhooghly' },
-      { gateNumber: 'Gate 3', name: 'Gopal Lal Tagore Road', landmark: 'Towards ISI Kolkata' },
+      { gateNumber: 'Gate 1', name: 'BT Road North', landmark: 'Towards Dunlop Crossing', latitude: 22.6541, longitude: 88.3791, location: { lat: 22.6541, lng: 88.3791 } },
+      { gateNumber: 'Gate 2', name: 'BT Road South', landmark: 'Towards Bonhooghly', latitude: 22.6529, longitude: 88.3787, location: { lat: 22.6529, lng: 88.3787 } },
+      { gateNumber: 'Gate 3', name: 'Gopal Lal Tagore Road', landmark: 'Towards ISI Kolkata', latitude: 22.6536, longitude: 88.3781, location: { lat: 22.6536, lng: 88.3781 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -69,9 +69,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.394,
     location: { lat: 22.6397, lng: 88.394 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Noapara Main Concourse', landmark: 'Noapara Car Shed & Depot Road' },
-      { gateNumber: 'Gate 2', name: 'Rabindra Sarani Extn', landmark: 'Towards Baranagar Rly Station' },
-      { gateNumber: 'Gate 3', name: 'Yellow Line Interchange', landmark: 'Transfer concourse for Airport line' },
+      { gateNumber: 'Gate 1', name: 'Noapara Main Concourse', landmark: 'Noapara Car Shed & Depot Road', latitude: 22.6402, longitude: 88.3944, location: { lat: 22.6402, lng: 88.3944 } },
+      { gateNumber: 'Gate 2', name: 'Rabindra Sarani Extn', landmark: 'Towards Baranagar Rly Station', latitude: 22.6392, longitude: 88.3936, location: { lat: 22.6392, lng: 88.3936 } },
+      { gateNumber: 'Gate 3', name: 'Yellow Line Interchange', landmark: 'Transfer concourse for Airport line', latitude: 22.6399, longitude: 88.3948, location: { lat: 22.6399, lng: 88.3948 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -87,9 +87,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3975,
     location: { lat: 22.6219, lng: 88.3975 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Dum Dum Railway Station Platform 1', landmark: 'Eastern Railway Main Link' },
-      { gateNumber: 'Gate 2', name: 'Dum Dum Road', landmark: 'Towards Nagerbazar' },
-      { gateNumber: 'Gate 3', name: 'Subhash Nagar Road', landmark: 'Towards Jessore Road' },
+      { gateNumber: 'Gate 1', name: 'Dum Dum Railway Station Platform 1', landmark: 'Eastern Railway Main Link', latitude: 22.6224, longitude: 88.3979, location: { lat: 22.6224, lng: 88.3979 } },
+      { gateNumber: 'Gate 2', name: 'Dum Dum Road', landmark: 'Towards Nagerbazar', latitude: 22.6214, longitude: 88.3982, location: { lat: 22.6214, lng: 88.3982 } },
+      { gateNumber: 'Gate 3', name: 'Subhash Nagar Road', landmark: 'Towards Jessore Road', latitude: 22.6213, longitude: 88.3967, location: { lat: 22.6213, lng: 88.3967 } },
     ],
     nearbyPandalIds: [
       'pandal-dum-dum-park-bharat-chakra',
@@ -109,8 +109,8 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3847,
     location: { lat: 22.6053, lng: 88.3847 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'R.G. Kar Road', landmark: 'Belgachia Tram Depot' },
-      { gateNumber: 'Gate 2', name: 'Milk Colony Road', landmark: 'West Bengal University of Animal & Fishery Sciences' },
+      { gateNumber: 'Gate 1', name: 'R.G. Kar Road', landmark: 'Belgachia Tram Depot', latitude: 22.6058, longitude: 88.3849, location: { lat: 22.6058, lng: 88.3849 } },
+      { gateNumber: 'Gate 2', name: 'Milk Colony Road', landmark: 'West Bengal University of Animal & Fishery Sciences', latitude: 22.6048, longitude: 88.3844, location: { lat: 22.6048, lng: 88.3844 } },
     ],
     nearbyPandalIds: [
       'pandal-tala-park-prattyay',
@@ -129,10 +129,10 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3702,
     location: { lat: 22.6025, lng: 88.3702 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Bhupen Bose Avenue', landmark: 'Towards Hatibagan & Radha Cinema' },
-      { gateNumber: 'Gate 2', name: 'Shyambazar 5-Point Crossing', landmark: 'Netaji Statue & RG Kar Rd' },
-      { gateNumber: 'Gate 3', name: 'Bidhan Sarani', landmark: 'Fariapukur & Town School' },
-      { gateNumber: 'Gate 4', name: 'R.G. Kar Road', landmark: 'Towards Belgachia & Canal' },
+      { gateNumber: 'Gate 1', name: 'Bhupen Bose Avenue', landmark: 'Towards Hatibagan & Radha Cinema', latitude: 22.6021, longitude: 88.3708, location: { lat: 22.6021, lng: 88.3708 } },
+      { gateNumber: 'Gate 2', name: 'Shyambazar 5-Point Crossing', landmark: 'Netaji Statue & RG Kar Rd', latitude: 22.6033, longitude: 88.3702, location: { lat: 22.6033, lng: 88.3702 } },
+      { gateNumber: 'Gate 3', name: 'Bidhan Sarani', landmark: 'Fariapukur & Town School', latitude: 22.6016, longitude: 88.3697, location: { lat: 22.6016, lng: 88.3697 } },
+      { gateNumber: 'Gate 4', name: 'R.G. Kar Road', landmark: 'Towards Belgachia & Canal', latitude: 22.6036, longitude: 88.3711, location: { lat: 22.6036, lng: 88.3711 } },
     ],
     nearbyPandalIds: [
       'pandal-hatibagan',
@@ -158,9 +158,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3664,
     location: { lat: 22.5978, lng: 88.3664 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Central Avenue (CR Avenue)', landmark: 'Girish Ghosh Memorial Hall' },
-      { gateNumber: 'Gate 2', name: 'B.K. Paul Avenue', landmark: 'Towards Kumartuli Idol Studios' },
-      { gateNumber: 'Gate 3', name: 'Rabindra Sarani / Sovabazar St', landmark: 'Towards Sovabazar Rajbari' },
+      { gateNumber: 'Gate 1', name: 'Central Avenue (CR Avenue)', landmark: 'Girish Ghosh Memorial Hall', latitude: 22.5984, longitude: 88.3667, location: { lat: 22.5984, lng: 88.3667 } },
+      { gateNumber: 'Gate 2', name: 'B.K. Paul Avenue', landmark: 'Towards Kumartuli Idol Studios', latitude: 22.5978, longitude: 88.3655, location: { lat: 22.5978, lng: 88.3655 } },
+      { gateNumber: 'Gate 3', name: 'Rabindra Sarani / Sovabazar St', landmark: 'Towards Sovabazar Rajbari', latitude: 22.5971, longitude: 88.3662, location: { lat: 22.5971, lng: 88.3662 } },
     ],
     nearbyPandalIds: [
       'pandal-kumartuli-park',
@@ -187,9 +187,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3615,
     location: { lat: 22.5857, lng: 88.3615 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Vivekananda Road', landmark: 'Towards Swami Vivekananda Ancestral House' },
-      { gateNumber: 'Gate 2', name: 'Central Avenue', landmark: 'Girish Park Ground' },
-      { gateNumber: 'Gate 3', name: 'Maniktala Link', landmark: 'Towards Chaltabagan' },
+      { gateNumber: 'Gate 1', name: 'Vivekananda Road', landmark: 'Towards Swami Vivekananda Ancestral House', latitude: 22.5863, longitude: 88.3621, location: { lat: 22.5863, lng: 88.3621 } },
+      { gateNumber: 'Gate 2', name: 'Central Avenue', landmark: 'Girish Park Ground', latitude: 22.5857, longitude: 88.3615, location: { lat: 22.5857, lng: 88.3615 } },
+      { gateNumber: 'Gate 3', name: 'Maniktala Link', landmark: 'Towards Chaltabagan', latitude: 22.5851, longitude: 88.3608, location: { lat: 22.5851, lng: 88.3608 } },
     ],
     nearbyPandalIds: [
       'pandal-simla-vyayam-samiti',
@@ -216,9 +216,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3598,
     location: { lat: 22.5815, lng: 88.3598 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'M.G. Road Crossing', landmark: 'Towards Sealdah & Burrabazar' },
-      { gateNumber: 'Gate 2', name: 'Central Avenue', landmark: 'Mahatma Gandhi Statue' },
-      { gateNumber: 'Gate 3', name: 'College Street Junction', landmark: 'Towards Presidency University & Books' },
+      { gateNumber: 'Gate 1', name: 'M.G. Road Crossing', landmark: 'Towards Sealdah & Burrabazar', latitude: 22.5819, longitude: 88.3604, location: { lat: 22.5819, lng: 88.3604 } },
+      { gateNumber: 'Gate 2', name: 'Central Avenue', landmark: 'Mahatma Gandhi Statue', latitude: 22.5815, longitude: 88.3598, location: { lat: 22.5815, lng: 88.3598 } },
+      { gateNumber: 'Gate 3', name: 'College Street Junction', landmark: 'Towards Presidency University & Books', latitude: 22.5811, longitude: 88.3591, location: { lat: 22.5811, lng: 88.3591 } },
     ],
     nearbyPandalIds: [
       'pandal-mohammad-ali-park',
@@ -241,9 +241,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3618,
     location: { lat: 22.5694, lng: 88.3618 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Bepin Behari Ganguly Street', landmark: 'Bowbazar Jewellery Market' },
-      { gateNumber: 'Gate 2', name: 'Calcutta Medical College', landmark: 'College Street / Medical Gate' },
-      { gateNumber: 'Gate 3', name: 'Central Avenue', landmark: 'Towards Chandni Chowk' },
+      { gateNumber: 'Gate 1', name: 'Bepin Behari Ganguly Street', landmark: 'Bowbazar Jewellery Market', latitude: 22.5699, longitude: 88.3623, location: { lat: 22.5699, lng: 88.3623 } },
+      { gateNumber: 'Gate 2', name: 'Calcutta Medical College', landmark: 'College Street / Medical Gate', latitude: 22.5694, longitude: 88.3618, location: { lat: 22.5694, lng: 88.3618 } },
+      { gateNumber: 'Gate 3', name: 'Central Avenue', landmark: 'Towards Chandni Chowk', latitude: 22.5688, longitude: 88.3613, location: { lat: 22.5688, lng: 88.3613 } },
     ],
     nearbyPandalIds: [
       'pandal-college-square',
@@ -266,9 +266,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3553,
     location: { lat: 22.5647, lng: 88.3553 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Ganesh Chandra Avenue', landmark: 'Electronics Market' },
-      { gateNumber: 'Gate 2', name: 'Chandni Market', landmark: 'E-Mall side' },
-      { gateNumber: 'Gate 3', name: 'Princep Street', landmark: 'Madan Street link' },
+      { gateNumber: 'Gate 1', name: 'Ganesh Chandra Avenue', landmark: 'Electronics Market', latitude: 22.5653, longitude: 88.3562, location: { lat: 22.5653, lng: 88.3562 } },
+      { gateNumber: 'Gate 2', name: 'Chandni Market', landmark: 'E-Mall side', latitude: 22.5646, longitude: 88.3556, location: { lat: 22.5646, lng: 88.3556 } },
+      { gateNumber: 'Gate 3', name: 'Princep Street', landmark: 'Madan Street link', latitude: 22.5639, longitude: 88.3559, location: { lat: 22.5639, lng: 88.3559 } },
     ],
     nearbyPandalIds: [
       'pandal-santosh-mitra',
@@ -289,11 +289,11 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3512,
     location: { lat: 22.5639, lng: 88.3512 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Curzon Park / Dharmatala', landmark: 'Bus Terminus & Tipu Sultan Mosque' },
-      { gateNumber: 'Gate 2', name: 'Lenin Sarani', landmark: 'Metro Cinema & New Market' },
-      { gateNumber: 'Gate 3', name: 'S.N. Banerjee Road', landmark: 'KMC Headquarters' },
-      { gateNumber: 'Gate 4', name: 'Jawaharlal Nehru Road', landmark: 'Peerless Inn & Grand Hotel' },
-      { gateNumber: 'Gate 5', name: 'Green Line Underground Concourse', landmark: 'Under-river tunnel connection' },
+      { gateNumber: 'Gate 1', name: 'Curzon Park / Dharmatala', landmark: 'Bus Terminus & Tipu Sultan Mosque', latitude: 22.5643, longitude: 88.3512, location: { lat: 22.5643, lng: 88.3512 } },
+      { gateNumber: 'Gate 2', name: 'Lenin Sarani', landmark: 'Metro Cinema & New Market', latitude: 22.5646, longitude: 88.3524, location: { lat: 22.5646, lng: 88.3524 } },
+      { gateNumber: 'Gate 3', name: 'S.N. Banerjee Road', landmark: 'KMC Headquarters', latitude: 22.5637, longitude: 88.3528, location: { lat: 22.5637, lng: 88.3528 } },
+      { gateNumber: 'Gate 4', name: 'Jawaharlal Nehru Road', landmark: 'Peerless Inn & Grand Hotel', latitude: 22.5631, longitude: 88.3518, location: { lat: 22.5631, lng: 88.3518 } },
+      { gateNumber: 'Gate 5', name: 'Green Line Underground Concourse', landmark: 'Under-river tunnel connection', latitude: 22.5641, longitude: 88.3534, location: { lat: 22.5641, lng: 88.3534 } },
     ],
     nearbyPandalIds: [
       'pandal-janbazar',
@@ -314,9 +314,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3519,
     location: { lat: 22.5517, lng: 88.3519 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Park Street Crossing', landmark: 'Asiatic Society & Flurys' },
-      { gateNumber: 'Gate 2', name: 'Jawaharlal Nehru Road', landmark: 'Indian Museum Gate' },
-      { gateNumber: 'Gate 3', name: 'Middleton Street', landmark: 'Towards Camac Street' },
+      { gateNumber: 'Gate 1', name: 'Park Street Crossing', landmark: 'Asiatic Society & Flurys', latitude: 22.5523, longitude: 88.3512, location: { lat: 22.5523, lng: 88.3512 } },
+      { gateNumber: 'Gate 2', name: 'Jawaharlal Nehru Road', landmark: 'Indian Museum Gate', latitude: 22.5519, longitude: 88.3519, location: { lat: 22.5519, lng: 88.3519 } },
+      { gateNumber: 'Gate 3', name: 'Middleton Street', landmark: 'Towards Camac Street', latitude: 22.5508, longitude: 88.3509, location: { lat: 22.5508, lng: 88.3509 } },
     ],
     nearbyPandalIds: [
       'pandal-janbazar',
@@ -336,9 +336,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3492,
     location: { lat: 22.5494, lng: 88.3492 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Jawaharlal Nehru Road', landmark: 'Towards Jeevan Deep & Tata Centre' },
-      { gateNumber: 'Gate 2', name: 'Middleton Street', landmark: 'Towards Loreto College & Park Street' },
-      { gateNumber: 'Gate 3', name: 'Brigade Parade Ground', landmark: 'Direct Maidan greens access' },
+      { gateNumber: 'Gate 1', name: 'Jawaharlal Nehru Road', landmark: 'Towards Jeevan Deep & Tata Centre', latitude: 22.5501, longitude: 88.3496, location: { lat: 22.5501, lng: 88.3496 } },
+      { gateNumber: 'Gate 2', name: 'Middleton Street', landmark: 'Towards Loreto College & Park Street', latitude: 22.5487, longitude: 88.3507, location: { lat: 22.5487, lng: 88.3507 } },
+      { gateNumber: 'Gate 3', name: 'Brigade Parade Ground', landmark: 'Direct Maidan greens access', latitude: 22.5494, longitude: 88.3486, location: { lat: 22.5494, lng: 88.3486 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -354,9 +354,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3475,
     location: { lat: 22.5358, lng: 88.3475 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Exide Crossing', landmark: 'Chowringhee & Exide House' },
-      { gateNumber: 'Gate 2', name: 'Nandan / Academy of Fine Arts', landmark: 'Cultural Complex & Cathedral' },
-      { gateNumber: 'Gate 3', name: 'AJC Bose Road Flyover', landmark: 'Nehru Children Museum' },
+      { gateNumber: 'Gate 1', name: 'Exide Crossing', landmark: 'Chowringhee & Exide House', latitude: 22.5365, longitude: 88.3465, location: { lat: 22.5365, lng: 88.3465 } },
+      { gateNumber: 'Gate 2', name: 'Nandan / Academy of Fine Arts', landmark: 'Cultural Complex & Cathedral', latitude: 22.5351, longitude: 88.3456, location: { lat: 22.5351, lng: 88.3456 } },
+      { gateNumber: 'Gate 3', name: 'AJC Bose Road Flyover', landmark: 'Nehru Children Museum', latitude: 22.5357, longitude: 88.3472, location: { lat: 22.5357, lng: 88.3472 } },
     ],
     nearbyPandalIds: [
       'pandal-maddox',
@@ -379,9 +379,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3458,
     location: { lat: 22.5284, lng: 88.3458 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Ashutosh Mukherjee Road', landmark: 'Bhowanipore Police Station' },
-      { gateNumber: 'Gate 2', name: 'Elgin Road', landmark: 'Netaji Subhas Chandra Bose Ancestral Home' },
-      { gateNumber: 'Gate 3', name: 'Harish Mukherjee Road', landmark: 'Harish Park crossing' },
+      { gateNumber: 'Gate 1', name: 'Ashutosh Mukherjee Road', landmark: 'Bhowanipore Police Station', latitude: 22.5276, longitude: 88.3479, location: { lat: 22.5276, lng: 88.3479 } },
+      { gateNumber: 'Gate 2', name: 'Elgin Road', landmark: 'Netaji Subhas Chandra Bose Ancestral Home', latitude: 22.5292, longitude: 88.3479, location: { lat: 22.5292, lng: 88.3479 } },
+      { gateNumber: 'Gate 3', name: 'Harish Mukherjee Road', landmark: 'Harish Park crossing', latitude: 22.5284, longitude: 88.3473, location: { lat: 22.5284, lng: 88.3473 } },
     ],
     nearbyPandalIds: [
       'pandal-bhawanipur-75-palli',
@@ -406,9 +406,10 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3453,
     location: { lat: 22.5209, lng: 88.3453 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Hazra Crossing', landmark: 'Hazra Law College & Hazra Park' },
-      { gateNumber: 'Gate 2', name: 'S.P. Mukherjee Road', landmark: 'Deshamukherjee Road link' },
-      { gateNumber: 'Gate 3', name: 'Sadananda Road', landmark: 'Towards Kalighat Tram Depot' },
+      { gateNumber: 'Gate 1', name: 'Hazra Crossing', landmark: 'Hazra Law College & Hazra Park', latitude: 22.5215, longitude: 88.3478, location: { lat: 22.5215, lng: 88.3478 } },
+      { gateNumber: 'Gate 2', name: 'S.P. Mukherjee Road', landmark: 'Deshamukherjee Road link', latitude: 22.5221, longitude: 88.3471, location: { lat: 22.5221, lng: 88.3471 } },
+      { gateNumber: 'Gate 3', name: 'Sadananda Road', landmark: 'Towards Kalighat Tram Depot', latitude: 22.5204, longitude: 88.3469, location: { lat: 22.5204, lng: 88.3469 } },
+      { gateNumber: 'Gate 4', name: 'Hazra Road West', landmark: 'Towards Alipore', latitude: 22.5208, longitude: 88.3461, location: { lat: 22.5208, lng: 88.3461 } },
     ],
     nearbyPandalIds: [
       'pandal-maddox',
@@ -432,10 +433,10 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3469,
     location: { lat: 22.5168, lng: 88.3469 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Rashbehari Crossing East', landmark: 'Towards Deshapriya Park & Lake Mall' },
-      { gateNumber: 'Gate 2', name: 'Kalighat Temple Road', landmark: 'Mahim Halder St & Kalighat Temple' },
-      { gateNumber: 'Gate 3', name: 'S.P. Mukherjee Road', landmark: 'Towards Southern Avenue' },
-      { gateNumber: 'Gate 4', name: 'Rashbehari Crossing West', landmark: 'Towards Chetla & New Alipore' },
+      { gateNumber: 'Gate 1', name: 'Rashbehari Crossing East', landmark: 'Towards Deshapriya Park & Lake Mall', latitude: 22.5173, longitude: 88.3476, location: { lat: 22.5173, lng: 88.3476 } },
+      { gateNumber: 'Gate 2', name: 'Kalighat Temple Road', landmark: 'Mahim Halder St & Kalighat Temple', latitude: 22.5172, longitude: 88.3462, location: { lat: 22.5172, lng: 88.3462 } },
+      { gateNumber: 'Gate 3', name: 'S.P. Mukherjee Road', landmark: 'Towards Southern Avenue', latitude: 22.5161, longitude: 88.3473, location: { lat: 22.5161, lng: 88.3473 } },
+      { gateNumber: 'Gate 4', name: 'Rashbehari Crossing West', landmark: 'Towards Chetla & New Alipore', latitude: 22.5163, longitude: 88.3460, location: { lat: 22.5163, lng: 88.3460 } },
     ],
     nearbyPandalIds: [
       'pandal-deshapriya-park',
@@ -463,9 +464,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3472,
     location: { lat: 22.5085, lng: 88.3472 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Southern Avenue', landmark: 'Rabindra Sarobar Lake & Swimming Club' },
-      { gateNumber: 'Gate 2', name: 'Tollygunge Circular Road', landmark: 'Charu Market & Lake Gardens Railway Station' },
-      { gateNumber: 'Gate 3', name: 'Lake Market Road', landmark: 'Towards Menoka Cinema' },
+      { gateNumber: 'Gate 1', name: 'Southern Avenue', landmark: 'Rabindra Sarobar Lake & Swimming Club', latitude: 22.5092, longitude: 88.3475, location: { lat: 22.5092, lng: 88.3475 } },
+      { gateNumber: 'Gate 2', name: 'Tollygunge Circular Road', landmark: 'Charu Market & Lake Gardens Railway Station', latitude: 22.5085, longitude: 88.3465, location: { lat: 22.5085, lng: 88.3465 } },
+      { gateNumber: 'Gate 3', name: 'Lake Market Road', landmark: 'Towards Menoka Cinema', latitude: 22.5078, longitude: 88.3472, location: { lat: 22.5078, lng: 88.3472 } },
     ],
     nearbyPandalIds: [
       'pandal-mudiali-club',
@@ -489,9 +490,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3461,
     location: { lat: 22.4975, lng: 88.3461 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Deshpran Sashmal Road', landmark: 'Tollygunge Tram Depot & Bridge' },
-      { gateNumber: 'Gate 2', name: 'Kudghat Side', landmark: 'Towards Tolly Club' },
-      { gateNumber: 'Gate 3', name: 'Prince Anwar Shah Road Link', landmark: 'Towards South City Mall' },
+      { gateNumber: 'Gate 1', name: 'Deshpran Sashmal Road', landmark: 'Tollygunge Tram Depot & Bridge', latitude: 22.4982, longitude: 88.3462, location: { lat: 22.4982, lng: 88.3462 } },
+      { gateNumber: 'Gate 2', name: 'Kudghat Side', landmark: 'Towards Tolly Club', latitude: 22.4974, longitude: 88.3453, location: { lat: 22.4974, lng: 88.3453 } },
+      { gateNumber: 'Gate 3', name: 'Prince Anwar Shah Road Link', landmark: 'Towards South City Mall', latitude: 22.4967, longitude: 88.3459, location: { lat: 22.4967, lng: 88.3459 } },
     ],
     nearbyPandalIds: [
       'pandal-suruchi-sangha',
@@ -512,8 +513,8 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3486,
     location: { lat: 22.4891, lng: 88.3486 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Deshpran Sashmal Road', landmark: 'Kudghat Bazar' },
-      { gateNumber: 'Gate 2', name: 'Chanditala Road', landmark: 'Towards Haridevpur' },
+      { gateNumber: 'Gate 1', name: 'Deshpran Sashmal Road', landmark: 'Kudghat Bazar', latitude: 22.4897, longitude: 88.3488, location: { lat: 22.4897, lng: 88.3488 } },
+      { gateNumber: 'Gate 2', name: 'Chanditala Road', landmark: 'Towards Haridevpur', latitude: 22.4885, longitude: 88.3482, location: { lat: 22.4885, lng: 88.3482 } },
     ],
     nearbyPandalIds: [
       'pandal-haridevpur-41-palli',
@@ -532,8 +533,8 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3562,
     location: { lat: 22.4795, lng: 88.3562 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Bansdroni Bazar', landmark: 'NSC Bose Road' },
-      { gateNumber: 'Gate 2', name: 'Dinesh Nagar', landmark: 'Towards Ranikuthi' },
+      { gateNumber: 'Gate 1', name: 'Bansdroni Bazar', landmark: 'NSC Bose Road', latitude: 22.4801, longitude: 88.3565, location: { lat: 22.4801, lng: 88.3565 } },
+      { gateNumber: 'Gate 2', name: 'Dinesh Nagar', landmark: 'Towards Ranikuthi', latitude: 22.4789, longitude: 88.3558, location: { lat: 22.4789, lng: 88.3558 } },
     ],
     nearbyPandalIds: [
       'pandal-naktala-udayan-sangha',
@@ -551,8 +552,8 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3642,
     location: { lat: 22.4735, lng: 88.3642 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'NSC Bose Road', landmark: 'Naktala Post Office' },
-      { gateNumber: 'Gate 2', name: 'Udayan Sangha Corridor', landmark: 'Direct corridor to Naktala Udayan Sangha' },
+      { gateNumber: 'Gate 1', name: 'NSC Bose Road', landmark: 'Naktala Post Office', latitude: 22.4741, longitude: 88.3645, location: { lat: 22.4741, lng: 88.3645 } },
+      { gateNumber: 'Gate 2', name: 'Udayan Sangha Corridor', landmark: 'Direct corridor to Naktala Udayan Sangha', latitude: 22.4729, longitude: 88.3638, location: { lat: 22.4729, lng: 88.3638 } },
     ],
     nearbyPandalIds: [
       'pandal-naktala-udayan-sangha',
@@ -571,9 +572,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3806,
     location: { lat: 22.4642, lng: 88.3806 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Garia Main Road', landmark: 'Garia Bazar Crossing' },
-      { gateNumber: 'Gate 2', name: 'Tollygunge Circular Road', landmark: 'Towards Garia 6-No Bus Stand' },
-      { gateNumber: 'Gate 3', name: 'Kanungo Park Road', landmark: 'Towards Raja SC Mullick Road' },
+      { gateNumber: 'Gate 1', name: 'Garia Main Road', landmark: 'Garia Bazar Crossing', latitude: 22.4648, longitude: 88.3809, location: { lat: 22.4648, lng: 88.3809 } },
+      { gateNumber: 'Gate 2', name: 'Tollygunge Circular Road', landmark: 'Towards Garia 6-No Bus Stand', latitude: 22.4636, longitude: 88.3801, location: { lat: 22.4636, lng: 88.3801 } },
+      { gateNumber: 'Gate 3', name: 'Kanungo Park Road', landmark: 'Towards Raja SC Mullick Road', latitude: 22.4642, longitude: 88.3815, location: { lat: 22.4642, lng: 88.3815 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -589,9 +590,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3917,
     location: { lat: 22.4661, lng: 88.3917 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Briji West', landmark: 'Towards Dhalai Bridge' },
-      { gateNumber: 'Gate 2', name: 'Briji East', landmark: 'Towards EM Bypass Link Road' },
-      { gateNumber: 'Gate 3', name: 'Srinagar Main Road', landmark: 'Towards Panchasayar' },
+      { gateNumber: 'Gate 1', name: 'Briji West', landmark: 'Towards Dhalai Bridge', latitude: 22.4667, longitude: 88.3912, location: { lat: 22.4667, lng: 88.3912 } },
+      { gateNumber: 'Gate 2', name: 'Briji East', landmark: 'Towards EM Bypass Link Road', latitude: 22.4655, longitude: 88.3922, location: { lat: 22.4655, lng: 88.3922 } },
+      { gateNumber: 'Gate 3', name: 'Srinagar Main Road', landmark: 'Towards Panchasayar', latitude: 22.4661, longitude: 88.3925, location: { lat: 22.4661, lng: 88.3925 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -607,9 +608,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3983,
     location: { lat: 22.4722, lng: 88.3983 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'New Garia Railway Concourse', landmark: 'Eastern Railway suburban interchange' },
-      { gateNumber: 'Gate 2', name: 'EM Bypass Terminal Link', landmark: 'Southern bypass terminal point' },
-      { gateNumber: 'Gate 3', name: 'Highland Park Road', landmark: 'Towards Hiland Park & Peerless Hospital' },
+      { gateNumber: 'Gate 1', name: 'New Garia Railway Concourse', landmark: 'Eastern Railway suburban interchange', latitude: 22.4728, longitude: 88.3986, location: { lat: 22.4728, lng: 88.3986 } },
+      { gateNumber: 'Gate 2', name: 'EM Bypass Terminal Link', landmark: 'Southern bypass terminal point', latitude: 22.4716, longitude: 88.3978, location: { lat: 22.4716, lng: 88.3978 } },
+      { gateNumber: 'Gate 3', name: 'Highland Park Road', landmark: 'Towards Hiland Park & Peerless Hospital', latitude: 22.4722, longitude: 88.3992, location: { lat: 22.4722, lng: 88.3992 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -631,9 +632,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3339,
     location: { lat: 22.5839, lng: 88.3339 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'GT Road Howrah', landmark: 'Howrah Court & Police Commissionerate' },
-      { gateNumber: 'Gate 2', name: 'Howrah Maidan Concourse', landmark: 'Towards Sarat Sadan & Stadium' },
-      { gateNumber: 'Gate 3', name: 'Mallick Phatak Link', landmark: 'Towards Bankim Setu' },
+      { gateNumber: 'Gate 1', name: 'GT Road Howrah', landmark: 'Howrah Court & Police Commissionerate', latitude: 22.5844, longitude: 88.3333, location: { lat: 22.5844, lng: 88.3333 } },
+      { gateNumber: 'Gate 2', name: 'Howrah Maidan Concourse', landmark: 'Towards Sarat Sadan & Stadium', latitude: 22.5836, longitude: 88.3344, location: { lat: 22.5836, lng: 88.3344 } },
+      { gateNumber: 'Gate 3', name: 'Mallick Phatak Link', landmark: 'Towards Bankim Setu', latitude: 22.5831, longitude: 88.3337, location: { lat: 22.5831, lng: 88.3337 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -649,9 +650,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3414,
     location: { lat: 22.5842, lng: 88.3414 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Howrah Railway Station Concourse', landmark: 'India Deepest Metro Station (33m below surface)' },
-      { gateNumber: 'Gate 2', name: 'Howrah Ferry Ghat', landmark: 'River Hooghly Ferry Terminal' },
-      { gateNumber: 'Gate 3', name: 'Howrah Bridge Approach', landmark: 'Towards Burrabazar' },
+      { gateNumber: 'Gate 1', name: 'Howrah Railway Station Concourse', landmark: 'India Deepest Metro Station (33m below surface)', latitude: 22.5847, longitude: 88.3411, location: { lat: 22.5847, lng: 88.3411 } },
+      { gateNumber: 'Gate 2', name: 'Howrah Ferry Ghat', landmark: 'River Hooghly Ferry Terminal', latitude: 22.5839, longitude: 88.3421, location: { lat: 22.5839, lng: 88.3421 } },
+      { gateNumber: 'Gate 3', name: 'Howrah Bridge Approach', landmark: 'Towards Burrabazar', latitude: 22.5849, longitude: 88.3419, location: { lat: 22.5849, lng: 88.3419 } },
     ],
     nearbyPandalIds: [
       'pandal-mohammad-ali-park',
@@ -673,9 +674,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3725,
     location: { lat: 22.5684, lng: 88.3725 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Sealdah Railway Station Concourse', landmark: 'Direct Link to Main & South Terminus' },
-      { gateNumber: 'Gate 2', name: 'Beliaghata Main Road', landmark: 'Towards NRS Medical College' },
-      { gateNumber: 'Gate 3', name: 'Raja Bazar Crossing', landmark: 'APC Road link' },
+      { gateNumber: 'Gate 1', name: 'Sealdah Railway Station Concourse', landmark: 'Direct Link to Main & South Terminus', latitude: 22.5689, longitude: 88.3722, location: { lat: 22.5689, lng: 88.3722 } },
+      { gateNumber: 'Gate 2', name: 'Beliaghata Main Road', landmark: 'Towards NRS Medical College', latitude: 22.5678, longitude: 88.3731, location: { lat: 22.5678, lng: 88.3731 } },
+      { gateNumber: 'Gate 3', name: 'Raja Bazar Crossing', landmark: 'APC Road link', latitude: 22.5691, longitude: 88.3735, location: { lat: 22.5691, lng: 88.3735 } },
     ],
     nearbyPandalIds: [
       'pandal-santosh-mitra',
@@ -699,9 +700,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.3912,
     location: { lat: 22.5708, lng: 88.3912 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Phoolbagan Crossing', landmark: 'Kankurgachi Road' },
-      { gateNumber: 'Gate 2', name: 'CIT Road', landmark: 'Towards Subhas Sarobar' },
-      { gateNumber: 'Gate 3', name: 'VIP Market Road', landmark: 'Kankurgachi VIP Market' },
+      { gateNumber: 'Gate 1', name: 'Phoolbagan Crossing', landmark: 'Kankurgachi Road', latitude: 22.5714, longitude: 88.3916, location: { lat: 22.5714, lng: 88.3916 } },
+      { gateNumber: 'Gate 2', name: 'CIT Road', landmark: 'Towards Subhas Sarobar', latitude: 22.5702, longitude: 88.3919, location: { lat: 22.5702, lng: 88.3919 } },
+      { gateNumber: 'Gate 3', name: 'VIP Market Road', landmark: 'Kankurgachi VIP Market', latitude: 22.5706, longitude: 88.3905, location: { lat: 22.5706, lng: 88.3905 } },
     ],
     nearbyPandalIds: [
       'pandal-kankurgachi-yubak-vrinda',
@@ -720,9 +721,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.4031,
     location: { lat: 22.5731, lng: 88.4031 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Yuva Bharati Krirangan Gate 1', landmark: 'Main Stadium entrance approach' },
-      { gateNumber: 'Gate 2', name: 'EM Bypass Crossing', landmark: 'Towards Apollo Gleneagles Hospital' },
-      { gateNumber: 'Gate 3', name: 'Subhas Sarobar Link', landmark: 'Towards scenic Subhas Sarobar lake' },
+      { gateNumber: 'Gate 1', name: 'Yuva Bharati Krirangan Gate 1', landmark: 'Main Stadium entrance approach', latitude: 22.5738, longitude: 88.4036, location: { lat: 22.5738, lng: 88.4036 } },
+      { gateNumber: 'Gate 2', name: 'EM Bypass Crossing', landmark: 'Towards Apollo Gleneagles Hospital', latitude: 22.5726, longitude: 88.4026, location: { lat: 22.5726, lng: 88.4026 } },
+      { gateNumber: 'Gate 3', name: 'Subhas Sarobar Link', landmark: 'Towards scenic Subhas Sarobar lake', latitude: 22.5729, longitude: 88.4039, location: { lat: 22.5729, lng: 88.4039 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -738,9 +739,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.4014,
     location: { lat: 22.58, lng: 88.4014 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Bengal Chemical & Pharmaceuticals', landmark: 'Historic pharmacy campus gate' },
-      { gateNumber: 'Gate 2', name: 'Mani Square Mall Crossing', landmark: 'Direct access across EM Bypass' },
-      { gateNumber: 'Gate 3', name: 'Kankurgachi VIP Road Link', landmark: 'Towards Ultadanga Hudson crossing' },
+      { gateNumber: 'Gate 1', name: 'Bengal Chemical & Pharmaceuticals', landmark: 'Historic pharmacy campus gate', latitude: 22.5806, longitude: 88.4011, location: { lat: 22.5806, lng: 88.4011 } },
+      { gateNumber: 'Gate 2', name: 'Mani Square Mall Crossing', landmark: 'Direct access across EM Bypass', latitude: 22.5795, longitude: 88.4021, location: { lat: 22.5795, lng: 88.4021 } },
+      { gateNumber: 'Gate 3', name: 'Kankurgachi VIP Road Link', landmark: 'Towards Ultadanga Hudson crossing', latitude: 22.5804, longitude: 88.4025, location: { lat: 22.5804, lng: 88.4025 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -756,8 +757,8 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.4115,
     location: { lat: 22.5862, lng: 88.4115 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'City Centre 1 Mall', landmark: 'Kund Area / DC Block' },
-      { gateNumber: 'Gate 2', name: 'Salt Lake Swimming Pool', landmark: 'BF Block' },
+      { gateNumber: 'Gate 1', name: 'City Centre 1 Mall', landmark: 'Kund Area / DC Block', latitude: 22.5868, longitude: 88.4119, location: { lat: 22.5868, lng: 88.4119 } },
+      { gateNumber: 'Gate 2', name: 'Salt Lake Swimming Pool', landmark: 'BF Block', latitude: 22.5857, longitude: 88.4111, location: { lat: 22.5857, lng: 88.4111 } },
     ],
     nearbyPandalIds: [
       'pandal-salt-lake-fd-block',
@@ -777,9 +778,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.4156,
     location: { lat: 22.5906, lng: 88.4156 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Central Park Gate 3', landmark: 'Kolkata Book Fair grounds & Banabitan' },
-      { gateNumber: 'Gate 2', name: 'Bikash Bhavan Road', landmark: 'Towards Higher Education department' },
-      { gateNumber: 'Gate 3', name: 'Mayukh Bhavan Crossing', landmark: 'West Bengal state directorates' },
+      { gateNumber: 'Gate 1', name: 'Central Park Gate 3', landmark: 'Kolkata Book Fair grounds & Banabitan', latitude: 22.5912, longitude: 88.4159, location: { lat: 22.5912, lng: 88.4159 } },
+      { gateNumber: 'Gate 2', name: 'Bikash Bhavan Road', landmark: 'Towards Higher Education department', latitude: 22.5901, longitude: 88.4151, location: { lat: 22.5901, lng: 88.4151 } },
+      { gateNumber: 'Gate 3', name: 'Mayukh Bhavan Crossing', landmark: 'West Bengal state directorates', latitude: 22.5908, longitude: 88.4165, location: { lat: 22.5908, lng: 88.4165 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -795,9 +796,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.4214,
     location: { lat: 22.5864, lng: 88.4214 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Karunamoyee International Bus Terminus', landmark: 'Long-distance and airport express buses' },
-      { gateNumber: 'Gate 2', name: 'Salt Lake Central Bus Terminus', landmark: 'Karunamoyee roundabout' },
-      { gateNumber: 'Gate 3', name: 'Unnayan Bhavan', landmark: 'Towards KMDA headquarters' },
+      { gateNumber: 'Gate 1', name: 'Karunamoyee International Bus Terminus', landmark: 'Long-distance and airport express buses', latitude: 22.5869, longitude: 88.4219, location: { lat: 22.5869, lng: 88.4219 } },
+      { gateNumber: 'Gate 2', name: 'Salt Lake Central Bus Terminus', landmark: 'Karunamoyee roundabout', latitude: 22.5859, longitude: 88.4209, location: { lat: 22.5859, lng: 88.4209 } },
+      { gateNumber: 'Gate 3', name: 'Unnayan Bhavan', landmark: 'Towards KMDA headquarters', latitude: 22.5866, longitude: 88.4225, location: { lat: 22.5866, lng: 88.4225 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],
@@ -813,9 +814,9 @@ export const curatedMetroStations: MetroStation[] = [
     longitude: 88.4297,
     location: { lat: 22.5814, lng: 88.4297 },
     entrancesExits: [
-      { gateNumber: 'Gate 1', name: 'Wipro Crossing', landmark: 'Ring Road Sector V IT hub' },
-      { gateNumber: 'Gate 2', name: 'College More Link', landmark: 'Towards Techno India & SDF Building' },
-      { gateNumber: 'Gate 3', name: 'Godrej Waterside Link', landmark: 'Towards DP Block IT parks' },
+      { gateNumber: 'Gate 1', name: 'Wipro Crossing', landmark: 'Ring Road Sector V IT hub', latitude: 22.5821, longitude: 88.4299, location: { lat: 22.5821, lng: 88.4299 } },
+      { gateNumber: 'Gate 2', name: 'College More Link', landmark: 'Towards Techno India & SDF Building', latitude: 22.5808, longitude: 88.4292, location: { lat: 22.5808, lng: 88.4292 } },
+      { gateNumber: 'Gate 3', name: 'Godrej Waterside Link', landmark: 'Towards DP Block IT parks', latitude: 22.5815, longitude: 88.4308, location: { lat: 22.5815, lng: 88.4308 } },
     ],
     nearbyPandalIds: [],
     nearbyBonediBariIds: [],

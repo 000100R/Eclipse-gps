@@ -35,6 +35,7 @@ export const LeafletMapView: React.FC = () => {
   const friendMarkersRef = useRef<L.LayerGroup | null>(null);
   const crowdLayerRef = useRef<L.LayerGroup | null>(null);
   const trafficLayerRef = useRef<L.LayerGroup | null>(null);
+  const metroGateLayerRef = useRef<L.LayerGroup | null>(null);
 
   const {
     currentLocation,
@@ -73,6 +74,8 @@ export const LeafletMapView: React.FC = () => {
     setMapStyle,
     setMapCenter,
     isLostInCrowdActive,
+    activeMetroGateIntelligence,
+    setActiveMetroGateIntelligence,
   } = useAppState();
 
   const [activeInstruction, setActiveInstruction] = useState<any>(null);
@@ -205,6 +208,10 @@ export const LeafletMapView: React.FC = () => {
     // Layer group to hold arterial traffic corridors and advisory markers
     const trafficLayer = L.layerGroup().addTo(map);
     trafficLayerRef.current = trafficLayer;
+
+    // Layer group to hold Metro Gate Intelligence (station, exit gates, walking route)
+    const metroGateLayer = L.layerGroup().addTo(map);
+    metroGateLayerRef.current = metroGateLayer;
 
     // Resize observer handling
     const resizeObserver = new ResizeObserver(() => {
@@ -703,6 +710,192 @@ export const LeafletMapView: React.FC = () => {
       trafficLayer.addLayer(tMarker);
     });
   }, [isLayerVisible('TRAFFIC'), layerVisibility.TRAFFIC]);
+
+  // Metro Gate Intelligence Layer: Station, Exit Gates, Recommended Gate, Walking Polyline
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const gateLayer = metroGateLayerRef.current;
+    if (!map || !gateLayer) return;
+
+    gateLayer.clearLayers();
+
+    if (!activeMetroGateIntelligence || !activeMetroGateIntelligence.hasVerifiedGates) {
+      return;
+    }
+
+    const { station, targetPandal, allGateRoutes, recommendedGate, activeGateRoute } = activeMetroGateIntelligence;
+    const currentRoute = activeGateRoute || recommendedGate;
+    const boundsPoints: [number, number][] = [];
+
+    // 1. Station Marker
+    const stationLoc = station.location;
+    boundsPoints.push([stationLoc.lat, stationLoc.lng]);
+    const stationIcon = L.divIcon({
+      className: 'metro-station-marker',
+      html: `
+        <div style="transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center;">
+          <div style="background: rgba(3, 7, 18, 0.95); border: 1.5px solid #2563eb; color: #93c5fd; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 9999px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); white-space: nowrap; margin-bottom: 4px;">
+            🚇 ${station.name}
+          </div>
+          <div style="width: 32px; height: 32px; border-radius: 10px; background: #2563eb; border: 2.5px solid #ffffff; display: flex; align-items: center; justify-content: center; color: #ffffff; font-weight: 900; font-size: 14px; box-shadow: 0 0 16px rgba(37, 99, 235, 0.6);">
+            M
+          </div>
+        </div>
+      `,
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+    });
+    const stationMarker = L.marker([stationLoc.lat, stationLoc.lng], { icon: stationIcon, zIndexOffset: 800 });
+    stationMarker.bindPopup(`<b>${station.name} Metro Station</b><br/>${station.line}`);
+    gateLayer.addLayer(stationMarker);
+
+    // 2. Gate Markers
+    allGateRoutes.forEach((gateOpt) => {
+      const isRecommended = gateOpt.isRecommended;
+      const isCurrentActive = currentRoute && currentRoute.gate.gateNumber === gateOpt.gate.gateNumber;
+      const gateLat = gateOpt.gate.latitude ?? gateOpt.gate.location?.lat ?? stationLoc.lat;
+      const gateLng = gateOpt.gate.longitude ?? gateOpt.gate.location?.lng ?? stationLoc.lng;
+      const gateCoords: [number, number] = [gateLat, gateLng];
+      boundsPoints.push(gateCoords);
+
+      const gateIcon = L.divIcon({
+        className: 'metro-gate-marker',
+        html: `
+          <div style="transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; cursor: pointer;">
+            ${
+              isRecommended
+                ? `<div style="background: #064e3b; border: 1.5px solid #10b981; color: #6ee7b7; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 9999px; box-shadow: 0 0 12px rgba(16, 185, 129, 0.6); white-space: nowrap; margin-bottom: 3px;">
+                     ★ RECOMMENDED EXIT: ${gateOpt.gate.gateNumber}
+                   </div>`
+                : `<div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #64748b; color: #cbd5e1; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 9999px; white-space: nowrap; margin-bottom: 2px;">
+                     ${gateOpt.gate.gateNumber}
+                   </div>`
+            }
+            <div style="
+              width: ${isRecommended ? '32px' : '26px'};
+              height: ${isRecommended ? '32px' : '26px'};
+              border-radius: 9999px;
+              background: ${isRecommended ? '#10b981' : isCurrentActive ? '#0284c7' : '#1e293b'};
+              border: ${isRecommended || isCurrentActive ? '2.5px solid #ffffff' : '2px solid #94a3b8'};
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              box-shadow: ${isRecommended ? '0 0 16px rgba(16, 185, 129, 0.8)' : '0 4px 8px rgba(0,0,0,0.4)'};
+              font-size: ${isRecommended ? '14px' : '12px'};
+            ">
+              🚪
+            </div>
+            <div style="background: rgba(0,0,0,0.85); color: #e2e8f0; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-top: 2px; white-space: nowrap;">
+              ${gateOpt.walkingDistanceFormatted}
+            </div>
+          </div>
+        `,
+        iconSize: [32, 32],
+        iconAnchor: [16, 32],
+      });
+
+      const gateMarker = L.marker(gateCoords, {
+        icon: gateIcon,
+        zIndexOffset: isRecommended ? 950 : 850,
+      });
+
+      gateMarker.bindPopup(`
+        <div style="font-family: sans-serif; font-size: 12px; line-height: 1.4;">
+          <div style="font-weight: 800; font-size: 13px; color: ${isRecommended ? '#059669' : '#1e293b'};">
+            ${isRecommended ? '★ ' : ''}${gateOpt.gate.gateNumber} ${gateOpt.gate.name ? `(${gateOpt.gate.name})` : ''}
+          </div>
+          ${gateOpt.gate.landmark ? `<div style="color: #64748b; font-size: 11px;">Towards ${gateOpt.gate.landmark}</div>` : ''}
+          <div style="margin-top: 6px; padding: 4px 8px; background: #f1f5f9; border-radius: 6px; font-weight: 700;">
+            🚶 ${gateOpt.walkingDistanceFormatted} • ${gateOpt.walkingTimeFormatted}
+          </div>
+        </div>
+      `);
+
+      gateMarker.on('click', () => {
+        setActiveMetroGateIntelligence({
+          ...activeMetroGateIntelligence,
+          activeGateRoute: gateOpt,
+        });
+      });
+
+      gateLayer.addLayer(gateMarker);
+    });
+
+    // 3. Walking Route Polyline from Recommended (or selected) Exit to Pandal
+    if (currentRoute && currentRoute.geometry && currentRoute.geometry.length > 0) {
+      const latlngs = currentRoute.geometry.map((p) => [p.lat, p.lng] as [number, number]);
+      latlngs.forEach((coord) => boundsPoints.push(coord));
+
+      // Dark emerald casing line
+      const casing = L.polyline(latlngs, {
+        color: '#064e3b',
+        weight: 8,
+        opacity: 0.8,
+        lineCap: 'round',
+        lineJoin: 'round',
+      });
+
+      // Luminous neon emerald walking dashed route
+      const walkingLine = L.polyline(latlngs, {
+        color: '#10b981',
+        weight: 4,
+        opacity: 1,
+        dashArray: '8, 8',
+        lineCap: 'round',
+        lineJoin: 'round',
+      });
+
+      walkingLine.bindTooltip(
+        `<b>Exit ${currentRoute.gate.gateNumber} Walking Route</b><br/>${currentRoute.walkingDistanceFormatted} • ${currentRoute.walkingTimeFormatted}`,
+        { sticky: true }
+      );
+
+      gateLayer.addLayer(casing);
+      gateLayer.addLayer(walkingLine);
+    }
+
+    // 4. Target Pandal Marker
+    const pandalLoc =
+      'location' in targetPandal && targetPandal.location
+        ? targetPandal.location
+        : { lat: (targetPandal as any).latitude, lng: (targetPandal as any).longitude };
+    boundsPoints.push([pandalLoc.lat, pandalLoc.lng]);
+
+    const pandalIcon = L.divIcon({
+      className: 'metro-target-pandal-marker',
+      html: `
+        <div style="transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center;">
+          <div style="background: rgba(3, 7, 18, 0.95); border: 1.5px solid #d97706; color: #fde68a; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 9999px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); white-space: nowrap; margin-bottom: 4px;">
+            🛕 ${targetPandal.name}
+          </div>
+          <div style="width: 32px; height: 32px; border-radius: 9999px; background: #f59e0b; border: 2.5px solid #ffffff; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px rgba(245, 158, 11, 0.7); font-size: 16px;">
+            🛕
+          </div>
+        </div>
+      `,
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+    });
+
+    const pandalMarker = L.marker([pandalLoc.lat, pandalLoc.lng], {
+      icon: pandalIcon,
+      zIndexOffset: 900,
+    });
+    pandalMarker.bindPopup(`<b>${targetPandal.name}</b><br/>Destination Pandal`);
+    gateLayer.addLayer(pandalMarker);
+
+    // 5. Fit bounds to comfortably display station, all gates, route, and pandal
+    if (boundsPoints.length > 1) {
+      try {
+        map.fitBounds(boundsPoints, {
+          padding: [60, 60],
+          maxZoom: 17,
+        });
+      } catch (e) {
+        console.warn('[LeafletMapView] Error fitting bounds to metro gate intelligence:', e);
+      }
+    }
+  }, [activeMetroGateIntelligence]);
 
   // Handle activeRoute Polyline Draw and flyBounds
   useEffect(() => {

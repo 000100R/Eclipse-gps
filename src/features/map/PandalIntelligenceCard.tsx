@@ -50,6 +50,9 @@ import {
   AlertTriangle,
   CheckCircle,
   Footprints,
+  ChevronDown,
+  ChevronUp,
+  AlertCircle,
 } from 'lucide-react';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import { DiscoveredPandal } from '../../types/discovery';
@@ -58,6 +61,8 @@ import { crowdIntelligenceService } from '../../services/intelligence/crowdIntel
 import { trafficIntelligenceService } from '../../services/intelligence/trafficIntelligenceService';
 import { smartVisitService } from '../../services/intelligence/smartVisitService';
 import { useAppState } from '../../hooks/AppStateProvider';
+import { metroIntelligenceProvider } from '../../services/intelligence/metroIntelligenceProvider';
+import { MetroGateIntelligenceResult, MetroGateRouteOption } from '../../types/metro';
 
 interface PandalIntelligenceCardProps {
   pandal: DiscoveredPandal | any;
@@ -101,6 +106,9 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
     activeRoute,
     visitedIds,
     visitedRecords,
+    activeMetroGateIntelligence,
+    setActiveMetroGateIntelligence,
+    setActiveRoute,
   } = useAppState();
 
   const activeLocation = propsLocation || appLocation;
@@ -234,6 +242,144 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
     }
     return String(pandal.metroDistance);
   }, [pandal.metroDistance]);
+
+  // Metro Exit Gate Intelligence State
+  const [gateIntelligence, setGateIntelligence] = React.useState<MetroGateIntelligenceResult | null>(null);
+  const [isLoadingGateIntelligence, setIsLoadingGateIntelligence] = React.useState(false);
+  const [showGateDetails, setShowGateDetails] = React.useState(false);
+
+  const matchedMetroStation = useMemo(() => {
+    return metroIntelligenceProvider.findStationForPandal(
+      nearestMetro,
+      pandal.location || (pandal.latitude && pandal.longitude ? { lat: pandal.latitude, lng: pandal.longitude } : undefined)
+    );
+  }, [nearestMetro, pandal]);
+
+  const handleToggleGateIntelligence = async () => {
+    if (showGateDetails) {
+      setShowGateDetails(false);
+      return;
+    }
+
+    setShowGateDetails(true);
+    if (gateIntelligence) {
+      if (gateIntelligence.hasVerifiedGates && gateIntelligence.recommendedGate) {
+        setActiveMetroGateIntelligence(gateIntelligence);
+      }
+      return;
+    }
+
+    if (!matchedMetroStation) {
+      setGateIntelligence({
+        hasVerifiedGates: false,
+        station: {
+          id: 'unknown',
+          name: nearestMetro || 'Nearby Metro',
+          line: '',
+          location: { lat: 0, lng: 0 },
+          latitude: 0,
+          longitude: 0,
+          entrancesExits: [],
+          nearbyPandals: [],
+          nearbyBonediBaris: [],
+        },
+        targetPandal: pandal,
+        otherGates: [],
+        allGateRoutes: [],
+      });
+      return;
+    }
+
+    setIsLoadingGateIntelligence(true);
+    try {
+      const res = await metroIntelligenceProvider.calculateMetroGateIntelligence(
+        matchedMetroStation,
+        pandal
+      );
+      setGateIntelligence(res);
+      if (res.hasVerifiedGates && res.recommendedGate) {
+        setActiveMetroGateIntelligence(res);
+      }
+    } catch (err) {
+      console.error('Failed to calculate metro exit gate intelligence', err);
+      setGateIntelligence({
+        hasVerifiedGates: false,
+        station: matchedMetroStation,
+        targetPandal: pandal,
+        otherGates: [],
+        allGateRoutes: [],
+      });
+    } finally {
+      setIsLoadingGateIntelligence(false);
+    }
+  };
+
+  const handleSelectGateOption = (gateOpt: MetroGateRouteOption) => {
+    if (!gateIntelligence) return;
+    const updated: MetroGateIntelligenceResult = {
+      ...gateIntelligence,
+      activeGateRoute: gateOpt,
+    };
+    setGateIntelligence(updated);
+    setActiveMetroGateIntelligence(updated);
+  };
+
+  const handleStartGateWalkingNavigation = (
+    gateOpt: MetroGateRouteOption,
+    targetPandalItem: any
+  ) => {
+    const gateLoc = gateOpt.gate.location || {
+      lat: gateOpt.gate.latitude!,
+      lng: gateOpt.gate.longitude!,
+    };
+    const pandalLoc =
+      targetPandalItem.location || {
+        lat: targetPandalItem.latitude,
+        lng: targetPandalItem.longitude,
+      };
+
+    const walkingRoute: any = {
+      id: `metro-walk-${gateOpt.gate.gateNumber}-${Date.now()}`,
+      name: `Walk: ${matchedMetroStation?.name || 'Metro'} ${gateOpt.gate.gateNumber} → ${targetPandalItem.name}`,
+      origin: gateLoc,
+      destination: pandalLoc,
+      waypoints: [],
+      geometry: gateOpt.geometry && gateOpt.geometry.length > 0 ? gateOpt.geometry : [gateLoc, pandalLoc],
+      distance: gateOpt.distanceMeters,
+      duration: gateOpt.walkingMinutes * 60,
+      instructions: [
+        {
+          id: 'step-1',
+          instruction: `Exit ${matchedMetroStation?.name || 'Metro'} via ${gateOpt.gate.gateNumber}${gateOpt.gate.name ? ` (${gateOpt.gate.name})` : ''}`,
+          distance: 20,
+          duration: 30,
+          type: 'depart',
+          location: gateLoc,
+        },
+        {
+          id: 'step-2',
+          instruction: `Walk along pedestrian route towards ${targetPandalItem.name}`,
+          distance: gateOpt.distanceMeters - 20,
+          duration: gateOpt.walkingMinutes * 60 - 30,
+          type: 'continue',
+          location: gateLoc,
+        },
+        {
+          id: 'step-3',
+          instruction: `Arrive at ${targetPandalItem.name}`,
+          distance: 0,
+          duration: 0,
+          type: 'arrive',
+          location: pandalLoc,
+        },
+      ],
+    };
+
+    setActiveRoute(walkingRoute);
+    setIsNavigating(true);
+    setCurrentStepIndex(0);
+    onClose();
+  };
 
   // Entry and exit info
   const entryGuide = pandal.entryGuide || pandal.entry;
@@ -671,18 +817,214 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
         </div>
       )}
 
-      {/* Nearest Metro Station Link (if available) */}
-      {nearestMetro && (
-        <div id="pandal-card-metro" className="mt-2.5 flex items-center justify-between gap-2 text-xs text-sky-300 bg-sky-950/40 px-3 py-2 rounded-xl border border-sky-800/40">
-          <div className="flex items-center gap-2 truncate">
-            <Train className="w-4 h-4 text-sky-400 shrink-0" />
-            <span className="text-neutral-400 text-[11px]">Nearest Metro:</span>
-            <span className="font-bold text-white truncate">{nearestMetro}</span>
+      {/* Nearest Metro Station Link & Exit Gate Intelligence */}
+      {(nearestMetro || matchedMetroStation) && (
+        <div id="pandal-card-metro" className="mt-2.5 rounded-xl bg-sky-950/40 border border-sky-800/40 overflow-hidden">
+          <div
+            onClick={handleToggleGateIntelligence}
+            className="p-2.5 flex items-center justify-between gap-2 text-xs text-sky-300 hover:bg-sky-900/30 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2 truncate">
+              <Train className="w-4 h-4 text-sky-400 shrink-0" />
+              <span className="text-neutral-400 text-[11px]">Nearest Metro:</span>
+              <span className="font-bold text-white truncate">
+                {matchedMetroStation?.name || nearestMetro}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {formattedMetroDistance && (
+                <span className="text-sky-300/90 font-mono text-[11px] font-medium">
+                  {formattedMetroDistance}
+                </span>
+              )}
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-950/90 px-2 py-0.5 rounded border border-emerald-700/60 flex items-center gap-1">
+                <Sparkles size={11} className="text-emerald-400" />
+                Exit Gate
+              </span>
+              {showGateDetails ? <ChevronUp size={14} className="text-sky-400" /> : <ChevronDown size={14} className="text-sky-400" />}
+            </div>
           </div>
-          {formattedMetroDistance && (
-            <span className="text-sky-300/90 font-mono text-[11px] shrink-0 font-medium">
-              {formattedMetroDistance}
-            </span>
+
+          {/* Expanded Exit Gate Intelligence Panel */}
+          {showGateDetails && (
+            <div className="p-3 border-t border-sky-800/30 bg-neutral-950/80 space-y-2.5">
+              {isLoadingGateIntelligence ? (
+                <div className="py-4 text-center space-y-1.5">
+                  <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                  <p className="text-xs text-neutral-300 font-medium">
+                    Calculating walking routes from station gates via OSRM...
+                  </p>
+                  <p className="text-[10px] text-neutral-500">
+                    Evaluating optimal gate exit geometry
+                  </p>
+                </div>
+              ) : gateIntelligence && !gateIntelligence.hasVerifiedGates ? (
+                /* Fallback if verified gate data is unavailable */
+                <div className="p-3 rounded-xl bg-neutral-900/90 border border-amber-500/30 text-center space-y-1.5">
+                  <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+                    <AlertCircle size={16} />
+                  </div>
+                  <h4 className="text-xs font-bold text-amber-300 tracking-tight">
+                    Metro gate information unavailable
+                  </h4>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed max-w-xs mx-auto">
+                    Verified individual gate coordinates are not yet available for {matchedMetroStation?.name || nearestMetro}.
+                  </p>
+                </div>
+              ) : gateIntelligence && gateIntelligence.recommendedGate ? (
+                <div className="space-y-2.5">
+                  {/* RECOMMENDED GATE */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-extrabold tracking-wider uppercase text-emerald-400 flex items-center gap-1">
+                        <Sparkles size={11} className="text-emerald-400" />
+                        RECOMMENDED GATE
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700/60 font-mono font-bold">
+                        OSRM Shortest Route
+                      </span>
+                    </div>
+
+                    <div
+                      onClick={() => handleSelectGateOption(gateIntelligence.recommendedGate!)}
+                      className={`p-3 rounded-xl bg-gradient-to-br from-emerald-950/50 via-neutral-900 to-neutral-950 border-2 ${
+                        gateIntelligence.activeGateRoute?.gate.gateNumber === gateIntelligence.recommendedGate.gate.gateNumber
+                          ? 'border-emerald-400 ring-1 ring-emerald-500/30'
+                          : 'border-emerald-600/60 hover:border-emerald-500'
+                      } transition-all cursor-pointer`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-1 flex-1 min-w-0">
+                          <div className="flex items-baseline gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-extrabold uppercase tracking-wide text-emerald-400 bg-emerald-950/90 px-1.5 py-0.5 rounded border border-emerald-700/60">
+                              Recommended Gate
+                            </span>
+                            <span className="text-sm font-black text-white">
+                              {gateIntelligence.recommendedGate.gate.gateNumber}
+                            </span>
+                            {gateIntelligence.recommendedGate.gate.name && (
+                              <span className="text-xs text-neutral-300 font-medium">
+                                ({gateIntelligence.recommendedGate.gate.name})
+                              </span>
+                            )}
+                          </div>
+
+                          {gateIntelligence.recommendedGate.gate.landmark && (
+                            <p className="text-[10px] text-neutral-400">
+                              Towards {gateIntelligence.recommendedGate.gate.landmark}
+                            </p>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                            <div className="p-1.5 rounded-lg bg-neutral-900/90 border border-emerald-900/40">
+                              <span className="block text-[9px] uppercase font-bold text-neutral-400">
+                                Walking distance
+                              </span>
+                              <span className="text-xs font-extrabold text-emerald-300 flex items-center gap-1 mt-0.5">
+                                <Footprints size={12} className="text-emerald-400 shrink-0" />
+                                {gateIntelligence.recommendedGate.walkingDistanceFormatted}
+                              </span>
+                            </div>
+
+                            <div className="p-1.5 rounded-lg bg-neutral-900/90 border border-emerald-900/40">
+                              <span className="block text-[9px] uppercase font-bold text-neutral-400">
+                                Walking time
+                              </span>
+                              <span className="text-xs font-extrabold text-emerald-200 flex items-center gap-1 mt-0.5">
+                                <Clock size={12} className="text-emerald-400 shrink-0" />
+                                {gateIntelligence.recommendedGate.walkingTimeFormatted}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartGateWalkingNavigation(gateIntelligence.recommendedGate!, pandal);
+                          }}
+                          className="py-2 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-[11px] font-bold transition-all shadow-md shadow-emerald-600/30 flex items-center gap-1 shrink-0 cursor-pointer self-start"
+                        >
+                          <Navigation size={11} className="fill-current" />
+                          <span>WALK</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Other available gates */}
+                  {gateIntelligence.otherGates && gateIntelligence.otherGates.length > 0 && (
+                    <div className="pt-1.5 border-t border-neutral-800/80">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <h5 className="text-[10px] font-bold text-neutral-300 uppercase tracking-wider">
+                          Other available gates
+                        </h5>
+                        <span className="text-[9px] text-neutral-500 font-mono">
+                          {gateIntelligence.otherGates.length} other gate{gateIntelligence.otherGates.length > 1 ? 's' : ''}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        {gateIntelligence.otherGates.map((otherGate, i) => {
+                          const isActive = gateIntelligence.activeGateRoute?.gate.gateNumber === otherGate.gate.gateNumber;
+                          return (
+                            <div
+                              key={i}
+                              onClick={() => handleSelectGateOption(otherGate)}
+                              className={`p-2 rounded-lg border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                                isActive
+                                  ? 'bg-neutral-850 border-emerald-500/80 ring-1 ring-emerald-500/30'
+                                  : 'bg-neutral-900/80 border-neutral-800 hover:border-neutral-700'
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-bold text-neutral-200">
+                                    {otherGate.gate.gateNumber}
+                                  </span>
+                                  {otherGate.gate.name && (
+                                    <span className="text-[10px] text-neutral-400 truncate">
+                                      {otherGate.gate.name}
+                                    </span>
+                                  )}
+                                </div>
+                                {otherGate.gate.landmark && (
+                                  <p className="text-[9px] text-neutral-500 truncate">
+                                    Towards {otherGate.gate.landmark}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                <div className="text-right">
+                                  <div className="text-xs font-bold text-neutral-200">
+                                    {otherGate.walkingDistanceFormatted}
+                                  </div>
+                                  <div className="text-[9px] text-neutral-400 font-mono">
+                                    {otherGate.walkingTimeFormatted}
+                                  </div>
+                                </div>
+
+                                <button
+                                  title="Walk from this gate"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleStartGateWalkingNavigation(otherGate, pandal);
+                                  }}
+                                  className="p-1 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition-colors cursor-pointer"
+                                >
+                                  <Navigation size={10} className="fill-current" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
           )}
         </div>
       )}

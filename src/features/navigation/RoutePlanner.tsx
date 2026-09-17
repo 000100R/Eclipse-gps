@@ -35,7 +35,12 @@ import {
   Plus, 
   ChevronDown,
   Building2,
-  Users
+  Users,
+  Search,
+  Check,
+  X,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 
 export const RoutePlanner: React.FC = () => {
@@ -59,6 +64,10 @@ export const RoutePlanner: React.FC = () => {
     applySmartRoute,
     friendsList,
     friendsLocations,
+    pujaRouteSession,
+    startPujaRouteNavigation,
+    advancePujaRouteToNextStop,
+    endPujaRoute,
   } = useAppState();
 
   // Route Planning Inputs State
@@ -73,6 +82,16 @@ export const RoutePlanner: React.FC = () => {
   const [selectedDestinations, setSelectedDestinations] = useState<DestinationItem[]>([]);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>('');
   const [selectedCatalogId, setSelectedCatalogId] = useState<string>('');
+
+  // Multi-Pandal Selection State
+  const [pandalSearchQuery, setPandalSearchQuery] = useState<string>('');
+  const [selectedZone, setSelectedZone] = useState<string>('ALL');
+  const [isPujaRouteStarted, setIsPujaRouteStarted] = useState<boolean>(false);
+  const [isOptimizingPujaRoute, setIsOptimizingPujaRoute] = useState<boolean>(false);
+  const [optimizationStatus, setOptimizationStatus] = useState<{
+    status: 'idle' | 'optimized' | 'fallback';
+    message?: string;
+  }>({ status: 'idle' });
 
   // UI Modals State
   const [isComputing, setIsComputing] = useState<boolean>(false);
@@ -100,6 +119,33 @@ export const RoutePlanner: React.FC = () => {
       .filter(d => d.name.toLowerCase().includes(q) || (d.address && d.address.toLowerCase().includes(q)))
       .slice(0, 30);
   }, [availableDestinations, catalogSearchQuery]);
+
+  // Existing Pandals catalog
+  const existingPandals = useMemo(() => {
+    return allDestinations.filter(d => d.type === 'pandal' || !d.type || d.type === 'place');
+  }, [allDestinations]);
+
+  // Filtered pandals based on search query and zone
+  const filteredPandals = useMemo(() => {
+    return existingPandals.filter(p => {
+      if (selectedZone !== 'ALL') {
+        const itemZone = (p.zone || '').toUpperCase();
+        if (selectedZone === 'NORTH' && !itemZone.includes('NORTH')) return false;
+        if (selectedZone === 'SOUTH' && !itemZone.includes('SOUTH')) return false;
+        if (selectedZone === 'CENTRAL' && !itemZone.includes('CENTRAL')) return false;
+        if (selectedZone === 'EAST' && !itemZone.includes('EAST')) return false;
+      }
+      if (pandalSearchQuery.trim()) {
+        const q = pandalSearchQuery.toLowerCase().trim();
+        const matchName = p.name.toLowerCase().includes(q);
+        const matchAddress = p.address ? p.address.toLowerCase().includes(q) : false;
+        const matchZone = p.zone ? p.zone.toLowerCase().includes(q) : false;
+        const matchTheme = p.theme ? p.theme.toLowerCase().includes(q) : false;
+        return matchName || matchAddress || matchZone || matchTheme;
+      }
+      return true;
+    });
+  }, [existingPandals, selectedZone, pandalSearchQuery]);
 
   // Sync selectedDestinations from existing routeStops or smartRoutePlan on mount
   useEffect(() => {
@@ -202,6 +248,8 @@ export const RoutePlanner: React.FC = () => {
   // Remove stop
   const handleRemoveDestination = (destId: string) => {
     setSelectedDestinations(prev => prev.filter(d => d.id !== destId));
+    setIsPujaRouteStarted(false);
+    setOptimizationStatus({ status: 'idle' });
   };
 
   // Shift stop position
@@ -215,6 +263,116 @@ export const RoutePlanner: React.FC = () => {
     updated[index] = updated[targetIdx];
     updated[targetIdx] = temp;
     setSelectedDestinations(updated);
+    setIsPujaRouteStarted(false);
+    setOptimizationStatus({ status: 'idle' });
+  };
+
+  // Toggle pandal selection in multi-pandal route
+  const handleTogglePandal = (pandalItem: DestinationItem) => {
+    const isAlreadySelected = selectedDestinations.some(d => d.id === pandalItem.id);
+    if (isAlreadySelected) {
+      setSelectedDestinations(prev => prev.filter(d => d.id !== pandalItem.id));
+    } else {
+      setSelectedDestinations(prev => [...prev, pandalItem]);
+    }
+    setIsPujaRouteStarted(false);
+    setOptimizationStatus({ status: 'idle' });
+  };
+
+  // Clear all selected pandals
+  const handleClearAllPandals = () => {
+    setSelectedDestinations([]);
+    setIsPujaRouteStarted(false);
+    setOptimizationStatus({ status: 'idle' });
+  };
+
+  // Start Puja Route action - Optimizes the order of selected pandals using real GPS position and connects to navigation
+  const handleStartPujaRoute = async () => {
+    if (selectedDestinations.length === 0) return;
+
+    let finalOrderedStops = [...selectedDestinations];
+
+    if (selectedDestinations.length === 1) {
+      setIsPujaRouteStarted(true);
+      setOptimizationStatus({
+        status: 'optimized',
+        message: '1 pandal on route starting from your current GPS position. Starting navigation...',
+      });
+      await startPujaRouteNavigation(finalOrderedStops);
+      return;
+    }
+
+    setIsOptimizingPujaRoute(true);
+    try {
+      // Use the user's current real GPS position as the starting point
+      const gpsLocation =
+        currentLocation &&
+        typeof currentLocation.lat === 'number' &&
+        typeof currentLocation.lng === 'number'
+          ? { lat: currentLocation.lat, lng: currentLocation.lng }
+          : null;
+
+      if (!gpsLocation) {
+        // If GPS position is unavailable, keep the user's original order
+        setIsPujaRouteStarted(true);
+        setOptimizationStatus({
+          status: 'fallback',
+          message: 'GPS location unavailable. Kept your original selected order.',
+        });
+      } else {
+        // Optimize order of the selected pandals using existing TSP optimization logic
+        // Note: destinations array is passed directly, keeping ONLY the selected pandals as required stops
+        const optimized = await smartPujaRoutePlannerService.optimizeDestinationOrder(
+          gpsLocation,
+          selectedDestinations,
+          preferredTransport,
+          priority
+        );
+
+        // Verify all required stops are kept without additions or removals
+        if (optimized && optimized.length === selectedDestinations.length) {
+          const originalIds = new Set(selectedDestinations.map(d => d.id));
+          const allPresent = optimized.every(d => originalIds.has(d.id));
+
+          if (allPresent) {
+            finalOrderedStops = optimized;
+            setSelectedDestinations(optimized);
+            setIsPujaRouteStarted(true);
+            setOptimizationStatus({
+              status: 'optimized',
+              message: `Route order optimized for ${optimized.length} stops from your GPS position. Starting navigation...`,
+            });
+          } else {
+            // If mismatch, keep original order
+            setIsPujaRouteStarted(true);
+            setOptimizationStatus({
+              status: 'fallback',
+              message: 'Optimization fallback: Original pandal sequence preserved. Starting navigation...',
+            });
+          }
+        } else {
+          // Fallback: keep original order
+          setIsPujaRouteStarted(true);
+          setOptimizationStatus({
+            status: 'fallback',
+            message: 'Optimization fallback: Original pandal sequence preserved. Starting navigation...',
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[RoutePlanner] Could not optimize pandal order, keeping original order:', err);
+      // If optimization cannot be completed, keep the user's original order
+      setIsPujaRouteStarted(true);
+      setOptimizationStatus({
+        status: 'fallback',
+        message: 'Could not complete optimization. Original pandal order retained. Starting navigation...',
+      });
+    } finally {
+      setIsOptimizingPujaRoute(false);
+    }
+
+    // Connect directly to the existing navigation system with the first pandal
+    await startPujaRouteNavigation(finalOrderedStops);
   };
 
   // Core Optimization Trigger
@@ -380,6 +538,381 @@ export const RoutePlanner: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Multi-Pandal Selection & Puja Route Ordered List */}
+      <GlassPanel className="p-4 space-y-4">
+        {/* Section Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="w-1.5 h-4 rounded-full bg-amber-500" />
+            <h3 className="text-xs font-black text-white uppercase tracking-wider">
+              Select Pandals for Puja Route
+            </h3>
+          </div>
+          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-950/80 text-amber-300 border border-amber-800/60">
+            {selectedDestinations.length} Selected
+          </span>
+        </div>
+
+        {/* Active Puja Route Session Banner */}
+        {pujaRouteSession?.isActive && (
+          <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2 min-w-0">
+                <Sparkles size={14} className="text-amber-400 shrink-0 animate-pulse" />
+                <span className="text-xs font-bold text-amber-200 truncate">
+                  Puja Route Active • Stop {pujaRouteSession.currentStopIndex + 1} of {pujaRouteSession.stops.length}
+                </span>
+              </div>
+              <span className="text-[10px] text-amber-300/80 shrink-0 bg-amber-900/40 px-2 py-0.5 rounded">
+                {pujaRouteSession.stops.length - 1 - pujaRouteSession.currentStopIndex === 0
+                  ? 'Final Stop'
+                  : `${pujaRouteSession.stops.length - 1 - pujaRouteSession.currentStopIndex} remaining`}
+              </span>
+            </div>
+            <p className="text-[11px] text-neutral-300">
+              Currently navigating to: <strong className="text-white">{pujaRouteSession.stops[pujaRouteSession.currentStopIndex]?.name}</strong>
+            </p>
+            <div className="flex items-center space-x-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab('home')}
+                className="flex-1 py-1.5 px-3 bg-amber-500 hover:bg-amber-400 text-neutral-950 text-[11px] font-bold rounded-lg uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center space-x-1"
+              >
+                <span>View Live Navigation Map ➜</span>
+              </button>
+              <button
+                type="button"
+                onClick={endPujaRoute}
+                className="py-1.5 px-3 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-700 text-[11px] font-bold rounded-lg uppercase tracking-wider transition-colors cursor-pointer"
+              >
+                End Route
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 1. Simple Ordered List of Selected Pandals */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
+                Selected Pandals (Ordered Route)
+              </span>
+              {isPujaRouteStarted && optimizationStatus.status === 'optimized' && (
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-950/90 text-emerald-300 border border-emerald-600/50 flex items-center space-x-1">
+                  <Sparkles size={9} className="text-emerald-400" />
+                  <span>Optimized Order</span>
+                </span>
+              )}
+            </div>
+            {selectedDestinations.length > 0 && (
+              <button
+                onClick={handleClearAllPandals}
+                className="text-[10px] text-neutral-400 hover:text-rose-400 transition-colors cursor-pointer"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+
+          {selectedDestinations.length === 0 ? (
+            <div className="p-4 bg-neutral-950/60 border border-dashed border-neutral-800 rounded-xl text-center space-y-1">
+              <p className="text-xs font-semibold text-neutral-400">No pandals selected yet</p>
+              <p className="text-[11px] text-neutral-500">
+                Browse and select existing pandals below to build your Puja route.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {selectedDestinations.map((dest, idx) => {
+                const isOptimized = isPujaRouteStarted && optimizationStatus.status === 'optimized';
+                const distFromPrev = idx === 0
+                  ? (currentLocation ? smartPujaRoutePlannerService.calculateDistance(currentLocation, dest.location) : null)
+                  : smartPujaRoutePlannerService.calculateDistance(selectedDestinations[idx - 1].location, dest.location);
+
+                const isStopCompleted = pujaRouteSession?.isActive && (pujaRouteSession.completedStopIds.includes(dest.id) || idx < pujaRouteSession.currentStopIndex);
+                const isCurrentNavigatingStop = pujaRouteSession?.isActive && idx === pujaRouteSession.currentStopIndex;
+
+                return (
+                  <div
+                    key={dest.id}
+                    className={`p-2.5 rounded-xl flex items-center justify-between gap-2 transition-all ${
+                      isStopCompleted
+                        ? 'bg-neutral-950/60 border border-emerald-900/30 opacity-75'
+                        : isCurrentNavigatingStop
+                        ? 'bg-amber-950/30 border border-amber-500/50 shadow-md shadow-amber-500/10'
+                        : isOptimized
+                        ? 'bg-neutral-950/90 border border-emerald-900/50 hover:border-emerald-700/60'
+                        : 'bg-neutral-950/80 border border-neutral-800 hover:border-neutral-700'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <span
+                        className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
+                          isStopCompleted
+                            ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-600/50'
+                            : isCurrentNavigatingStop
+                            ? 'bg-amber-500 text-neutral-950 font-black animate-pulse'
+                            : isOptimized
+                            ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
+                            : 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
+                        }`}
+                      >
+                        {isStopCompleted ? '✓' : idx + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                          <p className={`text-xs font-bold truncate ${isStopCompleted ? 'text-neutral-400 line-through' : 'text-white'}`}>
+                            {dest.name}
+                          </p>
+                          {isStopCompleted && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-900/60 text-emerald-300 font-bold border border-emerald-700/50">
+                              Completed ✓
+                            </span>
+                          )}
+                          {isCurrentNavigatingStop && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40 animate-pulse">
+                              Navigating Now ➜
+                            </span>
+                          )}
+                          {!pujaRouteSession?.isActive && isOptimized && idx === 0 && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-900/60 text-emerald-300 font-mono">
+                              1st Stop (Closest to GPS)
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-neutral-400 truncate">
+                          {dest.zone ? `${dest.zone} • ` : ''}{dest.address}
+                        </p>
+                        {isOptimized && distFromPrev !== null && !isStopCompleted && (
+                          <p className="text-[10px] text-emerald-400/90 font-medium">
+                            {idx === 0
+                              ? `~${distFromPrev}m from current GPS location`
+                              : `~${distFromPrev}m from Stop ${idx} (${selectedDestinations[idx - 1].name})`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <button
+                        title="Move Up"
+                        disabled={idx === 0 || pujaRouteSession?.isActive}
+                        onClick={() => handleShiftDestination(idx, 'up')}
+                        className="p-1 rounded text-neutral-500 hover:text-neutral-200 disabled:opacity-25 transition-colors cursor-pointer"
+                      >
+                        <ArrowUp size={13} />
+                      </button>
+                      <button
+                        title="Move Down"
+                        disabled={idx === selectedDestinations.length - 1 || pujaRouteSession?.isActive}
+                        onClick={() => handleShiftDestination(idx, 'down')}
+                        className="p-1 rounded text-neutral-500 hover:text-neutral-200 disabled:opacity-25 transition-colors cursor-pointer"
+                      >
+                        <ArrowDown size={13} />
+                      </button>
+                      <button
+                        title="Remove selected pandal"
+                        disabled={pujaRouteSession?.isActive}
+                        onClick={() => handleRemoveDestination(dest.id)}
+                        className="p-1 rounded text-neutral-500 hover:text-rose-400 disabled:opacity-25 transition-colors ml-1 cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 2. Start Puja Route Button with GPS Optimization & Navigation Connection */}
+        <div className="space-y-2 pt-1">
+          <button
+            id="btn-start-puja-route"
+            onClick={handleStartPujaRoute}
+            disabled={selectedDestinations.length === 0 || isOptimizingPujaRoute}
+            className="w-full py-3 px-4 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-neutral-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 transition-all uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {isOptimizingPujaRoute ? (
+              <>
+                <RefreshCw size={14} className="animate-spin text-neutral-950" />
+                <span>Optimizing Order from GPS...</span>
+              </>
+            ) : (
+              <>
+                <Play size={14} className="fill-neutral-950" />
+                <span>
+                  {pujaRouteSession?.isActive
+                    ? 'Restart / Re-optimize Route'
+                    : isPujaRouteStarted && optimizationStatus.status === 'optimized'
+                    ? 'Re-optimize & Start Route'
+                    : 'Start Puja Route'}
+                </span>
+              </>
+            )}
+          </button>
+
+          {isPujaRouteStarted && (
+            <div
+              className={`p-3 rounded-xl border text-xs flex items-start space-x-2.5 transition-all ${
+                optimizationStatus.status === 'optimized'
+                  ? 'bg-emerald-950/50 border-emerald-700/60 text-emerald-200'
+                  : 'bg-neutral-900/90 border-neutral-700 text-neutral-300'
+              }`}
+            >
+              <CheckCircle2
+                size={16}
+                className={`shrink-0 mt-0.5 ${
+                  optimizationStatus.status === 'optimized'
+                    ? 'text-emerald-400'
+                    : 'text-neutral-400'
+                }`}
+              />
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-center space-x-1.5">
+                  <span className="font-bold text-white">
+                    {optimizationStatus.status === 'optimized'
+                      ? 'Puja Route Ready — Optimized Order'
+                      : 'Puja Route Ready — Original Order'}
+                  </span>
+                  {optimizationStatus.status === 'optimized' && (
+                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono border border-emerald-500/30">
+                      GPS TSP
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-neutral-300 leading-relaxed">
+                  {optimizationStatus.message}
+                </p>
+                {optimizationStatus.status === 'optimized' && selectedDestinations.length > 1 && (
+                  <div className="pt-1 flex items-center space-x-1 overflow-x-auto text-[10px] text-neutral-400">
+                    <span className="text-amber-400 font-semibold shrink-0">GPS</span>
+                    <span>→</span>
+                    {selectedDestinations.map((d, i) => (
+                      <React.Fragment key={d.id}>
+                        <span
+                          className="text-neutral-200 font-medium truncate max-w-[120px]"
+                          title={d.name}
+                        >
+                          {i + 1}. {d.name}
+                        </span>
+                        {i < selectedDestinations.length - 1 && (
+                          <span className="text-neutral-600 shrink-0">→</span>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 3. Existing Pandals Multi-Selector / Browser */}
+        <div className="space-y-2.5 pt-2 border-t border-neutral-800/80">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
+              Browse & Select Pandals ({filteredPandals.length} available)
+            </span>
+          </div>
+
+          {/* Search Input */}
+          <div className="relative">
+            <Search size={13} className="absolute left-3 top-2.5 text-neutral-500" />
+            <input
+              type="text"
+              value={pandalSearchQuery}
+              onChange={(e) => setPandalSearchQuery(e.target.value)}
+              placeholder="Search existing pandals by name, zone, or locality..."
+              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-8 pr-8 py-2 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-amber-500"
+            />
+            {pandalSearchQuery && (
+              <button
+                onClick={() => setPandalSearchQuery('')}
+                className="absolute right-2.5 top-2.5 text-neutral-500 hover:text-neutral-300 cursor-pointer"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* Zone Filter Chips */}
+          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 custom-scrollbar text-[10px]">
+            {[
+              { id: 'ALL', label: 'All Pandals' },
+              { id: 'NORTH', label: 'North Kolkata' },
+              { id: 'SOUTH', label: 'South Kolkata' },
+              { id: 'CENTRAL', label: 'Central' },
+              { id: 'EAST', label: 'Salt Lake / East' },
+            ].map((zone) => (
+              <button
+                key={zone.id}
+                onClick={() => setSelectedZone(zone.id)}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                  selectedZone === zone.id
+                    ? 'bg-amber-500 text-neutral-950 font-bold'
+                    : 'bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                {zone.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Existing Pandals List */}
+          <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
+            {filteredPandals.map((pandalItem) => {
+              const selectedIndex = selectedDestinations.findIndex((d) => d.id === pandalItem.id);
+              const isSelected = selectedIndex !== -1;
+
+              return (
+                <div
+                  key={pandalItem.id}
+                  onClick={() => handleTogglePandal(pandalItem)}
+                  className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                    isSelected
+                      ? 'bg-amber-950/30 border-amber-500/60 ring-1 ring-amber-500/20'
+                      : 'bg-neutral-900/60 border-neutral-800/80 hover:border-neutral-700 hover:bg-neutral-900/90'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs font-semibold text-white truncate">
+                        {pandalItem.name}
+                      </span>
+                      {pandalItem.zone && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-neutral-800 text-neutral-400 uppercase font-mono">
+                          {pandalItem.zone}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-neutral-400 truncate">
+                      {pandalItem.address}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0">
+                    {isSelected ? (
+                      <span className="px-2 py-0.5 rounded-lg bg-amber-500 text-neutral-950 text-[10px] font-black flex items-center space-x-1">
+                        <Check size={11} className="stroke-[3]" />
+                        <span>Stop #{selectedIndex + 1}</span>
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] font-medium flex items-center space-x-1">
+                        <Plus size={11} />
+                        <span>Add</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </GlassPanel>
 
       {/* Planning Controls Panel */}
       <GlassPanel className="p-4 space-y-4">

@@ -24,8 +24,11 @@ import {
   NearbyPandalRef,
   NearbyBonediBariRef,
   MetroLineCategory,
+  MetroGateRouteOption,
+  MetroGateIntelligenceResult,
+  MetroEntranceExit,
 } from '../../types/metro';
-import { Location } from '../../types';
+import { Location, Pandal } from '../../types';
 import { curatedMetroStations } from '../../data/curatedMetroStations';
 import { curatedEclipsePandals } from '../../data/curatedPandals';
 import { curatedBonediBariList } from '../../data/curatedBonediBari';
@@ -53,6 +56,7 @@ export class MetroIntelligenceProvider
   private activeLineFilter: MetroLineCategory = 'ALL';
   private lineFilterListeners: Set<(filter: MetroLineCategory) => void> = new Set();
   private routedPandalsCache = new Map<string, NearbyPandalRef[]>();
+  private gateIntelligenceCache = new Map<string, MetroGateIntelligenceResult>();
 
   constructor() {
     this.allStations = [...curatedMetroStations];
@@ -197,6 +201,7 @@ export class MetroIntelligenceProvider
     this.cachedViewportStations = [];
     this.lastBounds = undefined;
     this.routedPandalsCache.clear();
+    this.gateIntelligenceCache.clear();
     intelligenceLayerService.updateItemCount('METRO', 0);
   }
 
@@ -509,6 +514,129 @@ export class MetroIntelligenceProvider
   }
 
   /**
+   * ECLIPSE GPS — Metro Gate Intelligence
+   * Given a metro station and a target pandal:
+   * 1. Checks if the station has verified entrance/exit gates with geographic coordinates.
+   * 2. If no gate data or unverified: returns { hasVerifiedGates: false, ... }
+   * 3. If verified gates exist:
+   *    Calculates walking routes from each gate to the pandal using the existing routing service (OSRM foot profile).
+   * 4. Determines the most suitable exit based on the actual walking route (shortest distance/time).
+   * 5. Returns formatted recommendation and other exits.
+   */
+  public async calculateMetroGateIntelligence(
+    station: MetroStation,
+    targetPandal: NearbyPandalRef | Pandal
+  ): Promise<MetroGateIntelligenceResult> {
+    const cacheKey = `${station.id}_${targetPandal.id}`;
+    if (this.gateIntelligenceCache.has(cacheKey)) {
+      return this.gateIntelligenceCache.get(cacheKey)!;
+    }
+
+    const rawGates = station.entrancesExits || station.entrances || [];
+    // Only consider gates with real geographic coordinates
+    const verifiedGates = rawGates.filter(
+      (g) =>
+        (g.latitude !== undefined && g.longitude !== undefined && g.latitude !== 0 && g.longitude !== 0) ||
+        (g.location && g.location.lat !== 0 && g.location.lng !== 0)
+    );
+
+    if (verifiedGates.length === 0) {
+      const unverifiedResult: MetroGateIntelligenceResult = {
+        hasVerifiedGates: false,
+        station,
+        targetPandal,
+        otherGates: [],
+        allGateRoutes: [],
+      };
+      this.gateIntelligenceCache.set(cacheKey, unverifiedResult);
+      return unverifiedResult;
+    }
+
+    const pandalLoc: Location =
+      'location' in targetPandal && targetPandal.location
+        ? targetPandal.location
+        : { lat: (targetPandal as any).latitude, lng: (targetPandal as any).longitude };
+
+    // Calculate walking route for each verified gate
+    const gateOptions: MetroGateRouteOption[] = await Promise.all(
+      verifiedGates.map(async (gate) => {
+        const gateLoc: Location = gate.location
+          ? gate.location
+          : { lat: gate.latitude!, lng: gate.longitude! };
+
+        try {
+          const route = await routingService.calculateRoute(
+            gateLoc,
+            pandalLoc,
+            [],
+            false,
+            'foot'
+          );
+
+          const distM = Math.round(route.distance);
+          const walkMin = Math.max(1, Math.round(route.duration / 60));
+
+          return {
+            gate: {
+              ...gate,
+              location: gateLoc,
+              latitude: gateLoc.lat,
+              longitude: gateLoc.lng,
+            },
+            distanceMeters: distM,
+            walkingMinutes: walkMin,
+            geometry: route.geometry && route.geometry.length > 0 ? route.geometry : [gateLoc, pandalLoc],
+            isRecommended: false,
+            walkingDistanceFormatted: distM < 1000 ? `${distM} m walk` : `${(distM / 1000).toFixed(2)} km walk`,
+            walkingTimeFormatted: `~${walkMin} min`,
+          };
+        } catch (err) {
+          console.warn(`[MetroGateIntelligence] Route calculation fallback for gate ${gate.gateNumber}:`, err);
+          const straightDist = Math.round(this.calculateDistanceInMeters(gateLoc, pandalLoc));
+          const estMin = Math.max(1, Math.round(straightDist / 75));
+          return {
+            gate: {
+              ...gate,
+              location: gateLoc,
+              latitude: gateLoc.lat,
+              longitude: gateLoc.lng,
+            },
+            distanceMeters: straightDist,
+            walkingMinutes: estMin,
+            geometry: [gateLoc, pandalLoc],
+            isRecommended: false,
+            walkingDistanceFormatted: straightDist < 1000 ? `${straightDist} m walk` : `${(straightDist / 1000).toFixed(2)} km walk`,
+            walkingTimeFormatted: `~${estMin} min`,
+          };
+        }
+      })
+    );
+
+    // Sort options strictly by actual walking route distance
+    gateOptions.sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+    if (gateOptions.length > 0) {
+      gateOptions[0].isRecommended = true;
+    }
+
+    const recommendedGate = gateOptions[0];
+    const otherGates = gateOptions.slice(1);
+
+    const result: MetroGateIntelligenceResult = {
+      hasVerifiedGates: true,
+      station,
+      targetPandal,
+      recommendedGate,
+      otherGates,
+      allGateRoutes: gateOptions,
+      activeGateRoute: recommendedGate,
+    };
+
+    this.gateIntelligenceCache.set(cacheKey, result);
+    return result;
+  }
+
+  /**
    * Find nearby verified pandals around this metro station (< 2.2 km or explicitly linked)
    */
   private findNearbyPandalsForStation(station: MetroStation): NearbyPandalRef[] {
@@ -683,6 +811,55 @@ export class MetroIntelligenceProvider
         st.longitude >= west &&
         st.longitude <= east
     );
+  }
+
+  /**
+   * Return all curated Metro stations
+   */
+  public getStations(): MetroStation[] {
+    return this.allStations;
+  }
+
+  /**
+   * Find the most relevant Metro station for a given Pandal by name or proximity
+   */
+  public findStationForPandal(
+    nearestMetroName?: string,
+    pandalLocation?: Location
+  ): MetroStation | undefined {
+    if (nearestMetroName) {
+      const cleanQuery = nearestMetroName
+        .toLowerCase()
+        .replace(/metro\s*station|metro/gi, '')
+        .trim();
+      const match = this.allStations.find((s) => {
+        const sName = s.name
+          .toLowerCase()
+          .replace(/metro\s*station|metro/gi, '')
+          .trim();
+        return (
+          sName === cleanQuery ||
+          sName.includes(cleanQuery) ||
+          cleanQuery.includes(sName)
+        );
+      });
+      if (match) return match;
+    }
+
+    if (pandalLocation && pandalLocation.lat && pandalLocation.lng) {
+      let closestStation: MetroStation | undefined;
+      let minDistance = 5000; // max 5 km
+      for (const station of this.allStations) {
+        const dist = this.calculateDistanceInMeters(station.location, pandalLocation);
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestStation = station;
+        }
+      }
+      return closestStation;
+    }
+
+    return undefined;
   }
 
   /**

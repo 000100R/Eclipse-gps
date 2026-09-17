@@ -11,6 +11,9 @@ import {
   Navigation,
   Clock,
   Milestone,
+  Sparkles,
+  RefreshCw,
+  ArrowRight,
 } from 'lucide-react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { GlassPanel } from '../../components/ui/GlassPanel';
@@ -106,11 +109,22 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     selectedItem,
     setSelectedItem,
     triggerOffRouteReroute,
+    pujaRouteSession,
+    advancePujaRouteToNextStop,
+    endPujaRoute,
   } = useAppState();
 
   if (!isNavigating || !activeRoute) {
     return null;
   }
+
+  const isPujaRoute = Boolean(pujaRouteSession?.isActive && (pujaRouteSession.stops?.length || 0) > 0);
+  const currentPujaStopIndex = pujaRouteSession?.currentStopIndex ?? 0;
+  const totalPujaStops = pujaRouteSession?.stops?.length ?? 0;
+  const isFinalStop = !isPujaRoute || currentPujaStopIndex >= totalPujaStops - 1;
+  const remainingStops = isPujaRoute && pujaRouteSession
+    ? pujaRouteSession.stops.slice(currentPujaStopIndex + 1)
+    : [];
 
   const travelMode = contextTravelMode || (routePreference === 'DRIVING' ? 'driving' : 'walking');
 
@@ -136,6 +150,9 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
 
   // Real destination name from stops, selectedItem, or route
   const destinationName = useMemo(() => {
+    if (isPujaRoute && pujaRouteSession?.stops[currentPujaStopIndex]?.name) {
+      return pujaRouteSession.stops[currentPujaStopIndex].name;
+    }
     if (routeStops && routeStops.length > 0) {
       return routeStops[routeStops.length - 1].name;
     }
@@ -146,7 +163,7 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
       return activeRoute.waypoints[activeRoute.waypoints.length - 1].name;
     }
     return activeRoute.name || 'Selected Destination';
-  }, [routeStops, selectedItem, activeRoute]);
+  }, [isPujaRoute, pujaRouteSession, currentPujaStopIndex, routeStops, selectedItem, activeRoute]);
 
   // Real GPS distance to destination
   const directDistanceToDestMeters = useMemo(() => {
@@ -210,6 +227,19 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     return () => clearInterval(timer);
   }, []);
 
+  // Auto-advance when intermediate pandal stop is reached in a Puja Route
+  useEffect(() => {
+    if (!hasArrived) return;
+    if (!isPujaRoute || isFinalStop) return;
+
+    // Automatically start navigation to the next pandal after a brief confirmation interval
+    const timer = setTimeout(() => {
+      advancePujaRouteToNextStop();
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [hasArrived, isPujaRoute, isFinalStop, currentPujaStopIndex]);
+
   // Formatted ETA clock in user's local time (e.g. "ETA 8:42 PM")
   const etaClockText = useMemo(() => {
     if (hasArrived || remainingDurationSeconds <= 0) return '';
@@ -228,8 +258,16 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     if (currentStepIndex < instructions.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     } else {
-      setIsNavigating(false);
-      setSelectedItem(null);
+      if (isPujaRoute && !isFinalStop) {
+        advancePujaRouteToNextStop();
+        return;
+      }
+      if (isPujaRoute) {
+        endPujaRoute();
+      } else {
+        setIsNavigating(false);
+        setSelectedItem(null);
+      }
     }
   };
 
@@ -242,6 +280,9 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
   };
 
   const handleStop = () => {
+    if (isPujaRoute) {
+      endPujaRoute();
+    }
     if (onStop) {
       onStop();
     } else {
@@ -302,6 +343,44 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
         </div>
       </div>
 
+      {/* Puja Route Current Stop and Remaining Stops Indicator */}
+      {isPujaRoute && pujaRouteSession && (
+        <div id="puja-route-progress-indicator" className="pb-2.5 mb-2.5 border-b border-neutral-800/70">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-1.5 min-w-0">
+              <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[10px] uppercase tracking-wider flex items-center space-x-1 shrink-0">
+                <Sparkles size={10} className="text-amber-400" />
+                <span>Puja Stop {currentPujaStopIndex + 1} of {totalPujaStops}</span>
+              </span>
+              <span className="text-xs font-bold text-white truncate">
+                {pujaRouteSession.stops[currentPujaStopIndex]?.name}
+              </span>
+            </div>
+            <span className="text-[10px] text-amber-300/80 font-medium shrink-0 ml-2 bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-800/40">
+              {remainingStops.length === 0 ? 'Final Stop' : `${remainingStops.length} stop${remainingStops.length > 1 ? 's' : ''} left`}
+            </span>
+          </div>
+
+          {/* Remaining stops sequence chip list */}
+          {remainingStops.length > 0 && (
+            <div className="mt-2 flex items-center space-x-1.5 text-[10px] overflow-x-auto custom-scrollbar pb-0.5">
+              <span className="text-neutral-500 font-medium shrink-0">Next stops:</span>
+              {remainingStops.map((stop, idx) => (
+                <span
+                  key={stop.id || idx}
+                  className="inline-flex items-center px-1.5 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-300 shrink-0"
+                >
+                  <span className="text-amber-400 font-bold mr-1">
+                    {currentPujaStopIndex + 2 + idx}.
+                  </span>
+                  <span className="truncate max-w-[100px]">{stop.name}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Main Body: Arrived State vs Active Turn-by-Turn Instruction */}
       {hasArrived ? (
         <div className="space-y-3">
@@ -313,37 +392,67 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
             <div className="flex-1 min-w-0">
               <div className="flex items-center space-x-2">
                 <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 bg-emerald-950/80 border border-emerald-900/60 px-2 py-0.5 rounded-full animate-pulse shadow-sm shadow-emerald-500/20">
-                  Arrived
+                  {isPujaRoute && !isFinalStop ? `Stop ${currentPujaStopIndex + 1} Reached` : 'Arrived'}
                 </span>
                 <span className="text-xs text-neutral-400">
-                  {travelMode === 'walking' ? 'Walk Complete' : 'Drive Complete'}
+                  {isPujaRoute && !isFinalStop ? 'Marked Completed ✓' : travelMode === 'walking' ? 'Walk Complete' : 'Drive Complete'}
                 </span>
               </div>
               <h3 className="text-sm font-bold text-neutral-100 mt-1 leading-snug truncate">
                 {destinationName}
               </h3>
               <p className="text-xs text-neutral-400 mt-0.5">
-                You have reached your destination.
+                {isPujaRoute && !isFinalStop ? (
+                  <span className="text-amber-300/90 flex items-center space-x-1.5 mt-0.5">
+                    <RefreshCw size={11} className="animate-spin text-amber-400 shrink-0" />
+                    <span>Auto-starting navigation to next pandal in a moment...</span>
+                  </span>
+                ) : isPujaRoute && isFinalStop ? (
+                  `All ${totalPujaStops} pandals completed on your Puja Route!`
+                ) : (
+                  'You have reached your destination.'
+                )}
               </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2 pt-2 border-t border-neutral-800/60">
-            <button
-              id="btn-nav-arrived-done"
-              onClick={handleStop}
-              className="flex-1 text-[11px] bg-emerald-600 hover:bg-emerald-500 font-bold tracking-wider text-white py-2 px-3 rounded-lg uppercase flex items-center justify-center space-x-1.5 transition-colors shadow-lg"
-            >
-              <CheckCircle2 size={14} />
-              <span>Finish Navigation</span>
-            </button>
-            <button
-              id="btn-nav-stop"
-              onClick={handleStop}
-              className="text-[11px] hover:bg-neutral-800 text-neutral-400 font-bold tracking-wider px-3 py-2 rounded-lg uppercase border border-neutral-800 transition-colors"
-            >
-              Exit
-            </button>
+            {isPujaRoute && !isFinalStop ? (
+              <>
+                <button
+                  id="btn-nav-next-stop-now"
+                  onClick={() => advancePujaRouteToNextStop()}
+                  className="flex-1 text-[11px] bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 font-black tracking-wider text-neutral-950 py-2 px-3 rounded-lg uppercase flex items-center justify-center space-x-1.5 transition-all shadow-lg cursor-pointer"
+                >
+                  <span>Start Next Pandal ➜</span>
+                </button>
+                <button
+                  id="btn-nav-stop-intermediate"
+                  onClick={handleStop}
+                  className="text-[11px] hover:bg-neutral-800 text-neutral-400 font-bold tracking-wider px-3 py-2 rounded-lg uppercase border border-neutral-800 transition-colors cursor-pointer"
+                >
+                  Exit
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  id="btn-nav-arrived-done"
+                  onClick={handleStop}
+                  className="flex-1 text-[11px] bg-emerald-600 hover:bg-emerald-500 font-bold tracking-wider text-white py-2 px-3 rounded-lg uppercase flex items-center justify-center space-x-1.5 transition-colors shadow-lg cursor-pointer"
+                >
+                  <CheckCircle2 size={14} />
+                  <span>{isPujaRoute ? 'Finish Puja Route' : 'Finish Navigation'}</span>
+                </button>
+                <button
+                  id="btn-nav-stop"
+                  onClick={handleStop}
+                  className="text-[11px] hover:bg-neutral-800 text-neutral-400 font-bold tracking-wider px-3 py-2 rounded-lg uppercase border border-neutral-800 transition-colors cursor-pointer"
+                >
+                  Exit
+                </button>
+              </>
+            )}
           </div>
         </div>
       ) : (
@@ -406,21 +515,33 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
             <button
               id="btn-nav-step-forward"
               onClick={handleStepForward}
-              className="text-[11px] bg-indigo-600 hover:bg-indigo-500 font-bold tracking-wider text-white px-3 py-1.5 rounded-lg uppercase flex items-center space-x-1 transition-colors"
+              className="text-[11px] bg-indigo-600 hover:bg-indigo-500 font-bold tracking-wider text-white px-3 py-1.5 rounded-lg uppercase flex items-center space-x-1 transition-colors cursor-pointer"
             >
               <span>Step Forward</span>
             </button>
+
+            {isPujaRoute && !isFinalStop && (
+              <button
+                id="btn-nav-advance-stop"
+                onClick={() => advancePujaRouteToNextStop()}
+                className="text-[11px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold tracking-wider px-2.5 py-1.5 rounded-lg uppercase flex items-center space-x-1 transition-colors cursor-pointer"
+                title="Complete this stop and proceed to next pandal"
+              >
+                <span>Next Stop ➜</span>
+              </button>
+            )}
+
             <button
               id="btn-nav-trigger-offroute"
               onClick={handleReroute}
-              className="text-[11px] hover:bg-neutral-800 text-neutral-400 font-bold tracking-wider px-3 py-1.5 rounded-lg uppercase border border-neutral-800 transition-colors"
+              className="text-[11px] hover:bg-neutral-800 text-neutral-400 font-bold tracking-wider px-3 py-1.5 rounded-lg uppercase border border-neutral-800 transition-colors cursor-pointer"
             >
               Reroute
             </button>
             <button
               id="btn-nav-stop"
               onClick={handleStop}
-              className="text-[11px] bg-rose-950 hover:bg-rose-900 font-bold tracking-wider text-rose-200 px-3 py-1.5 rounded-lg uppercase transition-colors"
+              className="text-[11px] bg-rose-950 hover:bg-rose-900 font-bold tracking-wider text-rose-200 px-3 py-1.5 rounded-lg uppercase transition-colors cursor-pointer"
             >
               Stop
             </button>

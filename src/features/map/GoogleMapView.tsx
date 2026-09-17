@@ -40,6 +40,7 @@ export const GoogleMapView: React.FC = () => {
   const crowdCirclesRef = useRef<google.maps.Circle[]>([]);
   const trafficPolylinesRef = useRef<google.maps.Polyline[]>([]);
   const trafficMarkersRef = useRef<google.maps.Marker[]>([]);
+  const metroGateObjectsRef = useRef<{ markers: google.maps.Marker[]; polylines: google.maps.Polyline[] }>({ markers: [], polylines: [] });
 
   const {
     currentLocation,
@@ -80,6 +81,8 @@ export const GoogleMapView: React.FC = () => {
     setMapStyle,
     setMapCenter,
     isLostInCrowdActive,
+    activeMetroGateIntelligence,
+    setActiveMetroGateIntelligence,
   } = useAppState();
 
   const [activeInstruction, setActiveInstruction] = useState<any>(null);
@@ -769,6 +772,131 @@ export const GoogleMapView: React.FC = () => {
     });
 
   }, [activeRoute, selectAlternativeRoute, googleLoaded]);
+
+  // Metro Gate Intelligence Layer: Station, Exit Gates, Recommended Gate, Walking Polyline
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !googleLoaded) return;
+
+    // Clear previous gate markers and polylines
+    metroGateObjectsRef.current.markers.forEach((m) => m.setMap(null));
+    metroGateObjectsRef.current.polylines.forEach((p) => p.setMap(null));
+    metroGateObjectsRef.current = { markers: [], polylines: [] };
+
+    if (!activeMetroGateIntelligence || !activeMetroGateIntelligence.hasVerifiedGates) {
+      return;
+    }
+
+    const { station, targetPandal, allGateRoutes, recommendedGate, activeGateRoute } = activeMetroGateIntelligence;
+    const currentRoute = activeGateRoute || recommendedGate;
+    const bounds = new google.maps.LatLngBounds();
+
+    // 1. Station Marker
+    const stationLoc = { lat: station.location.lat, lng: station.location.lng };
+    bounds.extend(stationLoc);
+    const stationSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15" fill="%232563eb" stroke="%23ffffff" stroke-width="2.5"/><text x="18" y="23" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="900" fill="%23ffffff" text-anchor="middle">M</text></svg>`;
+    const stationMarker = new google.maps.Marker({
+      position: stationLoc,
+      map,
+      title: `${station.name} Metro Station (${station.line})`,
+      zIndex: 800,
+      icon: {
+        url: stationSvg,
+        scaledSize: new google.maps.Size(36, 36),
+        anchor: new google.maps.Point(18, 18),
+      },
+    });
+    metroGateObjectsRef.current.markers.push(stationMarker);
+
+    // 2. Gate Markers
+    allGateRoutes.forEach((gateOpt) => {
+      const isRecommended = gateOpt.isRecommended;
+      const isCurrentActive = currentRoute && currentRoute.gate.gateNumber === gateOpt.gate.gateNumber;
+      const gateLat = gateOpt.gate.latitude ?? gateOpt.gate.location?.lat ?? station.location.lat;
+      const gateLng = gateOpt.gate.longitude ?? gateOpt.gate.location?.lng ?? station.location.lng;
+      const gatePos = { lat: gateLat, lng: gateLng };
+      bounds.extend(gatePos);
+
+      const gateSvg = isRecommended
+        ? `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="%2310b981" stroke="%23ffffff" stroke-width="3"/><text x="20" y="26" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="900" fill="%23ffffff" text-anchor="middle">🚪</text></svg>`
+        : isCurrentActive
+        ? `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34"><circle cx="17" cy="17" r="15" fill="%230284c7" stroke="%23ffffff" stroke-width="2.5"/><text x="17" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="900" fill="%23ffffff" text-anchor="middle">🚪</text></svg>`
+        : `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="13" fill="%231e293b" stroke="%2394a3b8" stroke-width="2"/><text x="15" y="19" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="bold" fill="%23cbd5e1" text-anchor="middle">${encodeURIComponent(gateOpt.gate.gateNumber.replace(/Gate\s*/i, 'G'))}</text></svg>`;
+
+      const gateMarker = new google.maps.Marker({
+        position: gatePos,
+        map,
+        title: `${isRecommended ? 'RECOMMENDED EXIT: ' : ''}${gateOpt.gate.gateNumber} (${gateOpt.walkingDistanceFormatted} • ${gateOpt.walkingTimeFormatted})`,
+        zIndex: isRecommended ? 950 : 850,
+        icon: {
+          url: gateSvg,
+          scaledSize: isRecommended ? new google.maps.Size(40, 40) : new google.maps.Size(30, 30),
+          anchor: isRecommended ? new google.maps.Point(20, 20) : new google.maps.Point(15, 15),
+        },
+      });
+
+      gateMarker.addListener('click', () => {
+        setActiveMetroGateIntelligence({
+          ...activeMetroGateIntelligence,
+          activeGateRoute: gateOpt,
+        });
+      });
+
+      metroGateObjectsRef.current.markers.push(gateMarker);
+    });
+
+    // 3. Walking Route Polyline
+    if (currentRoute && currentRoute.geometry && currentRoute.geometry.length > 0) {
+      const pathCoordinates = currentRoute.geometry.map((pt) => {
+        bounds.extend(pt);
+        return { lat: pt.lat, lng: pt.lng };
+      });
+
+      const walkingPolyline = new google.maps.Polyline({
+        path: pathCoordinates,
+        geodesic: true,
+        strokeColor: '#10b981',
+        strokeOpacity: 0.95,
+        strokeWeight: 5,
+        zIndex: 900,
+        map,
+      });
+
+      metroGateObjectsRef.current.polylines.push(walkingPolyline);
+    }
+
+    // 4. Target Pandal Marker
+    const pandalLat = (targetPandal as any).location?.lat ?? (targetPandal as any).latitude;
+    const pandalLng = (targetPandal as any).location?.lng ?? (targetPandal as any).longitude;
+    const pandalPos = { lat: pandalLat, lng: pandalLng };
+    bounds.extend(pandalPos);
+
+    const pandalSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="%23f59e0b" stroke="%23ffffff" stroke-width="2.5"/><text x="18" y="24" font-family="system-ui, -apple-system, sans-serif" font-size="16" text-anchor="middle">🛕</text></svg>`;
+    const pandalMarker = new google.maps.Marker({
+      position: pandalPos,
+      map,
+      title: `${targetPandal.name} (Destination Pandal)`,
+      zIndex: 920,
+      icon: {
+        url: pandalSvg,
+        scaledSize: new google.maps.Size(36, 36),
+        anchor: new google.maps.Point(18, 18),
+      },
+    });
+    metroGateObjectsRef.current.markers.push(pandalMarker);
+
+    // 5. Fit bounds to comfortably display station, all gates, route, and pandal
+    try {
+      map.fitBounds(bounds, {
+        top: 80,
+        bottom: 80,
+        left: 60,
+        right: 60,
+      });
+    } catch (e) {
+      console.warn('[GoogleMapView] Error fitting bounds to metro gate intelligence:', e);
+    }
+  }, [activeMetroGateIntelligence, googleLoaded]);
 
   // Sync selectedItem focus view
   useEffect(() => {

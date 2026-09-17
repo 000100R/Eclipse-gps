@@ -28,6 +28,13 @@ export interface DestinationItem {
   rawItem?: any;
 }
 
+export interface PujaRouteSession {
+  isActive: boolean;
+  stops: DestinationItem[];
+  currentStopIndex: number;
+  completedStopIds: string[];
+}
+
 export interface MetroHopInfo {
   boardStation: string;
   deboardStation: string;
