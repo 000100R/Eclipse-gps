@@ -113,7 +113,7 @@ export class OSRMRoutingProvider implements IRoutingProvider {
     destination: Location,
     waypoints: RouteWaypoint[],
     alternatives: boolean | number = false,
-    profile: 'driving' | 'foot' = 'driving'
+    profile: 'driving' | 'foot' = 'foot'
   ): Promise<Route> {
     // Semicolon-separated coordinates list: lng,lat;lng,lat...
     const coordsList: string[] = [];
@@ -157,14 +157,15 @@ export class OSRMRoutingProvider implements IRoutingProvider {
     } catch (err) {
       console.warn('OSRM routing failed, falling back to Haversine straight-line simulation:', err);
       this.isFallback = true;
-      return this.generateFallbackRoute(origin, destination, waypoints);
+      return this.generateFallbackRoute(origin, destination, waypoints, osrmProfile);
     }
   }
 
   private generateFallbackRoute(
     origin: Location,
     destination: Location,
-    waypoints: RouteWaypoint[]
+    waypoints: RouteWaypoint[],
+    profile: 'driving' | 'foot' = 'foot'
   ): Route {
     // Generate straight lines connecting all coordinates
     const geometry: Location[] = [];
@@ -180,34 +181,37 @@ export class OSRMRoutingProvider implements IRoutingProvider {
       totalDistance += getHaversineDistance(geometry[i], geometry[i + 1]);
     }
 
-    // Assume average speed 30 km/h (8.3 m/s)
-    const totalDuration = totalDistance / 8.33;
+    // Walking speed ~1.3 m/s (~4.7 km/h), Driving speed ~8.33 m/s (~30 km/h)
+    const speedMps = profile === 'foot' ? 1.3 : 8.33;
+    const totalDuration = Math.round(totalDistance / speedMps);
 
     // Generate instructions
     const instructions: RouteInstruction[] = [];
     instructions.push({
-      text: 'Start navigation (Fallback/Straight-Line Mode)',
+      text: `Start ${profile === 'foot' ? 'walking' : 'driving'} navigation (Direct Line Mode)`,
       distance: 0,
       duration: 0,
     });
 
     for (let i = 0; i < waypoints.length; i++) {
+      const legDist = getHaversineDistance(i === 0 ? origin : waypoints[i - 1].location, waypoints[i].location);
       instructions.push({
         text: `Proceed to Stop ${i + 1}: ${waypoints[i].name}`,
-        distance: getHaversineDistance(i === 0 ? origin : waypoints[i - 1].location, waypoints[i].location),
-        duration: getHaversineDistance(i === 0 ? origin : waypoints[i - 1].location, waypoints[i].location) / 8.33,
+        distance: legDist,
+        duration: Math.round(legDist / speedMps),
       });
     }
 
+    const finalLegDist = getHaversineDistance(waypoints.length === 0 ? origin : waypoints[waypoints.length - 1].location, destination);
     instructions.push({
       text: 'Proceed to final destination',
-      distance: getHaversineDistance(waypoints.length === 0 ? origin : waypoints[waypoints.length - 1].location, destination),
-      duration: getHaversineDistance(waypoints.length === 0 ? origin : waypoints[waypoints.length - 1].location, destination) / 8.33,
+      distance: finalLegDist,
+      duration: Math.round(finalLegDist / speedMps),
     });
 
     return {
       id: `route-fallback-${Date.now()}`,
-      name: `Simulated Route (Demo)`,
+      name: `Direct Route (${profile === 'foot' ? 'Walking' : 'Driving'})`,
       origin,
       destination,
       waypoints,
@@ -223,7 +227,7 @@ export class OSRMRoutingProvider implements IRoutingProvider {
     origin: Location,
     destination: Location,
     stops: RouteWaypoint[],
-    profile: 'driving' | 'foot' = 'driving'
+    profile: 'driving' | 'foot' = 'foot'
   ): Promise<{ optimizedStops: RouteWaypoint[]; optimizedRoute: Route }> {
     if (stops.length <= 1) {
       const optimizedRoute = await this.calculateRoute(origin, destination, stops, false, profile);

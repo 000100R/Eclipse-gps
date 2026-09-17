@@ -207,7 +207,9 @@ export const GroupPanel: React.FC = () => {
   };
 
   const setMeetingPointToCurrent = async () => {
-    await updateMeetingPoint(currentLocation.lat, currentLocation.lng, "Group Meeting Point");
+    if (currentLocation) {
+      await updateMeetingPoint(currentLocation.lat, currentLocation.lng, "Group Meeting Point");
+    }
   };
 
   const clearGroupMeetingPoint = async () => {

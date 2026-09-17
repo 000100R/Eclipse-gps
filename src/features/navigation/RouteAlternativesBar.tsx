@@ -1,5 +1,5 @@
 import React from 'react';
-import { GitFork, Clock, Navigation } from 'lucide-react';
+import { GitFork, Clock, Navigation, Footprints, Car } from 'lucide-react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { Route } from '../../types';
 
@@ -21,11 +21,29 @@ function formatDur(seconds: number): string {
 }
 
 export const RouteAlternativesBar: React.FC = () => {
-  const { activeRoute, selectAlternativeRoute } = useAppState();
+  const {
+    activeRoute,
+    selectAlternativeRoute,
+    routePreference,
+    setRoutePreference,
+    travelMode: contextTravelMode,
+    setTravelMode,
+  } = useAppState();
 
   if (!activeRoute || !activeRoute.alternatives || activeRoute.alternatives.length === 0) {
     return null;
   }
+
+  const travelMode = contextTravelMode || (routePreference === 'DRIVING' ? 'driving' : 'walking');
+
+  const handleModeChange = (mode: 'walking' | 'driving') => {
+    if (mode === travelMode) return;
+    if (setTravelMode) {
+      setTravelMode(mode);
+    } else {
+      setRoutePreference(mode === 'walking' ? 'WALKING' : 'DRIVING');
+    }
+  };
 
   const allRoutes: { route: Route; isActive: boolean; label: string }[] = [
     {
@@ -53,7 +71,41 @@ export const RouteAlternativesBar: React.FC = () => {
             {allRoutes.length}
           </span>
         </div>
-        <span className="text-[10px] text-neutral-400 hidden sm:inline">Tap an alternative to switch route</span>
+
+        {/* Small Mode Switch in Options bar */}
+        <div
+          id="alt-bar-travel-mode-switch"
+          className="flex items-center space-x-0.5 bg-neutral-800/90 p-0.5 rounded-lg border border-neutral-700/60"
+        >
+          <button
+            type="button"
+            id="alt-bar-btn-walk"
+            onClick={() => handleModeChange('walking')}
+            className={`flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-bold transition-all ${
+              travelMode === 'walking'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                : 'text-neutral-400 hover:text-neutral-200'
+            }`}
+            title="Switch to Walking"
+          >
+            <Footprints size={10} className={travelMode === 'walking' ? 'text-emerald-400' : 'text-neutral-400'} />
+            <span>Walk</span>
+          </button>
+          <button
+            type="button"
+            id="alt-bar-btn-drive"
+            onClick={() => handleModeChange('driving')}
+            className={`flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-bold transition-all ${
+              travelMode === 'driving'
+                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                : 'text-neutral-400 hover:text-neutral-200'
+            }`}
+            title="Switch to Driving"
+          >
+            <Car size={10} className={travelMode === 'driving' ? 'text-sky-400' : 'text-neutral-400'} />
+            <span>Drive</span>
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">

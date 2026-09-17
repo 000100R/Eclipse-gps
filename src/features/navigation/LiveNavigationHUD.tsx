@@ -99,6 +99,9 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     setCurrentStepIndex,
     currentLocation,
     routePreference,
+    setRoutePreference,
+    travelMode: contextTravelMode,
+    setTravelMode,
     routeStops,
     selectedItem,
     setSelectedItem,
@@ -109,7 +112,16 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     return null;
   }
 
-  const travelMode = routePreference === 'WALKING' ? 'walking' : 'driving';
+  const travelMode = contextTravelMode || (routePreference === 'DRIVING' ? 'driving' : 'walking');
+
+  const handleModeChange = (mode: 'walking' | 'driving') => {
+    if (mode === travelMode) return;
+    if (setTravelMode) {
+      setTravelMode(mode);
+    } else {
+      setRoutePreference(mode === 'walking' ? 'WALKING' : 'DRIVING');
+    }
+  };
 
   const instructions = activeRoute.instructions || [];
   const safeStepIndex = Math.min(Math.max(0, currentStepIndex), Math.max(0, instructions.length - 1));
@@ -252,21 +264,41 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
             {destinationName}
           </span>
         </div>
+        {/* Travel Mode Switch: Walking / Driving */}
         <div
-          id="nav-travel-mode-badge"
-          className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-neutral-900/90 border border-neutral-800 shrink-0"
+          id="nav-travel-mode-switch"
+          className="flex items-center p-0.5 rounded-lg bg-neutral-900/90 border border-neutral-800 shrink-0 space-x-0.5"
+          role="group"
+          aria-label="Travel mode selection"
         >
-          {travelMode === 'walking' ? (
-            <>
-              <Footprints size={11} className="text-emerald-400" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">Walking</span>
-            </>
-          ) : (
-            <>
-              <Car size={11} className="text-sky-400" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-300">Driving</span>
-            </>
-          )}
+          <button
+            type="button"
+            id="btn-mode-walking"
+            onClick={() => handleModeChange('walking')}
+            className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide transition-all ${
+              travelMode === 'walking'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-sm'
+                : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 border border-transparent'
+            }`}
+            title="Switch to Walking navigation"
+          >
+            <Footprints size={11} className={travelMode === 'walking' ? 'text-emerald-400' : 'text-neutral-400'} />
+            <span>Walk</span>
+          </button>
+          <button
+            type="button"
+            id="btn-mode-driving"
+            onClick={() => handleModeChange('driving')}
+            className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide transition-all ${
+              travelMode === 'driving'
+                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/50 shadow-sm'
+                : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 border border-transparent'
+            }`}
+            title="Switch to Driving navigation"
+          >
+            <Car size={11} className={travelMode === 'driving' ? 'text-sky-400' : 'text-neutral-400'} />
+            <span>Drive</span>
+          </button>
         </div>
       </div>
 

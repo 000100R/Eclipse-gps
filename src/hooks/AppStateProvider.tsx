@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { Location, Place, Event, Pandal, Route, SavedLocation, Alert, AIMessage, VisitedPandalRecord } from '../types';
 import { eventsService } from '../services/events/eventsService';
 import { visitedPandalsService } from '../services/visited/visitedPandalsService';
@@ -55,12 +55,16 @@ import {
 
 interface AppStateContextType {
   // GPS State
-  currentLocation: Location;
+  currentLocation: Location | null;
+  hasValidGps: boolean;
   gpsAccuracy: number | null;
-  gpsStatus: 'idle' | 'tracking' | 'error' | 'denied';
+  gpsStatus: 'idle' | 'prompt' | 'requesting' | 'tracking' | 'error' | 'denied';
   gpsErrorMsg: string | null;
+  permissionState: 'prompt' | 'granted' | 'denied' | 'unknown';
   watchLocation: boolean;
   setWatchLocation: (watch: boolean) => void;
+  requestLocation: () => void;
+  retryLocation: () => void;
   recenterMap: () => void;
   mapRef: any;
   setMapRef: (ref: any) => void;
@@ -98,6 +102,8 @@ interface AppStateContextType {
   selectAlternativeRoute: (route: Route) => void;
   routePreference: 'FASTEST' | 'SHORTEST' | 'LOW CROWD' | 'BALANCED' | 'WALKING' | 'DRIVING';
   setRoutePreference: (pref: 'FASTEST' | 'SHORTEST' | 'LOW CROWD' | 'BALANCED' | 'WALKING' | 'DRIVING') => void;
+  travelMode: 'walking' | 'driving';
+  setTravelMode: (mode: 'walking' | 'driving') => Promise<void>;
 
   // Turn-by-turn Navigation
   isNavigating: boolean;
@@ -188,8 +194,8 @@ interface AppStateContextType {
   setDiscoveryRadius: (radius: number) => void;
   discoverySort: 'recommended' | 'nearest' | 'fastest' | 'least_crowded';
   setDiscoverySort: (sort: 'recommended' | 'nearest' | 'fastest' | 'least_crowded') => void;
-  discoveryCenter: Location;
-  setDiscoveryCenter: (loc: Location) => void;
+  discoveryCenter: Location | null;
+  setDiscoveryCenter: (loc: Location | null) => void;
   mapCenter: Location | null;
   setMapCenter: (loc: Location | null) => void;
   isDiscovering: boolean;
@@ -203,13 +209,15 @@ interface AppStateContextType {
 
 const AppStateContext = createContext<AppStateContextType | undefined>(undefined);
 
-// Default center of Kolkata, India (around Maidan / Park Street)
+// Default center reference for boundaries
 const KOLKATA_CENTER: Location = { lat: 22.5697, lng: 88.3639 };
 
 export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentLocation, setCurrentLocation] = useState<Location>(KOLKATA_CENTER);
+  const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
+  const [hasValidGps, setHasValidGps] = useState<boolean>(false);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
-  const [gpsStatus, setGpsStatus] = useState<'idle' | 'tracking' | 'error' | 'denied'>('idle');
+  const [gpsStatus, setGpsStatus] = useState<'idle' | 'prompt' | 'requesting' | 'tracking' | 'error' | 'denied'>('prompt');
+  const [permissionState, setPermissionState] = useState<'prompt' | 'granted' | 'denied' | 'unknown'>('unknown');
   const [gpsErrorMsg, setGpsErrorMsg] = useState<string | null>(null);
   const [watchLocation, setWatchLocation] = useState<boolean>(true);
   const [mapRef, setMapRefState] = useState<any>(null);
@@ -315,8 +323,14 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const [isAiSheetOpen, setIsAiSheetOpen] = useState<boolean>(false);
 
-  // Group & Preference States
-  const [routePreference, setRoutePreference] = useState<'FASTEST' | 'SHORTEST' | 'LOW CROWD' | 'BALANCED' | 'WALKING' | 'DRIVING'>('BALANCED');
+  // Group & Preference States (Defaulting to WALKING for pandal-hopping)
+  const [routePreference, setRoutePreference] = useState<'FASTEST' | 'SHORTEST' | 'LOW CROWD' | 'BALANCED' | 'WALKING' | 'DRIVING'>('WALKING');
+  
+  const travelMode: 'walking' | 'driving' = routePreference === 'DRIVING' ? 'driving' : 'walking';
+
+  const setTravelMode = async (mode: 'walking' | 'driving') => {
+    setRoutePreference(mode === 'walking' ? 'WALKING' : 'DRIVING');
+  };
   
   const [userId, setUserId] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
@@ -423,7 +437,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Pandal Discovery 2.0 State
   const [discoveryRadius, setDiscoveryRadius] = useState<number>(5);
   const [discoverySort, setDiscoverySort] = useState<'recommended' | 'nearest' | 'fastest' | 'least_crowded'>('nearest');
-  const [discoveryCenter, setDiscoveryCenter] = useState<Location>(KOLKATA_CENTER);
+  const [discoveryCenter, setDiscoveryCenter] = useState<Location | null>(null);
   const [mapCenter, setMapCenter] = useState<Location | null>(null);
   const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
   const [userPandals, setUserPandals] = useState<Pandal[]>(() => {
@@ -432,10 +446,11 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return saved ? JSON.parse(saved) : [];
   });
 
-  const lastDiscoveryCenterRef = useRef<Location>(KOLKATA_CENTER);
+  const lastDiscoveryCenterRef = useRef<Location | null>(null);
 
   // Core Nearby Pandal Discovery Engine (delegates to centralized pandalDiscoveryService)
-  const discoverNearbyPandals = async (center: Location, radiusKm: number, sortBy: string) => {
+  const discoverNearbyPandals = async (center: Location | null, radiusKm: number, sortBy: string) => {
+    if (!center || !hasValidGps) return;
     setIsDiscovering(true);
     try {
       const radiusMeters = radiusKm * 1000;
@@ -446,9 +461,10 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
 
       // Include user-submitted local additions if any
+      const effectiveRadiusMeters = result.searchRadius || radiusMeters;
       const userPandalsInRadius = userPandals.filter(up => {
         const dist = calculateDistanceInMeters(center, up.location);
-        return dist <= radiusMeters;
+        return dist <= effectiveRadiusMeters;
       }).map(up => ({
         ...up,
         distance: calculateDistanceInMeters(center, up.location),
@@ -517,6 +533,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const submitUserPandal = (newPandal: Partial<Pandal>) => {
+    if (!currentLocation) return;
     const p: Pandal = {
       id: `user-pandal-${Date.now()}`,
       name: newPandal.name || 'User Pandal',
@@ -835,7 +852,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         longitude: currentLng,
       };
       
-      const osrmProfile = routePreference === 'WALKING' ? 'foot' : 'driving';
+      const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
       routingService.calculateRoute(
         currentLocation,
         { lat: currentLat, lng: currentLng },
@@ -928,7 +945,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return;
       }
 
-      if (!currentLocation || (currentLocation.lat === KOLKATA_CENTER.lat && currentLocation.lng === KOLKATA_CENTER.lng && gpsStatus !== 'tracking')) {
+      if (!currentLocation || !hasValidGps || gpsStatus !== 'tracking') {
         return;
       }
 
@@ -979,7 +996,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return;
     }
 
-    if (!currentLocation || (currentLocation.lat === KOLKATA_CENTER.lat && currentLocation.lng === KOLKATA_CENTER.lng && gpsStatus !== 'tracking')) {
+    if (!currentLocation || !hasValidGps || gpsStatus !== 'tracking') {
       return;
     }
 
@@ -1023,72 +1040,168 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     ]);
   }, []);
 
-  // Coordinate significant movement and automatic discovery trigger
-  useEffect(() => {
-    const dist = calculateDistanceInMeters(currentLocation, lastDiscoveryCenterRef.current);
-    const isFirstTime = lastDiscoveryCenterRef.current.lat === KOLKATA_CENTER.lat && lastDiscoveryCenterRef.current.lng === KOLKATA_CENTER.lng;
-
-    if (isFirstTime || dist > 50) {
-      lastDiscoveryCenterRef.current = currentLocation;
-      setDiscoveryCenter(currentLocation);
+  // Request location from browser/device
+  const requestLocation = useCallback(() => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setHasValidGps(false);
+      setCurrentLocation(null);
+      setGpsStatus('error');
+      setGpsErrorMsg('HTML5 Geolocation is not supported by your browser or device.');
+      return;
     }
-  }, [currentLocation]);
 
-  // Trigger discovery on discoveryCenter, discoveryRadius, or discoverySort changes
-  useEffect(() => {
-    discoverNearbyPandals(discoveryCenter, discoveryRadius, discoverySort);
-  }, [discoveryCenter, discoveryRadius, discoverySort]);
+    setGpsStatus('requesting');
+    setGpsErrorMsg(null);
 
-  // Continuous Geolocation Tracking
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc: Location = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        };
+        setPermissionState('granted');
+        setCurrentLocation(loc);
+        setHasValidGps(true);
+        setGpsStatus('tracking');
+        setGpsAccuracy(pos.coords.accuracy);
+        setSpeed(pos.coords.speed || 0);
+        setHeading(pos.coords.heading || 0);
+        setGpsErrorMsg(null);
+        travelDistanceService.recordPosition(pos);
+        setDiscoveryCenter(loc);
+        lastDiscoveryCenterRef.current = loc;
+      },
+      (err) => {
+        console.warn('GPS location acquisition error:', err);
+        setHasValidGps(false);
+        setCurrentLocation(null);
+        if (err.code === 1) {
+          // PERMISSION_DENIED
+          setPermissionState('denied');
+          setGpsStatus('denied');
+          setGpsErrorMsg('Location permission was denied. Eclipse GPS requires your real location to navigate.');
+        } else if (err.code === 2) {
+          // POSITION_UNAVAILABLE
+          setPermissionState('granted');
+          setGpsStatus('error');
+          setGpsErrorMsg('Waiting for your location... GPS position unavailable. Please ensure location/GPS services are enabled on your device.');
+        } else if (err.code === 3) {
+          // TIMEOUT
+          setPermissionState('granted');
+          setGpsStatus('error');
+          setGpsErrorMsg('Waiting for your location... GPS request timed out.');
+        } else {
+          setGpsStatus('error');
+          setGpsErrorMsg(err.message || 'Unable to retrieve your real-time GPS location.');
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      }
+    );
+  }, []);
+
+  const retryLocation = useCallback(() => {
+    requestLocation();
+  }, [requestLocation]);
+
+  // Check initial permission status on app startup
   useEffect(() => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
+      setPermissionState('denied');
       setGpsStatus('error');
       setGpsErrorMsg('HTML5 Geolocation is not supported by your device.');
       return;
     }
 
-    if (watchLocation) {
-      setGpsStatus('tracking');
+    let permissionObj: PermissionStatus | null = null;
 
-      // Request immediate high-accuracy position fix
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const loc = {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-          };
-          setCurrentLocation(loc);
-          travelDistanceService.recordPosition(pos);
-          setDiscoveryCenter((prev) => {
-            // If discovery center was at default Kolkata center, center it on the user's real GPS
-            if (prev.lat === KOLKATA_CENTER.lat && prev.lng === KOLKATA_CENTER.lng) {
-              return loc;
+    if (typeof navigator.permissions !== 'undefined' && navigator.permissions.query) {
+      navigator.permissions
+        .query({ name: 'geolocation' as PermissionName })
+        .then((status) => {
+          permissionObj = status;
+          setPermissionState(status.state as 'prompt' | 'granted' | 'denied');
+
+          const handlePermissionChange = () => {
+            setPermissionState(status.state as 'prompt' | 'granted' | 'denied');
+            if (status.state === 'denied') {
+              setHasValidGps(false);
+              setCurrentLocation(null);
+              setGpsStatus('denied');
+              setGpsErrorMsg('Location access is blocked. Please allow location access in your browser settings.');
+            } else if (status.state === 'prompt') {
+              setHasValidGps(false);
+              setCurrentLocation(null);
+              setGpsStatus('prompt');
+              setGpsErrorMsg(null);
+            } else if (status.state === 'granted') {
+              // Permission was granted, request position fix immediately
+              requestLocation();
             }
-            return prev;
-          });
-          setGpsAccuracy(pos.coords.accuracy);
-          setSpeed(pos.coords.speed || 0);
-          setHeading(pos.coords.heading || 0);
-          setGpsErrorMsg(null);
-          setGpsStatus('tracking');
-        },
-        (err) => {
-          console.warn('Initial geolocation error:', err);
-          if (err.code === 1) {
-            setGpsStatus('denied');
-            setGpsErrorMsg('GPS permission denied. Enable browser location access to discover pandals near your exact location.');
-          } else {
-            setGpsStatus('error');
-            setGpsErrorMsg('GPS signal unavailable. Please ensure device location is turned on.');
-          }
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
-        }
-      );
+          };
 
+          status.addEventListener('change', handlePermissionChange);
+
+          if (status.state === 'granted') {
+            requestLocation();
+          } else if (status.state === 'denied') {
+            setHasValidGps(false);
+            setCurrentLocation(null);
+            setGpsStatus('denied');
+            setGpsErrorMsg('Location access was denied. Please allow location access in your browser settings.');
+          } else {
+            // 'prompt': Show Location Required screen with Enable Location button
+            setHasValidGps(false);
+            setCurrentLocation(null);
+            setGpsStatus('prompt');
+          }
+        })
+        .catch((err) => {
+          console.warn('Error querying geolocation permission:', err);
+          setPermissionState('prompt');
+          setGpsStatus('prompt');
+        });
+    } else {
+      setPermissionState('prompt');
+      setGpsStatus('prompt');
+    }
+
+    return () => {
+      if (permissionObj) {
+        permissionObj.onchange = null;
+      }
+    };
+  }, [requestLocation]);
+
+  // Coordinate significant movement and automatic discovery trigger
+  useEffect(() => {
+    if (!currentLocation || !hasValidGps) return;
+    if (!lastDiscoveryCenterRef.current) {
+      lastDiscoveryCenterRef.current = currentLocation;
+      setDiscoveryCenter(currentLocation);
+      return;
+    }
+    const dist = calculateDistanceInMeters(currentLocation, lastDiscoveryCenterRef.current);
+    if (dist > 50) {
+      lastDiscoveryCenterRef.current = currentLocation;
+      setDiscoveryCenter(currentLocation);
+    }
+  }, [currentLocation, hasValidGps]);
+
+  // Trigger discovery on discoveryCenter, discoveryRadius, or discoverySort changes
+  useEffect(() => {
+    if (!discoveryCenter || !hasValidGps) return;
+    discoverNearbyPandals(discoveryCenter, discoveryRadius, discoverySort);
+  }, [discoveryCenter, discoveryRadius, discoverySort, hasValidGps]);
+
+  // Continuous Geolocation Tracking when valid GPS is active
+  useEffect(() => {
+    if (typeof window === 'undefined' || !navigator.geolocation) return;
+
+    if (hasValidGps && watchLocation) {
       watchIdRef.current = navigator.geolocation.watchPosition(
         (position) => {
           const loc = {
@@ -1106,17 +1219,24 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         (error) => {
           console.warn('Geolocation Watch Position error:', error);
           if (error.code === 1) {
+            // Revoked during session
+            setPermissionState('denied');
+            setHasValidGps(false);
+            setCurrentLocation(null);
             setGpsStatus('denied');
-            setGpsErrorMsg('GPS permission denied. Enable browser location access to discover pandals near your exact location.');
-          } else {
+            setGpsErrorMsg('Eclipse GPS cannot be used without location access. Please enable location access to continue.');
+          } else if (error.code === 2 || error.code === 3) {
+            // Disabled or unavailable
+            setHasValidGps(false);
+            setCurrentLocation(null);
             setGpsStatus('error');
-            setGpsErrorMsg('GPS signal unavailable. Please ensure device location is turned on.');
+            setGpsErrorMsg('Waiting for your location... GPS signal lost or location services disabled on device.');
           }
           setGpsAccuracy(null);
         },
         {
           enableHighAccuracy: true,
-          timeout: 10000,
+          timeout: 15000,
           maximumAge: 0,
         }
       );
@@ -1125,15 +1245,15 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
-      setGpsStatus('idle');
     }
 
     return () => {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
       }
     };
-  }, [watchLocation]);
+  }, [hasValidGps, watchLocation]);
 
   // Anonymous Session Tracking for Crowd Intelligence
   const crowdSessionIdRef = useRef<string | null>(null);
@@ -1165,7 +1285,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         crowdSessionIdRef.current = 'crowd-session-' + Math.random().toString(36).substring(2, 11);
       }
 
-      if (!currentLocation || (currentLocation.lat === KOLKATA_CENTER.lat && currentLocation.lng === KOLKATA_CENTER.lng && gpsStatus !== 'tracking')) {
+      if (!currentLocation || !hasValidGps || gpsStatus !== 'tracking') {
         return;
       }
 
@@ -1418,7 +1538,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Geofence visit detection: automatically marks a pandal as VISITED when user's GPS enters within ~75m
   useEffect(() => {
-    if (gpsStatus !== 'tracking' || !currentLocation || (currentLocation.lat === 0 && currentLocation.lng === 0)) {
+    if (gpsStatus !== 'tracking' || !currentLocation || !hasValidGps) {
       return;
     }
     const candidates = pandalDiscoveryService.getLocalCandidates();
@@ -1431,8 +1551,23 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Recalculate route whenever routePreference changes
   useEffect(() => {
+    const osrmProfile: 'foot' | 'driving' = routePreference === 'DRIVING' ? 'driving' : 'foot';
     if (routeStops.length > 0) {
       triggerReroute(routeStops);
+      setCurrentStepIndex(0);
+    } else if (activeRoute && (activeRoute.origin || currentLocation) && activeRoute.destination) {
+      routingService.calculateRoute(
+        currentLocation || activeRoute.origin,
+        activeRoute.destination,
+        activeRoute.waypoints || [],
+        3,
+        osrmProfile
+      ).then(calculatedRoute => {
+        setActiveRoute(calculatedRoute);
+        setCurrentStepIndex(0);
+      }).catch(err => {
+        console.error('Failed to recalculate route on mode change:', err);
+      });
     }
   }, [routePreference]);
 
@@ -1476,7 +1611,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }));
 
     try {
-      const osrmProfile = routePreference === 'WALKING' ? 'foot' : 'driving';
+      const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
       const calculatedRoute = await routingService.calculateRoute(
         currentLocation,
         destItem.location,
@@ -1485,6 +1620,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         osrmProfile
       );
       setActiveRoute(calculatedRoute);
+      setCurrentStepIndex(0);
     } catch (err) {
       console.error('Failed to trigger road route calculation:', err);
     }
@@ -1494,7 +1630,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const calculateRouteToItem = async (item: Pandal | Event | any) => {
     setRouteStops([item]);
     try {
-      const osrmProfile = routePreference === 'WALKING' ? 'foot' : 'driving';
+      const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
       const calculatedRoute = await routingService.calculateRoute(
         currentLocation,
         item.location,
@@ -1544,7 +1680,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         itemId: s.id,
       }));
 
-      const osrmProfile = routePreference === 'WALKING' ? 'foot' : 'driving';
+      const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
       const result = await routingService.optimizeRoute(
         currentLocation,
         destItem.location,
@@ -2242,11 +2378,15 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     <AppStateContext.Provider
       value={{
         currentLocation,
+        hasValidGps,
         gpsAccuracy,
         gpsStatus,
         gpsErrorMsg,
+        permissionState,
         watchLocation,
         setWatchLocation,
+        requestLocation,
+        retryLocation,
         recenterMap,
         mapRef,
         setMapRef,
@@ -2280,6 +2420,8 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         selectAlternativeRoute,
         routePreference,
         setRoutePreference,
+        travelMode,
+        setTravelMode,
 
         isNavigating,
         setIsNavigating,

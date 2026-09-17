@@ -15,16 +15,25 @@ import { SavedItems } from './features/saved/SavedItems';
 import { VisitedPandalsView } from './features/visited/VisitedPandalsView';
 import { MyPujaJourney } from './features/journey/MyPujaJourney';
 import { GroupPanel } from './features/groups/GroupPanel';
+import { LocationRequiredScreen } from './features/location/LocationRequiredScreen';
 import { GlassPanel } from './components/ui/GlassPanel';
 import { AlertTriangle, ShieldCheck, HelpCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const {
+    hasValidGps,
+    currentLocation,
+    gpsStatus,
     activeTab,
     rerouteSuggestion,
     setRerouteSuggestion,
     acceptSmartReroute,
   } = useAppState();
+
+  // If valid GPS position is not acquired or permission is not granted, enforce full-screen Location Required state
+  if (!hasValidGps || !currentLocation || gpsStatus !== 'tracking') {
+    return <LocationRequiredScreen />;
+  }
 
   return (
     <div id="eclipse-gps-workspace" className="relative w-screen h-screen bg-neutral-950 text-neutral-200 overflow-hidden select-none font-sans">

@@ -53,7 +53,7 @@ export const DiscoveryHUD: React.FC = () => {
     return R * c;
   };
 
-  const mapMovedDistance = mapCenter ? getDistance(discoveryCenter, mapCenter) : 0;
+  const mapMovedDistance = (mapCenter && discoveryCenter) ? getDistance(discoveryCenter, mapCenter) : 0;
   const showSearchAreaBtn = mapMovedDistance > 150; // map panned more than 150m
 
   const handleSearchThisArea = () => {
@@ -66,6 +66,9 @@ export const DiscoveryHUD: React.FC = () => {
     e.preventDefault();
     if (!submitForm.name.trim()) return;
 
+    const lat = mapCenter?.lat ?? currentLocation?.lat ?? 0;
+    const lng = mapCenter?.lng ?? currentLocation?.lng ?? 0;
+
     submitUserPandal({
       name: submitForm.name,
       address: submitForm.address || 'User Discovered Location',
@@ -73,8 +76,8 @@ export const DiscoveryHUD: React.FC = () => {
       theme: submitForm.theme || 'Traditional Creative theme',
       description: submitForm.description || 'Community reported Durga Puja pandal.',
       crowdLevel: submitForm.crowdLevel,
-      latitude: mapCenter?.lat || currentLocation.lat,
-      longitude: mapCenter?.lng || currentLocation.lng,
+      latitude: lat,
+      longitude: lng,
     });
 
     setShowSubmitModal(false);

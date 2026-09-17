@@ -20,7 +20,7 @@
  * - Interactive Controls: Visited, Favorite, Show On Map, Navigate, Add to Tour
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Navigation,
   MapPin,
@@ -49,6 +49,7 @@ import {
   Compass,
   AlertTriangle,
   CheckCircle,
+  Footprints,
 } from 'lucide-react';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import { DiscoveredPandal } from '../../types/discovery';
@@ -87,8 +88,111 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
 }) => {
   if (!pandal) return null;
 
-  const { pandals, pandalCrowdCounts, pandalCrowdTrends, currentLocation: appLocation, setSelectedItem } = useAppState();
+  const {
+    pandals,
+    pandalCrowdCounts,
+    pandalCrowdTrends,
+    currentLocation: appLocation,
+    setSelectedItem,
+    calculateDistanceInMeters,
+    calculateRouteToItem,
+    setIsNavigating,
+    setCurrentStepIndex,
+    activeRoute,
+    visitedIds,
+    visitedRecords,
+  } = useAppState();
+
   const activeLocation = propsLocation || appLocation;
+
+  // VISITED badge detection from prop, visited IDs array, visited history records, or pandal flag
+  const isAlreadyVisited = Boolean(
+    isVisited ||
+    (visitedIds && visitedIds.includes(pandal.id)) ||
+    (visitedRecords && visitedRecords.some((r: any) => r.pandalId === pandal.id)) ||
+    pandal.visitedStatus === true
+  );
+
+  // Exact Pandal Geographic Coordinates Extraction
+  const pandalCoords = useMemo(() => {
+    if (pandal.location?.lat && pandal.location?.lng) return pandal.location;
+    if (pandal.lat !== undefined && pandal.lng !== undefined) return { lat: pandal.lat, lng: pandal.lng };
+    if (pandal.latitude !== undefined && pandal.longitude !== undefined) return { lat: pandal.latitude, lng: pandal.longitude };
+    return null;
+  }, [pandal]);
+
+  // Real GPS distance from user's current GPS location
+  const realGpsDistanceMeters = useMemo(() => {
+    if (!activeLocation || !pandalCoords) {
+      return typeof pandal.distance === 'number' ? pandal.distance : null;
+    }
+    if (typeof calculateDistanceInMeters === 'function') {
+      return Math.round(calculateDistanceInMeters(activeLocation, pandalCoords));
+    }
+    // High-precision Haversine fallback if helper is unavailable
+    const R = 6371e3;
+    const phi1 = (activeLocation.lat * Math.PI) / 180;
+    const phi2 = (pandalCoords.lat * Math.PI) / 180;
+    const deltaPhi = ((pandalCoords.lat - activeLocation.lat) * Math.PI) / 180;
+    const deltaLambda = ((pandalCoords.lng - activeLocation.lng) * Math.PI) / 180;
+    const a =
+      Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+      Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+    return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  }, [activeLocation, pandalCoords, pandal.distance, calculateDistanceInMeters]);
+
+  // Formatted real GPS distance string
+  const formattedDistance = useMemo(() => {
+    if (realGpsDistanceMeters === null || realGpsDistanceMeters === undefined) return null;
+    if (realGpsDistanceMeters < 1000) {
+      return `${realGpsDistanceMeters}m away`;
+    }
+    return `${(realGpsDistanceMeters / 1000).toFixed(1)} km away`;
+  }, [realGpsDistanceMeters]);
+
+  // Walking time using existing routing data or real GPS walking pace (~80 meters/min)
+  const walkingTime = useMemo(() => {
+    // 1. From activeRoute if destination matches this pandal
+    if (activeRoute && activeRoute.duration && activeRoute.destination && pandalCoords) {
+      const latDiff = Math.abs(activeRoute.destination.lat - pandalCoords.lat);
+      const lngDiff = Math.abs(activeRoute.destination.lng - pandalCoords.lng);
+      if (latDiff < 0.005 && lngDiff < 0.005) {
+        const mins = Math.max(1, Math.round(activeRoute.duration / 60));
+        return `${mins} min walk`;
+      }
+    }
+    // 2. Explicit walkingTime property on pandal if present
+    if (pandal.walkingTime) {
+      return String(pandal.walkingTime);
+    }
+    // 3. Existing routing estimatedTravelTime on pandal
+    if (pandal.estimatedTravelTime) {
+      const str = String(pandal.estimatedTravelTime);
+      return str.toLowerCase().includes('walk') ? str : `${str} walk`;
+    }
+    // 4. Real GPS distance walking calculation
+    if (realGpsDistanceMeters !== null && realGpsDistanceMeters !== undefined) {
+      const mins = Math.max(1, Math.round(realGpsDistanceMeters / 80));
+      return `${mins} min walk`;
+    }
+    return null;
+  }, [activeRoute, pandal, pandalCoords, realGpsDistanceMeters]);
+
+  // Handle Start Navigation action
+  const handleStartNavigation = async () => {
+    try {
+      if (calculateRouteToItem) {
+        await calculateRouteToItem(pandal);
+      }
+    } catch (err) {
+      console.error('Failed to calculate route to pandal:', err);
+    }
+    setIsNavigating(true);
+    setCurrentStepIndex(0);
+    if (onNavigate) {
+      onNavigate(pandal);
+    }
+  };
 
   // Real-time Crowd & Traffic Intelligence evaluation
   const crowdItem = crowdIntelligenceService.getCrowdForPandal(
@@ -115,19 +219,31 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
   const area = pandal.area || pandal.zone || 'Kolkata';
   const landmark = pandal.landmark;
 
-  // Format distance
-  const distance = pandal.distance !== undefined
-    ? pandal.distance < 1000
-      ? `${pandal.distance}m away`
-      : `${(pandal.distance / 1000).toFixed(1)} km away`
-    : undefined;
-  const travelTime = pandal.estimatedTravelTime;
-
   // Age calculation if establishedYear exists
   const currentYear = new Date().getFullYear();
   const pujaAge = pandal.establishedYear
     ? Math.max(1, currentYear - pandal.establishedYear)
     : undefined;
+
+  // Nearby Metro station
+  const nearestMetro = pandal.nearestMetro || pandal.nearestMetroStation || pandal.metroStation;
+  const formattedMetroDistance = useMemo(() => {
+    if (pandal.metroDistance === undefined || pandal.metroDistance === null) return null;
+    if (typeof pandal.metroDistance === 'number') {
+      return pandal.metroDistance < 1000 ? `${pandal.metroDistance}m` : `${(pandal.metroDistance / 1000).toFixed(1)} km`;
+    }
+    return String(pandal.metroDistance);
+  }, [pandal.metroDistance]);
+
+  // Entry and exit info
+  const entryGuide = pandal.entryGuide || pandal.entry;
+  const exitGuide = pandal.exitGuide || pandal.exit;
+
+  // Accessibility info availability
+  const hasAccessibilityInfo =
+    pandal.accessibility !== undefined &&
+    pandal.accessibility !== null &&
+    pandal.accessibility !== '';
 
   // Verification Status Badge logic (Verified / Community / External)
   const renderVerificationBadge = () => {
@@ -229,9 +345,12 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
           {/* Verification Badge */}
           {renderVerificationBadge()}
 
-          {/* Visited Indicator */}
-          {isVisited && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm">
+          {/* Visited Badge if user has already visited */}
+          {isAlreadyVisited && (
+            <span
+              id="badge-pandal-visited"
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold tracking-wider uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm"
+            >
               <CheckCircle2 className="w-3 h-3 text-emerald-400" />
               VISITED
             </span>
@@ -243,9 +362,9 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
           {onToggleVisited && (
             <button
               onClick={onToggleVisited}
-              title={isVisited ? 'Marked as Visited' : 'Mark as Visited'}
+              title={isAlreadyVisited ? 'Marked as Visited' : 'Mark as Visited'}
               className={`p-1.5 rounded-lg transition-colors ${
-                isVisited
+                isAlreadyVisited
                   ? 'text-emerald-400 bg-emerald-500/20 border border-emerald-500/30'
                   : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/80'
               }`}
@@ -281,7 +400,7 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
       {/* Main Title & Establishment Information */}
       <div className="mt-3">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <h3 className="text-lg font-extrabold text-neutral-100 tracking-tight leading-snug">
+          <h3 id="pandal-card-name" className="text-lg font-extrabold text-neutral-100 tracking-tight leading-snug">
             {name}
           </h3>
           {pandal.establishedYear && (
@@ -291,50 +410,65 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
           )}
         </div>
 
-        {/* Location & Landmark Subtitle */}
-        <p className="text-xs text-primary/90 font-medium flex items-center gap-1.5 mt-1 truncate">
-          <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span>{area}</span>
-          {landmark && (
-            <>
-              <span className="text-neutral-600">•</span>
-              <span className="text-neutral-300 truncate">{landmark}</span>
-            </>
-          )}
-        </p>
+        {pandal.bengaliName && (
+          <p id="pandal-card-bengali-name" className="text-xs text-amber-200/90 font-serif mt-0.5">
+            {pandal.bengaliName}
+          </p>
+        )}
+
+        {/* Address / Location */}
+        {(pandal.address || area || landmark) && (
+          <div id="pandal-card-address" className="text-xs text-neutral-300 font-medium flex items-start gap-1.5 mt-1.5 leading-snug">
+            <MapPin className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+            <div>
+              {pandal.address ? (
+                <span>{pandal.address}</span>
+              ) : (
+                <span>{area}{landmark ? ` • ${landmark}` : ''}</span>
+              )}
+              {pandal.address && (area || landmark) && !pandal.address.toLowerCase().includes(area.toLowerCase()) && (
+                <span className="text-neutral-400 text-[11px] block mt-0.5">
+                  {area}{landmark ? ` • Near ${landmark}` : ''}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Distance, Travel Time & Quick Links HUD */}
-      <div className="mt-3 flex items-center justify-between text-xs py-2 px-2.5 rounded-xl bg-neutral-900/80 border border-neutral-800/90 gap-2 flex-wrap">
-        <div className="flex items-center gap-3">
-          {distance && (
-            <span className="font-bold text-neutral-200 flex items-center gap-1">
-              <Navigation className="w-3 h-3 text-primary" />
-              {distance}
-            </span>
-          )}
-          {travelTime && (
-            <span className="flex items-center gap-1 text-neutral-400">
-              <Clock className="w-3 h-3 text-neutral-500" />
-              {travelTime}
-            </span>
-          )}
-        </div>
+      {/* Distance from user's current GPS location & Walking Time */}
+      {(formattedDistance || walkingTime) && (
+        <div id="pandal-card-metrics" className="mt-3 flex items-center justify-between text-xs py-2 px-2.5 rounded-xl bg-neutral-900/80 border border-neutral-800/90 gap-2 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
+            {formattedDistance && (
+              <span id="pandal-gps-distance" className="font-bold text-neutral-200 flex items-center gap-1.5">
+                <Navigation className="w-3.5 h-3.5 text-primary" />
+                <span>{formattedDistance}</span>
+              </span>
+            )}
+            {walkingTime && (
+              <span id="pandal-walking-time" className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                <Footprints className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{walkingTime}</span>
+              </span>
+            )}
+          </div>
 
-        <div className="flex items-center gap-2 ml-auto">
-          {pandal.googleMapsUri && (
-            <a
-              href={pandal.googleMapsUri}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors"
-            >
-              Google Maps
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          )}
+          <div className="flex items-center gap-2 ml-auto">
+            {pandal.googleMapsUri && (
+              <a
+                href={pandal.googleMapsUri}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors"
+              >
+                Google Maps
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Real-time Crowd & Traffic Intelligence HUD */}
       <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -538,16 +672,16 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
       )}
 
       {/* Nearest Metro Station Link (if available) */}
-      {pandal.nearestMetro && (
-        <div className="mt-2.5 flex items-center justify-between gap-2 text-xs text-sky-300 bg-sky-950/40 px-3 py-2 rounded-xl border border-sky-800/40">
+      {nearestMetro && (
+        <div id="pandal-card-metro" className="mt-2.5 flex items-center justify-between gap-2 text-xs text-sky-300 bg-sky-950/40 px-3 py-2 rounded-xl border border-sky-800/40">
           <div className="flex items-center gap-2 truncate">
             <Train className="w-4 h-4 text-sky-400 shrink-0" />
             <span className="text-neutral-400 text-[11px]">Nearest Metro:</span>
-            <span className="font-bold text-white truncate">{pandal.nearestMetro}</span>
+            <span className="font-bold text-white truncate">{nearestMetro}</span>
           </div>
-          {pandal.metroDistance && (
+          {formattedMetroDistance && (
             <span className="text-sky-300/90 font-mono text-[11px] shrink-0 font-medium">
-              {pandal.metroDistance}
+              {formattedMetroDistance}
             </span>
           )}
         </div>
@@ -572,13 +706,13 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
         </div>
       )}
 
-      {/* Best Visiting Period (if available) */}
+      {/* Best Visiting Period / Time (if available) */}
       {bestPeriod && (
-        <div className="mt-2.5 flex items-start gap-2 text-xs text-amber-200/90 bg-amber-950/30 p-2.5 rounded-xl border border-amber-800/40">
+        <div id="pandal-card-best-time" className="mt-2.5 flex items-start gap-2 text-xs text-amber-200/90 bg-amber-950/30 p-2.5 rounded-xl border border-amber-800/40">
           <Clock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <div className="leading-snug">
             <span className="font-bold text-amber-300 block mb-0.5 text-[11px] uppercase tracking-wider">
-              Best Visiting Period
+              Best Visiting Time
             </span>
             <span className="text-neutral-200">{bestPeriod}</span>
           </div>
@@ -586,27 +720,27 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
       )}
 
       {/* Entry & Exit Guidelines (if available) */}
-      {(pandal.entryGuide || pandal.exitGuide) && (
-        <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-          {pandal.entryGuide && (
+      {(entryGuide || exitGuide) && (
+        <div id="pandal-card-entry-exit" className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          {entryGuide && (
             <div className="p-2.5 rounded-xl bg-neutral-900/70 border border-neutral-800 text-neutral-300 flex items-start gap-2">
               <DoorOpen className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
               <div>
                 <span className="text-[10px] uppercase font-bold text-emerald-400 block tracking-wider">
                   Entry Route
                 </span>
-                <span className="text-neutral-200 leading-snug">{pandal.entryGuide}</span>
+                <span className="text-neutral-200 leading-snug">{entryGuide}</span>
               </div>
             </div>
           )}
-          {pandal.exitGuide && (
+          {exitGuide && (
             <div className="p-2.5 rounded-xl bg-neutral-900/70 border border-neutral-800 text-neutral-300 flex items-start gap-2">
               <DoorOpen className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
               <div>
                 <span className="text-[10px] uppercase font-bold text-rose-400 block tracking-wider">
                   Exit Route
                 </span>
-                <span className="text-neutral-200 leading-snug">{pandal.exitGuide}</span>
+                <span className="text-neutral-200 leading-snug">{exitGuide}</span>
               </div>
             </div>
           )}
@@ -614,14 +748,25 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
       )}
 
       {/* Accessibility Status (if available) */}
-      {Boolean(pandal.accessibility) && (
-        <div className="mt-2.5 flex items-center gap-2 text-xs text-emerald-300 bg-emerald-950/30 px-3 py-2 rounded-xl border border-emerald-800/40">
-          <Accessibility className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span className="font-semibold text-emerald-200">Accessibility:</span>
+      {hasAccessibilityInfo && (
+        <div
+          id="pandal-card-accessibility"
+          className={`mt-2.5 flex items-center gap-2 text-xs px-3 py-2 rounded-xl border ${
+            pandal.accessibility === false
+              ? 'text-neutral-300 bg-neutral-900/80 border-neutral-800'
+              : 'text-emerald-300 bg-emerald-950/30 border-emerald-800/40'
+          }`}
+        >
+          <Accessibility
+            className={`w-4 h-4 shrink-0 ${pandal.accessibility === false ? 'text-neutral-400' : 'text-emerald-400'}`}
+          />
+          <span className="font-semibold text-neutral-300">Accessibility:</span>
           <span className="text-neutral-200 truncate">
             {typeof pandal.accessibility === 'string'
               ? pandal.accessibility
-              : 'Wheelchair & elder-accessible premises'}
+              : pandal.accessibility === true
+              ? 'Wheelchair & elder-accessible premises'
+              : 'Limited or step-only accessibility'}
           </span>
         </div>
       )}
@@ -716,13 +861,26 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
       )}
 
       {/* Source Provenance & Last Verified Audit */}
-      {(sourceNames.length > 0 || formattedLastVerified) && (
-        <div className="mt-2.5 pt-2 border-t border-neutral-800/80 flex items-center justify-between text-[10px] text-neutral-500 font-mono gap-2 flex-wrap">
-          {sourceNames.length > 0 && (
+      {(sourceNames.length > 0 || formattedLastVerified || pandal.source || pandal.sourceUrl) && (
+        <div id="pandal-card-provenance" className="mt-2.5 pt-2 border-t border-neutral-800/80 flex items-center justify-between text-[10px] text-neutral-500 font-mono gap-2 flex-wrap">
+          {(sourceNames.length > 0 || pandal.source) && (
             <div className="flex items-center gap-1 truncate">
               <Layers className="w-3 h-3 text-neutral-600 shrink-0" />
               <span className="text-neutral-600">Source:</span>
-              <span className="truncate text-neutral-400">{sourceNames.join(' • ')}</span>
+              <span className="truncate text-neutral-400">
+                {sourceNames.length > 0 ? sourceNames.join(' • ') : pandal.source}
+              </span>
+              {pandal.sourceUrl && (
+                <a
+                  href={pandal.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline ml-1 inline-flex items-center"
+                  title="View source record"
+                >
+                  <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+                </a>
+              )}
             </div>
           )}
           {formattedLastVerified && (
@@ -733,39 +891,57 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
         </div>
       )}
 
-      {/* Primary Navigation & Map Actions */}
-      <div className="mt-3.5 pt-2.5 border-t border-neutral-800/90 grid grid-cols-2 gap-2">
-        {onShowOnMap && (
-          <button
-            onClick={() => onShowOnMap(pandal)}
-            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-200 font-semibold text-xs border border-neutral-700 transition-colors shadow-sm"
-          >
-            <MapPin className="w-3.5 h-3.5 text-primary" />
-            SHOW ON MAP
-          </button>
-        )}
+      {/* Clear Actions: Start Navigation & Close */}
+      <div id="pandal-card-actions" className="mt-3.5 pt-2.5 border-t border-neutral-800/90 flex items-center gap-2">
+        <button
+          type="button"
+          id="btn-pandal-start-navigation"
+          onClick={handleStartNavigation}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-primary hover:bg-primary/90 text-neutral-950 font-extrabold text-xs shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
+        >
+          <Navigation className="w-4 h-4 text-neutral-950 fill-current" />
+          <span>Start Navigation</span>
+        </button>
 
-        {onNavigate && (
-          <button
-            onClick={() => onNavigate(pandal)}
-            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-primary hover:bg-primary/90 text-neutral-950 font-extrabold text-xs shadow-lg shadow-primary/20 transition-colors"
-          >
-            <Navigation className="w-3.5 h-3.5 text-neutral-950 fill-current" />
-            NAVIGATE
-          </button>
-        )}
+        <button
+          type="button"
+          id="btn-pandal-close"
+          onClick={onClose}
+          className="flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white font-semibold text-xs border border-neutral-700/80 transition-all active:scale-[0.98]"
+        >
+          <X className="w-4 h-4" />
+          <span>Close</span>
+        </button>
       </div>
 
-      {/* Add to Tour Itinerary Action */}
-      {onAddStop && (
-        <button
-          onClick={() => onAddStop(pandal)}
-          disabled={isAddingStop}
-          className="mt-2 w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 text-xs font-medium border border-neutral-800 transition-colors disabled:opacity-50"
-        >
-          <Plus className="w-3.5 h-3.5 text-primary" />
-          Add to Tour Itinerary
-        </button>
+      {/* Secondary Map Actions (Show on Map / Add to Tour) */}
+      {(onShowOnMap || onAddStop) && (
+        <div className="mt-2 flex items-center gap-2">
+          {onShowOnMap && (
+            <button
+              type="button"
+              id="btn-pandal-show-on-map"
+              onClick={() => onShowOnMap(pandal)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 text-[11px] font-medium border border-neutral-800 transition-colors"
+            >
+              <MapPin className="w-3 h-3 text-primary" />
+              <span>Show on Map</span>
+            </button>
+          )}
+
+          {onAddStop && (
+            <button
+              type="button"
+              id="btn-pandal-add-stop"
+              onClick={() => onAddStop(pandal)}
+              disabled={isAddingStop}
+              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-neutral-900/80 hover:bg-neutral-800 text-neutral-300 text-[11px] font-medium border border-neutral-800 transition-colors disabled:opacity-50"
+            >
+              <Plus className="w-3 h-3 text-primary" />
+              <span>Add to Tour</span>
+            </button>
+          )}
+        </div>
       )}
     </GlassPanel>
   );

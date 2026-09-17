@@ -84,17 +84,17 @@ export const LeafletMapView: React.FC = () => {
     clusteredItems,
     isLoading: isPandalLoading,
     emptyMessage: pandalEmptyMessage,
-  } = usePandalIntelligence(currentLocation);
+  } = usePandalIntelligence(currentLocation || undefined);
   const {
     bonediBaris,
     isBonediBariVisible,
     isLoading: isBonediBariLoading,
-  } = useBonediBariIntelligence(currentLocation);
+  } = useBonediBariIntelligence(currentLocation || undefined);
   const {
     metroStations,
     isMetroVisible,
     isLoading: isMetroLoading,
-  } = useMetroIntelligence(currentLocation);
+  } = useMetroIntelligence(currentLocation || undefined);
 
   // Keep intelligence layer item counts synchronized
   useEffect(() => {
@@ -134,8 +134,12 @@ export const LeafletMapView: React.FC = () => {
       className: 'map-tiles-dark'
     });
 
+    const initialCenter: [number, number] = currentLocation
+      ? [currentLocation.lat, currentLocation.lng]
+      : [22.5697, 88.3639];
+
     const map = L.map(containerRef.current, {
-      center: [currentLocation.lat, currentLocation.lng],
+      center: initialCenter,
       zoom: 14,
       zoomControl: false,
     });
@@ -806,7 +810,7 @@ export const LeafletMapView: React.FC = () => {
       setActiveInstruction(activeRoute.instructions[idx]);
 
       const map = mapInstanceRef.current;
-      if (map) {
+      if (map && currentLocation) {
         map.setView([currentLocation.lat, currentLocation.lng], 18);
       }
     } else {
@@ -966,7 +970,7 @@ export const LeafletMapView: React.FC = () => {
               isVisited={visitedIds.includes(selectedItem.id)}
               onToggleVisited={() => toggleVisited(selectedItem.id)}
             />
-          ) : Boolean((selectedItem as any).source || (selectedItem as any).theme || (selectedItem as any).zone) ? (
+          ) : Boolean((selectedItem as any).source || (selectedItem as any).theme || (selectedItem as any).zone || (selectedItem as any).address || (selectedItem as any).area || (selectedItem as any).sourceId) ? (
             <PandalIntelligenceCard
               pandal={selectedItem}
               currentLocation={currentLocation}

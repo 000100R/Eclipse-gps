@@ -62,8 +62,10 @@ const DISCOVERY_PASS_QUERIES = [
   'Durga Puja Festival',
 ];
 
-// Progressive radius ladder in meters
-const RADIUS_EXPANSION_STEPS = [1000, 3000, 5000, 10000, 20000];
+// Progressive Smart Radius ladder in meters: 5 km -> 7 km -> 10 km (max 10 km, stop if >= 20 unique pandals)
+const SMART_RADIUS_STEPS = [5000, 7000, 10000] as const;
+const MIN_UNIQUE_PANDALS = 20;
+const MAX_RADIUS_METERS = 10000;
 
 export class PandalDiscoveryService {
   private static instance: PandalDiscoveryService;
@@ -206,9 +208,19 @@ export class PandalDiscoveryService {
       }
     }
 
-    // Default center if no GPS and no area found: Center of Kolkata
-    const effectiveCenter: Location = center || { lat: 22.5697, lng: 88.3639 };
-    const initialRadius = params.radius || 3000;
+    // Strict requirement: Real location required; do not use fallback coordinates
+    if (!center) {
+      return {
+        pandals: [],
+        events: [],
+        searchRadius: 0,
+        queryText: rawQuery,
+        centerLocation: { lat: 0, lng: 0 },
+        sourcesUsed: [],
+      };
+    }
+
+    const effectiveCenter: Location = center;
     const sourcesUsed: string[] = ['ECLIPSE_CURATED'];
 
     // 2. Determine if user is searching for a specific pandal by name
@@ -219,7 +231,7 @@ export class PandalDiscoveryService {
         return {
           pandals: nameResults,
           events: this.getAssociatedEvents(nameResults),
-          searchRadius: initialRadius,
+          searchRadius: 5000,
           queryText: rawQuery,
           centerLocation: effectiveCenter,
           sourcesUsed: ['ECLIPSE_CURATED', 'NAME_MATCH'],
@@ -227,44 +239,49 @@ export class PandalDiscoveryService {
       }
     }
 
-    // 3. Local-First Discovery: Check the verified local Eclipse database (531 records) first
-    const userSpecifiedRadius = params.radius;
-    let finalRadius = initialRadius;
-    let discoveredPandals: DiscoveredPandal[] = this.mergeAndDeduplicate(
-      [],
-      effectiveCenter,
-      initialRadius,
-      rawQuery
-    );
+    // 3. Smart Radius Pandal Discovery
+    // Rules:
+    // - Start at 5 km.
+    // - If fewer than 20 unique pandals are found, expand to 7 km.
+    // - If still fewer than 20, expand to 10 km.
+    // - Never exceed 10 km.
+    // - If 20 or more are found, keep the current radius.
+    // - Continue sorting by real GPS distance.
+    // - Keep the existing 531-pandals database and deduplication.
+    const isSub5KmCustom = params.radius !== undefined && params.radius < 5000;
+    const radiusSteps: readonly number[] = isSub5KmCustom
+      ? [params.radius!]
+      : SMART_RADIUS_STEPS;
 
-    // Avoid unnecessary Google Places requests when the local Eclipse database already has nearby results.
-    // Only perform external multi-pass search if the local database has 0 results in this area.
-    if (discoveredPandals.length === 0) {
-      const passResults = await this.runMultiPassDiscovery(effectiveCenter, initialRadius, rawQuery);
+    let finalRadius = radiusSteps[0];
+    let discoveredPandals: DiscoveredPandal[] = [];
+
+    for (const radius of radiusSteps) {
+      finalRadius = Math.min(radius, MAX_RADIUS_METERS);
       discoveredPandals = this.mergeAndDeduplicate(
-        passResults,
+        [],
         effectiveCenter,
-        initialRadius,
+        finalRadius,
         rawQuery
       );
 
-      // If no pandals found in the initial radius and user did not specify a strict radius, adaptively expand
-      if (discoveredPandals.length === 0 && !userSpecifiedRadius) {
-        for (const radius of RADIUS_EXPANSION_STEPS) {
-          if (radius <= initialRadius) continue;
-          finalRadius = radius;
-          const expandedResults = await this.runMultiPassDiscovery(effectiveCenter, radius, rawQuery);
-          discoveredPandals = this.mergeAndDeduplicate(
-            expandedResults,
-            effectiveCenter,
-            radius,
-            rawQuery
-          );
-          if (discoveredPandals.length > 0) {
-            break;
-          }
-        }
+      // Avoid unnecessary Google Places requests when the local Eclipse database already has nearby results.
+      // Only perform external multi-pass search if the local database has 0 results in this area.
+      if (discoveredPandals.length === 0) {
+        const passResults = await this.runMultiPassDiscovery(effectiveCenter, finalRadius, rawQuery);
+        discoveredPandals = this.mergeAndDeduplicate(
+          passResults,
+          effectiveCenter,
+          finalRadius,
+          rawQuery
+        );
       }
+
+      // If 20 or more unique pandals are found, keep the current radius
+      if (discoveredPandals.length >= MIN_UNIQUE_PANDALS) {
+        break;
+      }
+      // If fewer than 20, the loop will expand to 7 km, then 10 km (never exceeding 10 km)
     }
 
     // 4. Sort results according to sortBy preference (default: nearest)
@@ -649,8 +666,8 @@ export class PandalDiscoveryService {
       // Calculate distance from search center
       const distFromCenter = this.calculateDistanceInMeters(center, candidate.location);
 
-      // Check radius constraint
-      if (distFromCenter > radius * 1.15) {
+      // Check radius constraint (strictly enforce radius limit, never exceed 10 km)
+      if (distFromCenter > radius) {
         return;
       }
 

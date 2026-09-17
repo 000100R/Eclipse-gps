@@ -190,8 +190,11 @@ export const GoogleMapView: React.FC = () => {
 
     try {
       const initialMapTypeId = mapStyle === 'satellite' ? 'satellite' : mapStyle === 'hybrid' ? 'hybrid' : 'roadmap';
+      const initialCenter = currentLocation
+        ? { lat: currentLocation.lat, lng: currentLocation.lng }
+        : { lat: 22.5697, lng: 88.3639 };
       const mapOptions: google.maps.MapOptions = {
-        center: { lat: currentLocation.lat, lng: currentLocation.lng },
+        center: initialCenter,
         zoom: 14,
         mapTypeId: initialMapTypeId,
         mapId: mapId,
@@ -276,8 +279,11 @@ export const GoogleMapView: React.FC = () => {
 
       // Initialize Street View panel hidden
       if (streetViewRef.current) {
+        const initialPos = currentLocation
+          ? { lat: currentLocation.lat, lng: currentLocation.lng }
+          : { lat: 22.5697, lng: 88.3639 };
         const panorama = new google.maps.StreetViewPanorama(streetViewRef.current, {
-          position: { lat: currentLocation.lat, lng: currentLocation.lng },
+          position: initialPos,
           pov: { heading: 165, pitch: 0 },
           visible: false,
           disableDefaultUI: true,
@@ -788,7 +794,7 @@ export const GoogleMapView: React.FC = () => {
       const idx = Math.min(currentStepIndex, activeRoute.instructions.length - 1);
       setActiveInstruction(activeRoute.instructions[idx]);
 
-      if (lockToHeading) {
+      if (lockToHeading && currentLocation) {
         // Move camera close to current location
         map.panTo({ lat: currentLocation.lat, lng: currentLocation.lng });
 
@@ -868,7 +874,7 @@ export const GoogleMapView: React.FC = () => {
       panorama.setVisible(true);
       if (selectedItem) {
         panorama.setPosition({ lat: selectedItem.location.lat, lng: selectedItem.location.lng });
-      } else {
+      } else if (currentLocation) {
         panorama.setPosition({ lat: currentLocation.lat, lng: currentLocation.lng });
       }
     } else {
@@ -1099,7 +1105,7 @@ export const GoogleMapView: React.FC = () => {
               isVisited={visitedIds.includes(selectedItem.id)}
               onToggleVisited={() => toggleVisited(selectedItem.id)}
             />
-          ) : Boolean((selectedItem as any).source || (selectedItem as any).theme || (selectedItem as any).zone) ? (
+          ) : Boolean((selectedItem as any).source || (selectedItem as any).theme || (selectedItem as any).zone || (selectedItem as any).address || (selectedItem as any).area || (selectedItem as any).sourceId) ? (
             <PandalIntelligenceCard
               pandal={selectedItem}
               currentLocation={currentLocation}
