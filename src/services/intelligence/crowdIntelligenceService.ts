@@ -98,9 +98,12 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
     if (liveCount > 0) {
       let level: CrowdStatusLevel = 'LOW';
       let waitMins = 5;
-      if (liveCount >= 10) {
+      if (liveCount >= 15) {
+        level = 'EXTREME';
+        waitMins = 120;
+      } else if (liveCount >= 10) {
         level = 'HEAVY';
-        waitMins = 90;
+        waitMins = 75;
       } else if (liveCount >= 6) {
         level = 'HIGH';
         waitMins = 45;
@@ -151,7 +154,7 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
         location: pLoc,
         crowdLevel: reportLevel,
         crowdTrend: 'STABLE',
-        queueWaitMinutes: reportLevel === 'HEAVY' ? 60 : reportLevel === 'MODERATE' ? 20 : 5,
+        queueWaitMinutes: reportLevel === 'EXTREME' ? 120 : reportLevel === 'HEAVY' ? 60 : reportLevel === 'MODERATE' ? 20 : 5,
         source: 'ESTIMATED',
         sourceLabel: 'Verified Community Report (last 30m)',
         confidence: 'MEDIUM',
@@ -258,7 +261,7 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
     presenceTrends: Record<string, 'INCREASING' | 'STABLE' | 'DECREASING'> = {}
   ): CrowdIntelligenceItem[] {
     const items = this.getAllCrowdItems(allPandals, presenceCounts, presenceTrends);
-    return items.filter(i => i.crowdLevel === 'HEAVY' || i.crowdLevel === 'HIGH');
+    return items.filter(i => i.crowdLevel === 'EXTREME' || i.crowdLevel === 'HEAVY' || i.crowdLevel === 'HIGH');
   }
 
   private getCrowdRank(level: CrowdStatusLevel): number {
@@ -267,6 +270,7 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
       case 'MODERATE': return 2;
       case 'HIGH': return 3;
       case 'HEAVY': return 4;
+      case 'EXTREME': return 5;
       default: return 99;
     }
   }

@@ -127,7 +127,7 @@ export class SmartVisitService {
 
     // 5. Look for Less Crowded Alternatives if this pandal is heavily congested
     let alternativePandal: SmartVisitRecommendation['alternativePandal'] = undefined;
-    if ((crowd.crowdLevel === 'HEAVY' || crowd.crowdLevel === 'HIGH') && allPandals.length > 0) {
+    if ((crowd.crowdLevel === 'EXTREME' || crowd.crowdLevel === 'HEAVY' || crowd.crowdLevel === 'HIGH') && allPandals.length > 0) {
       const alternatives = crowdIntelligenceService.getLessCrowdedAlternatives(
         pandal.id,
         allPandals,
@@ -152,13 +152,20 @@ export class SmartVisitService {
     let description = '';
     let status: 'RECOMMENDED' | 'CAUTION' | 'AVOID' | 'NEUTRAL' = 'NEUTRAL';
 
-    const isCrowdHeavy = crowd.crowdLevel === 'HEAVY';
+    const isCrowdExtreme = crowd.crowdLevel === 'EXTREME';
+    const isCrowdHeavy = crowd.crowdLevel === 'HEAVY' || isCrowdExtreme;
     const isCrowdHigh = crowd.crowdLevel === 'HIGH';
     const isCrowdModerate = crowd.crowdLevel === 'MODERATE';
     const isTrafficCongested = traffic?.status === 'CONGESTED';
     const isTrafficSlow = traffic?.status === 'SLOW';
 
-    if (isCrowdHeavy || (isCrowdHigh && crowd.crowdTrend === 'RISING') || (isCrowdHigh && isTrafficCongested)) {
+    if (isCrowdExtreme) {
+      status = 'AVOID';
+      headline = 'Extreme crowd surge — avoid visiting now';
+      description = alternativePandal
+        ? `Massive queue congestion detected (~120m wait). We recommend visiting ${alternativePandal.name} (${alternativePandal.distanceMeters ? (alternativePandal.distanceMeters / 1000).toFixed(1) + ' km away, ' : ''}${alternativePandal.crowdLevel} crowd) instead.`
+        : `Extreme footfall detected with massive queue delays. Security barricades active. Defer visit or arrive late night.`;
+    } else if (isCrowdHeavy || (isCrowdHigh && crowd.crowdTrend === 'RISING') || (isCrowdHigh && isTrafficCongested)) {
       if (alternativePandal) {
         status = 'AVOID';
         headline = 'Heavy crowd — nearby alternatives available';

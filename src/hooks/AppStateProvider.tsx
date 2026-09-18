@@ -1421,9 +1421,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               // Ensure session is not stale (within 15 minutes)
               const timestamp = session.timestamp || 0;
               if (now - timestamp < 15 * 60 * 1000) {
-                if (counts[session.pandalId] !== undefined) {
-                  counts[session.pandalId]++;
-                }
+                counts[session.pandalId] = (counts[session.pandalId] || 0) + 1;
               }
             }
           });

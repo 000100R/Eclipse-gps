@@ -9,7 +9,7 @@ export type DataSourceType = 'LIVE' | 'ESTIMATED' | 'HISTORICAL' | 'UNAVAILABLE'
 /**
  * Standard Eclipse Crowd Levels for Pandals
  */
-export type CrowdStatusLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'HEAVY' | 'UNAVAILABLE';
+export type CrowdStatusLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'HEAVY' | 'EXTREME' | 'UNAVAILABLE';
 
 /**
  * Crowd Directional Trends

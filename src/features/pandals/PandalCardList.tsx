@@ -1,6 +1,7 @@
 import React from 'react';
 import { DiscoveredPandal } from '../../types/discovery';
 import { useAppState } from '../../hooks/AppStateProvider';
+import { getPandalCrowdMetrics } from '../../utils/crowdUtils';
 import { MapPin, Navigation, Users, Sparkles, ExternalLink, CheckCircle2 } from 'lucide-react';
 
 interface PandalCardListProps {
@@ -9,7 +10,7 @@ interface PandalCardListProps {
 }
 
 export const PandalCardList: React.FC<PandalCardListProps> = ({ pandals, onActionComplete }) => {
-  const { setSelectedItem, setActiveTab, calculateRouteToItem, mapRef } = useAppState();
+  const { setSelectedItem, setActiveTab, calculateRouteToItem, mapRef, pandalCrowdCounts, pandalCrowdTrends } = useAppState();
 
   if (!pandals || pandals.length === 0) return null;
 
@@ -33,12 +34,15 @@ export const PandalCardList: React.FC<PandalCardListProps> = ({ pandals, onActio
       case 'EXTREME':
         return { text: 'EXTREME CROWD', bg: 'bg-rose-500/15 text-rose-400 border-rose-500/30' };
       case 'HEAVY':
+      case 'HIGH':
         return { text: 'HEAVY CROWD', bg: 'bg-orange-500/15 text-orange-400 border-orange-500/30' };
       case 'MODERATE':
         return { text: 'MODERATE CROWD', bg: 'bg-amber-500/15 text-amber-400 border-amber-500/30' };
       case 'LOW':
-      default:
         return { text: 'LOW CROWD', bg: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' };
+      case 'UNAVAILABLE':
+      default:
+        return { text: 'CROWD UNAVAILABLE', bg: 'bg-neutral-800 text-neutral-400 border-neutral-700' };
     }
   };
 
@@ -53,7 +57,9 @@ export const PandalCardList: React.FC<PandalCardListProps> = ({ pandals, onActio
 
       <div className="space-y-2 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
         {pandals.map((pandal) => {
-          const crowdInfo = getCrowdBadge(pandal.crowdLevel);
+          const liveMetrics = getPandalCrowdMetrics(pandal.id, pandalCrowdCounts, pandalCrowdTrends);
+          const effectiveLevel = liveMetrics.available ? liveMetrics.level : (pandal.crowdLevel || 'UNAVAILABLE');
+          const crowdInfo = getCrowdBadge(effectiveLevel);
           const distKm = pandal.distance ? (pandal.distance / 1000).toFixed(1) : null;
 
           return (

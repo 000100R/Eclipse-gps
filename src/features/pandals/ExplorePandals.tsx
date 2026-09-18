@@ -224,9 +224,19 @@ export const ExplorePandals: React.FC = () => {
                     Area: {pandal.area}
                   </span>
                   {pandal.parkingAvailability && (
-                    <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[9px] font-bold px-2 py-0.5 rounded-md">
-                      🅿 PARKING
-                    </span>
+                    pandal.parkingAvailability === 'none' || pandal.parkingStatus === 'full' ? (
+                      <span className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[9px] font-bold px-2 py-0.5 rounded-md">
+                        🅿 NO PARKING
+                      </span>
+                    ) : pandal.parkingAvailability === 'limited' ? (
+                      <span className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[9px] font-bold px-2 py-0.5 rounded-md">
+                        🅿 LIMITED PARKING
+                      </span>
+                    ) : (
+                      <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[9px] font-bold px-2 py-0.5 rounded-md">
+                        🅿 PARKING AVAILABLE
+                      </span>
+                    )
                   )}
                   {pandal.accessibilityFriendly && (
                     <span className="bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[9px] font-bold px-2 py-0.5 rounded-md">

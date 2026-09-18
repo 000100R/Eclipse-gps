@@ -63,6 +63,8 @@ import { smartVisitService } from '../../services/intelligence/smartVisitService
 import { useAppState } from '../../hooks/AppStateProvider';
 import { metroIntelligenceProvider } from '../../services/intelligence/metroIntelligenceProvider';
 import { MetroGateIntelligenceResult, MetroGateRouteOption } from '../../types/metro';
+import { parkingService } from '../../services/realtime/parkingService';
+import { ParkingLocation } from '../../types';
 
 interface PandalIntelligenceCardProps {
   pandal: DiscoveredPandal | any;
@@ -247,6 +249,21 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
   const [gateIntelligence, setGateIntelligence] = React.useState<MetroGateIntelligenceResult | null>(null);
   const [isLoadingGateIntelligence, setIsLoadingGateIntelligence] = React.useState(false);
   const [showGateDetails, setShowGateDetails] = React.useState(false);
+
+  // Parking Intelligence State
+  const [nearestParkingLots, setNearestParkingLots] = React.useState<ParkingLocation[]>([]);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    if (pandal.location) {
+      parkingService.getParkingNearLocation(pandal.location, 3000).then((lots) => {
+        if (isMounted) setNearestParkingLots(lots);
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [pandal.id, pandal.location]);
 
   const matchedMetroStation = useMemo(() => {
     return metroIntelligenceProvider.findStationForPandal(
@@ -446,9 +463,13 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
       ? 'text-rose-400 bg-rose-500/10 border-rose-500/30'
       : pandal.crowdLevel === 'HEAVY'
       ? 'text-orange-400 bg-orange-500/10 border-orange-500/30'
+      : pandal.crowdLevel === 'HIGH'
+      ? 'text-orange-400 bg-orange-500/10 border-orange-500/30'
       : pandal.crowdLevel === 'MODERATE'
       ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
-      : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+      : pandal.crowdLevel === 'LOW'
+      ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+      : 'text-neutral-400 bg-neutral-900/80 border-neutral-800';
 
   // Distinct provenance sources list
   const sourceRecords = pandal.dataSources || [];
@@ -642,8 +663,10 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                  crowdItem.crowdLevel === 'HEAVY'
-                    ? 'text-rose-400 bg-rose-500/10 border-rose-500/30'
+                  crowdItem.crowdLevel === 'EXTREME'
+                    ? 'text-rose-400 bg-rose-500/10 border-rose-500/30 animate-pulse'
+                    : crowdItem.crowdLevel === 'HEAVY'
+                    ? 'text-orange-400 bg-orange-500/10 border-orange-500/30'
                     : crowdItem.crowdLevel === 'HIGH'
                     ? 'text-orange-400 bg-orange-500/10 border-orange-500/30'
                     : crowdItem.crowdLevel === 'MODERATE'
@@ -686,51 +709,67 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
           </div>
         </div>
 
-          {/* Traffic Intelligence Status */}
-          {trafficItem && trafficItem.status !== 'UNAVAILABLE' && (
-            <div className="p-2.5 rounded-xl bg-neutral-900/90 border border-neutral-800 flex flex-col justify-between gap-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider flex items-center gap-1">
-                  <Car className="w-3 h-3 text-neutral-300" />
-                  Arterial Traffic
-                </span>
-                <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
-                  trafficItem.source === 'LIVE'
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : trafficItem.source === 'ESTIMATED'
-                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
-                    : 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
-                }`}>
-                  {trafficItem.source}
-                </span>
-              </div>
+        {/* Traffic Intelligence Status */}
+        <div className="p-2.5 rounded-xl bg-neutral-900/90 border border-neutral-800 flex flex-col justify-between gap-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider flex items-center gap-1">
+              <Car className="w-3 h-3 text-neutral-300" />
+              Arterial Traffic
+            </span>
+            <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase border ${
+              trafficItem?.source === 'LIVE'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : trafficItem?.source === 'ESTIMATED'
+                ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                : 'bg-neutral-800/90 text-neutral-400 border-neutral-700'
+            }`}>
+              {trafficItem?.source || 'BASELINE'}
+            </span>
+          </div>
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                    trafficItem.status === 'CONGESTED'
-                      ? 'text-rose-400 bg-rose-500/10 border-rose-500/30'
-                      : trafficItem.status === 'SLOW'
-                      ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
-                      : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
-                  }`}>
-                    {trafficItem.status}
-                  </span>
-                  <span className="text-[11px] text-neutral-400 truncate max-w-[100px]">
-                    {trafficItem.affectedRoad}
-                  </span>
-                </div>
-                {trafficItem.estimatedDelayMinutes !== undefined && (
-                  <span className={`text-[11px] font-mono font-semibold ${
-                    trafficItem.estimatedDelayMinutes > 15 ? 'text-rose-400' : 'text-neutral-400'
-                  }`}>
-                    {trafficItem.estimatedDelayMinutes > 0 ? `+${trafficItem.estimatedDelayMinutes}m delay` : 'Flowing'}
-                  </span>
-                )}
+          {trafficItem && trafficItem.status !== 'UNAVAILABLE' ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                  trafficItem.status === 'CONGESTED'
+                    ? 'text-rose-400 bg-rose-500/10 border-rose-500/30'
+                    : trafficItem.status === 'SLOW'
+                    ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
+                    : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+                }`}>
+                  {trafficItem.status}
+                </span>
+                <span className="text-[11px] text-neutral-400 truncate max-w-[100px]">
+                  {trafficItem.affectedRoad}
+                </span>
               </div>
+              {trafficItem.estimatedDelayMinutes !== undefined && (
+                <span className={`text-[11px] font-mono font-semibold ${
+                  trafficItem.estimatedDelayMinutes > 15 ? 'text-rose-400' : 'text-neutral-400'
+                }`}>
+                  {trafficItem.estimatedDelayMinutes > 0 ? `+${trafficItem.estimatedDelayMinutes}m delay` : 'Flowing'}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="py-0.5">
+              <p className="text-[11px] text-neutral-300 font-medium">
+                Traffic data unavailable
+              </p>
+              <p className="text-[9px] text-neutral-500 mt-0.5 leading-tight">
+                No arterial congestion alerts reported along access roads.
+              </p>
             </div>
           )}
+
+          <div className="flex items-center justify-between pt-1 border-t border-neutral-800/60 text-[9px] text-neutral-500">
+            <span className="truncate max-w-[130px]">{trafficItem?.sourceLabel || 'Traffic Baseline'}</span>
+            <span className="font-mono shrink-0">
+              {trafficItem?.lastUpdated ? new Date(trafficItem.lastUpdated).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}
+            </span>
+          </div>
         </div>
+      </div>
 
       {/* Eclipse Smart Visit Recommendation (Phase 13.7) */}
       {smartVisit && smartVisit.isDataAvailable && (
@@ -1024,6 +1063,82 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
                   )}
                 </div>
               ) : null}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Parking Intelligence & Nearby Lots */}
+      {(pandal.parkingAvailability || pandal.parkingStatus || nearestParkingLots.length > 0) && (
+        <div id="pandal-card-parking-intel" className="mt-2.5 p-3 rounded-xl bg-neutral-900/90 border border-neutral-800 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Car className="w-3.5 h-3.5 text-primary" />
+              <span className="text-[10px] uppercase font-bold text-neutral-300 tracking-wider">
+                Parking & Vehicle Access
+              </span>
+            </div>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+              pandal.parkingAvailability === 'none' || pandal.parkingStatus === 'full'
+                ? 'text-rose-400 bg-rose-500/10 border-rose-500/30'
+                : pandal.parkingAvailability === 'limited' || pandal.parkingStatus === 'moderate'
+                ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
+                : pandal.parkingAvailability === 'available' || pandal.parkingStatus === 'easy'
+                ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+                : 'text-neutral-400 bg-neutral-800 border-neutral-700'
+            }`}>
+              {pandal.parkingAvailability === 'none' || pandal.parkingStatus === 'full'
+                ? 'NO ON-SITE PARKING'
+                : pandal.parkingAvailability === 'limited' || pandal.parkingStatus === 'moderate'
+                ? 'LIMITED PARKING'
+                : pandal.parkingAvailability === 'available' || pandal.parkingStatus === 'easy'
+                ? 'PARKING AVAILABLE'
+                : 'PARKING ADVISORY'}
+            </span>
+          </div>
+
+          <p className="text-xs text-neutral-400 leading-snug">
+            {pandal.parkingAvailability === 'none' || pandal.parkingStatus === 'full'
+              ? 'No official parking at pandal perimeter. Police tow-away zone strictly enforced. Use Kolkata Metro or park at designated lots below.'
+              : pandal.parkingAvailability === 'limited' || pandal.parkingStatus === 'moderate'
+              ? 'Restricted capacity near pandal. High turnover during peak puja hours.'
+              : 'Designated parking zone managed by local puja committee/KMC.'}
+          </p>
+
+          {nearestParkingLots.length > 0 && (
+            <div className="pt-1.5 border-t border-neutral-800 space-y-1.5">
+              <span className="text-[10px] text-neutral-500 font-semibold uppercase tracking-wider block">
+                Nearest Authorized Parking ({nearestParkingLots.length})
+              </span>
+              <div className="grid grid-cols-1 gap-1.5">
+                {nearestParkingLots.slice(0, 2).map((lot) => (
+                  <div key={lot.id} className="p-2 rounded-lg bg-neutral-950/60 border border-neutral-800/80 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-xs font-medium text-neutral-200 block truncate">{lot.name}</span>
+                      <span className="text-[10px] text-neutral-400">
+                        {lot.capacity ? `${lot.capacity} spots • ` : ''}
+                        {lot.isPaid ? 'Paid parking' : 'Free parking'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onNavigate) {
+                          onNavigate({
+                            ...lot,
+                            name: lot.name,
+                            location: lot.location,
+                          } as any);
+                        }
+                      }}
+                      className="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-[10px] font-bold text-neutral-200 flex items-center gap-1 shrink-0 transition-colors"
+                    >
+                      <Navigation size={10} />
+                      Park Here
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

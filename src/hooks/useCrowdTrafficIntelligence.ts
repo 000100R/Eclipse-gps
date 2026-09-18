@@ -41,13 +41,24 @@ export function useCrowdTrafficIntelligence(selectedPandal?: DiscoveredPandal | 
 
   useEffect(() => {
     let isMounted = true;
-    trafficIntelligenceService.syncAlerts().then(() => {
-      if (isMounted) {
-        setTrafficCorridors([...trafficIntelligenceService.getAllCorridors()]);
-      }
-    });
+
+    const refreshTraffic = () => {
+      trafficIntelligenceService.syncAlerts().then(() => {
+        if (isMounted) {
+          setTrafficCorridors([...trafficIntelligenceService.getAllCorridors()]);
+        }
+      });
+    };
+
+    // Initial fetch
+    refreshTraffic();
+
+    // 60-second periodic sync matching traffic service metadata
+    const interval = setInterval(refreshTraffic, 60000);
+
     return () => {
       isMounted = false;
+      clearInterval(interval);
     };
   }, []);
 
