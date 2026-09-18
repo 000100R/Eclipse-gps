@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   CornerUpLeft,
   CornerUpRight,
@@ -14,6 +14,10 @@ import {
   Sparkles,
   RefreshCw,
   ArrowRight,
+  Volume2,
+  VolumeX,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { GlassPanel } from '../../components/ui/GlassPanel';
@@ -247,8 +251,105 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     return formattedTime ? `ETA ${formattedTime}` : '';
   }, [currentTimeMs, remainingDurationSeconds, hasArrived]);
 
+  // Voice Navigation State (Browser / Device Speech Synthesis)
+  const [isMuted, setIsMuted] = useState(false);
+  const lastSpokenInstructionRef = useRef<string>('');
+  const hasArrivedAnnouncedRef = useRef<boolean>(false);
+
+  // Helper to safely speak voice announcements
+  const speakVoiceAnnouncement = (text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn('Speech synthesis utterance error:', err);
+    }
+  };
+
+  // Immediate cancellation if user toggles Mute
+  useEffect(() => {
+    if (isMuted && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  }, [isMuted]);
+
+  // Clean up any ongoing speech synthesis when component unmounts
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  // Speak navigation instruction when it changes & announce arrival on arrival state
+  useEffect(() => {
+    if (hasArrived) {
+      if (!hasArrivedAnnouncedRef.current) {
+        hasArrivedAnnouncedRef.current = true;
+        const arrivalText =
+          isPujaRoute && !isFinalStop
+            ? `Arrived at ${destinationName}. Stop ${currentPujaStopIndex + 1} reached.`
+            : `You have arrived at ${destinationName}.`;
+        if (!isMuted) {
+          speakVoiceAnnouncement(arrivalText);
+        }
+      }
+      return;
+    }
+
+    // Reset arrival announcement tracker when navigating actively
+    hasArrivedAnnouncedRef.current = false;
+
+    const instructionText = currentInstruction?.text?.trim();
+    if (!instructionText) return;
+
+    // Speak only when instruction text actually changes to avoid repeating repeatedly
+    if (lastSpokenInstructionRef.current !== instructionText) {
+      lastSpokenInstructionRef.current = instructionText;
+      if (!isMuted) {
+        speakVoiceAnnouncement(instructionText);
+      }
+    }
+  }, [
+    hasArrived,
+    currentInstruction?.text,
+    isPujaRoute,
+    isFinalStop,
+    currentPujaStopIndex,
+    destinationName,
+    isMuted,
+  ]);
+
   const CurrentIcon = getInstructionIcon(currentInstruction.text);
   const NextIcon = nextInstruction ? getInstructionIcon(nextInstruction.text) : null;
+
+  // Collapsible HUD State & Touch Gestures
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const touchStartYRef = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartYRef.current === null) return;
+    const touchEndY = e.changedTouches[0].clientY;
+    const deltaY = touchEndY - touchStartYRef.current;
+    touchStartYRef.current = null;
+
+    if (!isCollapsed && deltaY > 35) {
+      // Swiping down while expanded -> collapse HUD
+      setIsCollapsed(true);
+    } else if (isCollapsed && Math.abs(deltaY) > 20) {
+      // Swiping on collapsed bar -> expand HUD
+      setIsCollapsed(false);
+    }
+  };
 
   const handleStepForward = () => {
     if (onStepForward) {
@@ -258,6 +359,9 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     if (currentStepIndex < instructions.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     } else {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
       if (isPujaRoute && !isFinalStop) {
         advancePujaRouteToNextStop();
         return;
@@ -280,6 +384,9 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
   };
 
   const handleStop = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
     if (isPujaRoute) {
       endPujaRoute();
     }
@@ -291,13 +398,135 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     }
   };
 
+  // 1. Collapsed HUD View (Minimalist & Non-Intrusive, Map fully usable)
+  if (isCollapsed) {
+    return (
+      <GlassPanel
+        id="nav-hud-collapsed"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (!target.closest('button')) {
+            setIsCollapsed(false);
+          }
+        }}
+        className={`px-3.5 py-2 border-l-4 shadow-xl animate-fade-in transition-all duration-200 cursor-pointer ${
+          hasArrived
+            ? 'border-l-emerald-500 bg-neutral-950/95'
+            : 'border-l-indigo-500 bg-neutral-950/90'
+        }`}
+        role="region"
+        aria-label="Navigation HUD Collapsed"
+      >
+        {/* Subtle top indicator for gesture expansion */}
+        <div className="w-8 h-1 bg-neutral-700/70 rounded-full mx-auto mb-1.5" />
+
+        <div className="flex items-center justify-between space-x-3">
+          {/* Left: Maneuver Icon */}
+          <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+            <div
+              className={`p-1.5 rounded-lg shrink-0 ${
+                hasArrived
+                  ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/60'
+                  : 'bg-indigo-950/80 text-indigo-400 border border-indigo-800/60'
+              }`}
+            >
+              {hasArrived ? (
+                <CheckCircle2 size={16} className="stroke-[2.5]" />
+              ) : (
+                <CurrentIcon size={16} className="stroke-[2.5]" />
+              )}
+            </div>
+
+            {/* Middle: Maneuver Details, Distance to Maneuver, and ETA */}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-black text-neutral-100 tracking-tight shrink-0">
+                  {hasArrived
+                    ? 'Arrived'
+                    : currentInstruction.distance > 0
+                    ? `In ${formatDistance(currentInstruction.distance)}`
+                    : 'Now'}
+                </span>
+                <span className="text-[11px] font-medium text-neutral-300 truncate">
+                  {hasArrived ? destinationName : currentInstruction.text}
+                </span>
+              </div>
+
+              {/* ETA & Distance */}
+              <div className="flex items-center space-x-2 text-[10px] text-neutral-400 mt-0.5">
+                <div className="flex items-center space-x-1 text-indigo-300 font-semibold">
+                  <Clock size={11} className="text-indigo-400 shrink-0" />
+                  <span id="nav-hud-collapsed-eta">
+                    {etaClockText || `ETA ${formatDuration(remainingDurationSeconds)}`}
+                  </span>
+                </div>
+                <span className="w-1 h-1 bg-neutral-700 rounded-full" />
+                <span className="text-neutral-400">
+                  {formatDistance(remainingDistanceMeters)} left
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Quick Mute Toggle & Clear Expand Button */}
+          <div className="flex items-center space-x-1.5 shrink-0">
+            <button
+              type="button"
+              id="btn-nav-mute-toggle-collapsed"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMuted((prev) => !prev);
+              }}
+              className={`p-1.5 rounded-lg border text-xs transition-colors cursor-pointer ${
+                isMuted
+                  ? 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-neutral-200'
+                  : 'bg-indigo-950/60 text-indigo-300 border-indigo-800/60 hover:bg-indigo-900/60'
+              }`}
+              title={isMuted ? 'Unmute voice' : 'Mute voice'}
+              aria-label={isMuted ? 'Unmute voice' : 'Mute voice'}
+            >
+              {isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+            </button>
+
+            <button
+              type="button"
+              id="btn-nav-hud-expand"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsCollapsed(false);
+              }}
+              className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] tracking-wide transition-all shadow-md cursor-pointer"
+              title="Expand Navigation HUD"
+              aria-label="Expand Navigation HUD"
+            >
+              <ChevronUp size={14} />
+              <span>Expand</span>
+            </button>
+          </div>
+        </div>
+      </GlassPanel>
+    );
+  }
+
+  // 2. Expanded HUD View (Preserving all existing controls and details)
   return (
     <GlassPanel
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       className={`p-4 border-l-4 shadow-2xl animate-fade-in transition-all duration-300 ${
         hasArrived ? 'border-l-emerald-500 bg-neutral-950/95' : 'border-l-indigo-500'
       }`}
     >
-      {/* Top Header: Destination & Travel Mode */}
+      {/* Swipe Down Gesture Drag Handle */}
+      <div
+        className="w-10 h-1 bg-neutral-700/60 hover:bg-neutral-500 rounded-full mx-auto -mt-1 mb-2.5 cursor-pointer transition-colors"
+        onClick={() => setIsCollapsed(true)}
+        title="Swipe down or tap to collapse HUD"
+      />
+
+      {/* Top Header: Destination, Travel Mode, Voice Mute & Collapse Button */}
       <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-neutral-800/60">
         <div className="flex items-center space-x-1.5 min-w-0 flex-1 mr-2">
           <MapPin size={13} className={hasArrived ? 'text-emerald-400 shrink-0' : 'text-indigo-400 shrink-0'} />
@@ -305,40 +534,82 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
             {destinationName}
           </span>
         </div>
-        {/* Travel Mode Switch: Walking / Driving */}
-        <div
-          id="nav-travel-mode-switch"
-          className="flex items-center p-0.5 rounded-lg bg-neutral-900/90 border border-neutral-800 shrink-0 space-x-0.5"
-          role="group"
-          aria-label="Travel mode selection"
-        >
+
+        <div className="flex items-center space-x-1.5 shrink-0">
+          {/* Travel Mode Switch: Walking / Driving */}
+          <div
+            id="nav-travel-mode-switch"
+            className="flex items-center p-0.5 rounded-lg bg-neutral-900/90 border border-neutral-800 shrink-0 space-x-0.5"
+            role="group"
+            aria-label="Travel mode selection"
+          >
+            <button
+              type="button"
+              id="btn-mode-walking"
+              onClick={() => handleModeChange('walking')}
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide transition-all ${
+                travelMode === 'walking'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-sm'
+                  : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 border border-transparent'
+              }`}
+              title="Switch to Walking navigation"
+            >
+              <Footprints size={11} className={travelMode === 'walking' ? 'text-emerald-400' : 'text-neutral-400'} />
+              <span>Walk</span>
+            </button>
+            <button
+              type="button"
+              id="btn-mode-driving"
+              onClick={() => handleModeChange('driving')}
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide transition-all ${
+                travelMode === 'driving'
+                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/50 shadow-sm'
+                  : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 border border-transparent'
+              }`}
+              title="Switch to Driving navigation"
+            >
+              <Car size={11} className={travelMode === 'driving' ? 'text-sky-400' : 'text-neutral-400'} />
+              <span>Drive</span>
+            </button>
+          </div>
+
+          {/* Voice Mute / Unmute Toggle */}
           <button
             type="button"
-            id="btn-mode-walking"
-            onClick={() => handleModeChange('walking')}
-            className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide transition-all ${
-              travelMode === 'walking'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-sm'
-                : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 border border-transparent'
+            id="btn-nav-mute-toggle"
+            onClick={() => setIsMuted((prev) => !prev)}
+            className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide border transition-all cursor-pointer ${
+              isMuted
+                ? 'bg-neutral-900/90 text-neutral-400 border-neutral-800 hover:text-neutral-200 hover:bg-neutral-800/60'
+                : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50 shadow-sm hover:bg-indigo-500/30'
             }`}
-            title="Switch to Walking navigation"
+            title={isMuted ? 'Unmute voice navigation' : 'Mute voice navigation'}
+            aria-label={isMuted ? 'Unmute voice navigation' : 'Mute voice navigation'}
           >
-            <Footprints size={11} className={travelMode === 'walking' ? 'text-emerald-400' : 'text-neutral-400'} />
-            <span>Walk</span>
+            {isMuted ? (
+              <>
+                <VolumeX size={12} className="text-neutral-400" />
+                <span>Muted</span>
+              </>
+            ) : (
+              <>
+                <Volume2 size={12} className="text-indigo-400" />
+                <span>Voice</span>
+              </>
+            )}
           </button>
+
+          {/* Collapse HUD Button */}
           <button
             type="button"
-            id="btn-mode-driving"
-            onClick={() => handleModeChange('driving')}
-            className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide transition-all ${
-              travelMode === 'driving'
-                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/50 shadow-sm'
-                : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 border border-transparent'
-            }`}
-            title="Switch to Driving navigation"
+            id="btn-nav-hud-collapse"
+            onClick={() => setIsCollapsed(true)}
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide border border-neutral-800 bg-neutral-900/90 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 transition-all cursor-pointer"
+            title="Collapse Navigation HUD (or swipe down)"
+            aria-label="Collapse Navigation HUD"
           >
-            <Car size={11} className={travelMode === 'driving' ? 'text-sky-400' : 'text-neutral-400'} />
-            <span>Drive</span>
+            <ChevronDown size={12} />
+            <span className="hidden xs:inline">Collapse</span>
           </button>
         </div>
       </div>
