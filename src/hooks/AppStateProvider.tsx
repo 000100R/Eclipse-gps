@@ -17,7 +17,7 @@ import { intelligenceLayerService } from '../services/intelligence/intelligenceL
 import { curatedEclipsePandals } from '../data/curatedPandals';
 import { curatedBonediBariList } from '../data/curatedBonediBari';
 import { SmartRoutePlan, StartLocationOption, DestinationItem, PujaRouteSession } from '../types/smartRoute';
-import { MetroGateIntelligenceResult } from '../types/metro';
+import { MetroGateIntelligenceResult, MetroGateRouteOption } from '../types/metro';
 import { smartPujaRoutePlannerService } from '../services/routing/smartPujaRoutePlannerService';
 import { travelDistanceService } from '../services/gps/travelDistanceService';
 import { ref, set, remove, onDisconnect, serverTimestamp, onValue, off } from 'firebase/database';
@@ -119,6 +119,7 @@ interface AppStateContextType {
   // Metro Gate Intelligence
   activeMetroGateIntelligence: MetroGateIntelligenceResult | null;
   setActiveMetroGateIntelligence: (result: MetroGateIntelligenceResult | null) => void;
+  startGateWalkingNavigation: (gateOpt: MetroGateRouteOption, targetPandal: any, stationName?: string) => void;
 
   // Saved / Visited places
   savedLocations: SavedLocation[];
@@ -219,7 +220,7 @@ interface AppStateContextType {
   userPandals: Pandal[];
   isLostInCrowdActive: boolean;
   setIsLostInCrowdActive: (active: boolean) => void;
-  executeAIActionOnMap: (actionType: string, params: any) => Promise<{ pandals?: any[]; error?: string }>;
+  executeAIActionOnMap: (actionType: string, params: any) => Promise<{ pandals?: any[]; bonediBaris?: any[]; error?: string; message?: string; metroGateResult?: MetroGateIntelligenceResult }>;
 }
 
 const AppStateContext = createContext<AppStateContextType | undefined>(undefined);
@@ -476,7 +477,27 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [pandalCrowdCounts, setPandalCrowdCounts] = useState<Record<string, number>>({});
   const [pandalCrowdTrends, setPandalCrowdTrends] = useState<Record<string, 'INCREASING' | 'STABLE' | 'DECREASING'>>({});
   const prevCountsRef = useRef<Record<string, number>>({});
-  const [mapStyle, setMapStyle] = useState<'standard' | 'satellite' | 'hybrid' | '3d'>('standard');
+  const [mapStyle, setMapStyleState] = useState<'standard' | 'satellite' | 'hybrid' | '3d'>(() => {
+    if (typeof window === 'undefined') return 'standard';
+    try {
+      const saved = localStorage.getItem('eclipse_gps_map_style');
+      if (saved === 'standard' || saved === 'satellite' || saved === 'hybrid' || saved === '3d') {
+        return saved;
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+    return 'standard';
+  });
+
+  const setMapStyle = useCallback((style: 'standard' | 'satellite' | 'hybrid' | '3d') => {
+    setMapStyleState(style);
+    try {
+      localStorage.setItem('eclipse_gps_map_style', style);
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, []);
 
   // Pandal Discovery 2.0 State
   const [discoveryRadius, setDiscoveryRadius] = useState<number>(5);
@@ -1815,6 +1836,63 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setSelectedItem(null);
   };
 
+  // Start walking navigation from a verified Metro entrance/exit gate to the pandal
+  const startGateWalkingNavigation = (
+    gateOpt: MetroGateRouteOption,
+    targetPandalItem: any,
+    stationName?: string
+  ) => {
+    const gateLoc: Location = gateOpt.gate.location || {
+      lat: gateOpt.gate.latitude!,
+      lng: gateOpt.gate.longitude!,
+    };
+    const pandalLoc: Location =
+      targetPandalItem.location || {
+        lat: targetPandalItem.latitude,
+        lng: targetPandalItem.longitude,
+      };
+
+    const stName = stationName || 'Metro';
+    const walkingRoute: Route = {
+      id: `metro-walk-${gateOpt.gate.gateNumber}-${Date.now()}`,
+      name: `Walk: ${stName} Gate ${gateOpt.gate.gateNumber} → ${targetPandalItem.name}`,
+      origin: gateLoc,
+      destination: pandalLoc,
+      waypoints: [],
+      geometry: gateOpt.geometry && gateOpt.geometry.length > 0 ? gateOpt.geometry : [gateLoc, pandalLoc],
+      distance: gateOpt.distanceMeters,
+      duration: gateOpt.walkingMinutes * 60,
+      instructions: [
+        {
+          text: `Exit ${stName} via Gate ${gateOpt.gate.gateNumber}${gateOpt.gate.name ? ` (${gateOpt.gate.name})` : ''}${gateOpt.gate.landmark ? ` towards ${gateOpt.gate.landmark}` : ''}`,
+          distance: 20,
+          duration: 30,
+        },
+        {
+          text: `Walk along pedestrian route towards ${targetPandalItem.name}`,
+          distance: Math.max(0, gateOpt.distanceMeters - 20),
+          duration: Math.max(0, gateOpt.walkingMinutes * 60 - 30),
+        },
+        {
+          text: `Arrive at ${targetPandalItem.name}`,
+          distance: 0,
+          duration: 0,
+        },
+      ],
+    };
+
+    setRoutePreference('WALKING');
+    setActiveRoute(walkingRoute);
+    setIsNavigating(true);
+    setCurrentStepIndex(0);
+    setActiveTab('home');
+    if (mapRef) {
+      if (mapRef.setView) {
+        mapRef.setView([gateLoc.lat, gateLoc.lng], 17);
+      }
+    }
+  };
+
   // Select an alternative route to make it the active navigation route
   const selectAlternativeRoute = (selectedAltRoute: Route) => {
     if (!activeRoute) return;
@@ -1939,6 +2017,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       
       let discoveredPandals: any[] | undefined = undefined;
       let discoveredBonediBaris: any[] | undefined = undefined;
+      let metroGateResult: any | undefined = undefined;
       let finalContent = data.text || "I processed your request.";
 
       // Map action trigger execution!
@@ -1947,11 +2026,20 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (actionResult?.error) {
           finalContent = actionResult.error;
         } else {
+          if (actionResult?.message) {
+            finalContent = actionResult.message;
+          }
           if (actionResult?.pandals && actionResult.pandals.length > 0) {
             discoveredPandals = actionResult.pandals;
           }
           if (actionResult?.bonediBaris && actionResult.bonediBaris.length > 0) {
             discoveredBonediBaris = actionResult.bonediBaris;
+          }
+          if (actionResult?.metroGateResult) {
+            metroGateResult = actionResult.metroGateResult;
+          }
+          if (data.action === 'NAVIGATE_TO_NEAREST_PANDAL' || data.action === 'NAVIGATE_TO') {
+            setIsAiSheetOpen(false);
           }
         }
       }
@@ -1964,6 +2052,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         timestamp: Date.now(),
         discoveredPandals,
         discoveredBonediBaris,
+        metroGateResult,
       };
 
       setMessages(prev => [...prev, assistantMsg]);
@@ -1992,7 +2081,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // AI-Map orchestration engine
-  const executeAIActionOnMap = async (actionType: string, params: any): Promise<{ pandals?: any[]; bonediBaris?: any[]; error?: string }> => {
+  const executeAIActionOnMap = async (actionType: string, params: any): Promise<{ pandals?: any[]; bonediBaris?: any[]; error?: string; message?: string; metroGateResult?: MetroGateIntelligenceResult }> => {
     switch (actionType) {
       case 'SEARCH_METRO': {
         // Automatically activate METRO layer in Intelligence Grid
@@ -2238,32 +2327,132 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return { pandals: targetPandal ? [targetPandal] : [] };
       }
 
+      case 'SHOW_UNVISITED_PANDALS':
+      case 'SEARCH_UNVISITED_PANDALS': {
+        // Respect the existing Location Required gate:
+        // Current valid GPS position is required for location-based unvisited discovery.
+        if (!currentLocation || !hasValidGps || gpsStatus !== 'tracking') {
+          return {
+            error: 'GPS location is required to discover unvisited pandals near your current position. Please ensure location access is enabled and your device GPS position is acquired.',
+            pandals: [],
+          };
+        }
+
+        // Use the existing Smart Pandal Discovery system with user's valid GPS position
+        const discoveryResult = await pandalDiscoveryService.discoverPandals({
+          near: currentLocation,
+          radius: params.radius || (discoveryRadius * 1000) || 5000,
+          sortBy: 'nearest',
+          mode: 'nearby',
+          skipExternalSearch: true,
+        });
+
+        // Collect all visited IDs using the existing Visited Pandals data & records
+        const visitedSet = new Set<string>([
+          ...visitedIds,
+          ...visitedPandalsService.getRecords().map(r => r.pandalId),
+          ...eventsService.getVisited(),
+        ]);
+
+        let candidatePandals = [...discoveryResult.pandals];
+
+        // If very few candidates found in initial radius, expand to all local candidates
+        if (candidatePandals.length === 0) {
+          const allLocal = pandalDiscoveryService.getLocalCandidates();
+          if (allLocal.length > 0) {
+            candidatePandals = allLocal.map(p => ({
+              ...p,
+              distance: calculateDistanceInMeters(currentLocation, p.location),
+            }));
+          }
+        }
+
+        // Filter: Show only pandals that the user has not visited
+        let unvisited = candidatePandals.filter(p => !visitedSet.has(p.id) && !p.visitedStatus);
+
+        // If all within current radius were visited, inspect broader verified catalog for unvisited ones
+        if (unvisited.length === 0) {
+          const allLocal = pandalDiscoveryService.getLocalCandidates();
+          const unvisitedLocal = allLocal
+            .filter(p => !visitedSet.has(p.id) && !p.visitedStatus)
+            .map(p => ({
+              ...p,
+              distance: calculateDistanceInMeters(currentLocation, p.location),
+            }));
+          unvisitedLocal.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+          if (unvisitedLocal.length > 0) {
+            unvisited = unvisitedLocal.slice(0, 25);
+          }
+        }
+
+        // Sort them by real GPS distance, nearest-first
+        unvisited.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+
+        if (unvisited.length === 0) {
+          return {
+            message: 'All Durga Puja pandals in this area have already been visited! Fantastic pandal hopping progress.',
+            pandals: [],
+          };
+        }
+
+        // Hydrate & reuse the existing Pandal cards/UI
+        setPandals(unvisited);
+        setSearchResults(unvisited);
+        setActiveTab('home');
+
+        if (unvisited.length > 0 && mapRef) {
+          const first = unvisited[0];
+          if (mapRef.setView) {
+            mapRef.setView([first.location.lat, first.location.lng], 15);
+          } else if (mapRef.setCenter) {
+            mapRef.setCenter({ lat: first.location.lat, lng: first.location.lng });
+            mapRef.setZoom(15);
+          }
+        }
+
+        return {
+          pandals: unvisited,
+          message: `Found ${unvisited.length} unvisited Durga Puja pandals near your location, sorted nearest-first.`,
+        };
+      }
+
       case 'SEARCH_NEARBY_PANDALS':
       case 'SEARCH_PANDALS_BY_NAME':
       case 'SEARCH_PANDALS_BY_AREA':
       case 'SEARCH_PANDALS': {
         const isNearbyRequest = actionType === 'SEARCH_NEARBY_PANDALS' || (!params.query && !params.name && !params.area);
-        if (isNearbyRequest && (gpsStatus === 'denied' || gpsStatus === 'error')) {
+        const queryTerm = isNearbyRequest ? '' : (params.name || params.query || '');
+        if (queryTerm.toLowerCase().includes('unvisited')) {
+          return executeAIActionOnMap('SHOW_UNVISITED_PANDALS', params);
+        }
+
+        // Respect the existing Location Required gate:
+        // Current valid GPS position is required for nearby pandal discovery.
+        if (isNearbyRequest && (!currentLocation || !hasValidGps || gpsStatus !== 'tracking')) {
           return {
-            error: 'GPS location is unavailable. Please enable device location access to discover pandals near your exact location, or search by pandal name or neighborhood.',
+            error: 'GPS location is required to discover pandals near your current position. Please ensure location access is enabled and your device GPS position is acquired.',
             pandals: [],
           };
         }
 
-        const queryTerm = isNearbyRequest ? '' : (params.name || params.query || '');
         const searchArea = actionType === 'SEARCH_PANDALS_BY_AREA' ? (params.area || params.query) : params.area;
 
-        // Use the exact same discovery engine as the map for 100% parity
+        // Use the existing Smart Pandal Discovery system with user's valid GPS position
         const discoveryResult = await pandalDiscoveryService.discoverPandals({
           near: currentLocation,
           radius: params.radius || (discoveryRadius * 1000) || 5000,
           query: queryTerm,
           area: searchArea,
           sortBy: isNearbyRequest ? 'nearest' : (params.sortBy || discoverySort || 'nearest'),
-          mode: actionType === 'SEARCH_PANDALS_BY_NAME' ? 'name' : actionType === 'SEARCH_PANDALS_BY_AREA' ? 'area' : 'nearby',
+          mode: isNearbyRequest ? 'nearby' : (actionType === 'SEARCH_PANDALS_BY_NAME' ? 'name' : actionType === 'SEARCH_PANDALS_BY_AREA' ? 'area' : 'nearby'),
+          skipExternalSearch: isNearbyRequest,
         });
 
-        const resolvedPandals = discoveryResult.pandals;
+        // Ensure nearest-first sorting strictly by distance
+        const resolvedPandals = [...discoveryResult.pandals];
+        if (isNearbyRequest) {
+          resolvedPandals.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+        }
 
         if (resolvedPandals.length > 0) {
           setPandals(resolvedPandals);
@@ -2299,6 +2488,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         break;
 
       case 'SHOW_NEARBY':
+        if (params.category === 'unvisited' || params.category === 'unvisited_pandal') {
+          return executeAIActionOnMap('SHOW_UNVISITED_PANDALS', params);
+        }
         if (params.category === 'pandal') {
           return executeAIActionOnMap('SEARCH_NEARBY_PANDALS', params);
         }
@@ -2500,10 +2692,226 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         break;
       }
 
+      case 'NAVIGATE_TO_NEAREST_PANDAL': {
+        // Respect the existing Location Required gate:
+        // Real GPS location is required to calculate and navigate to the nearest pandal.
+        if (!currentLocation || !hasValidGps || gpsStatus !== 'tracking') {
+          return {
+            error: 'GPS location is required to navigate to the nearest pandal. Please ensure location access is enabled and your device GPS position is acquired.',
+            pandals: [],
+          };
+        }
+
+        // Use the existing Smart Pandal Discovery system with user's valid GPS position
+        const discoveryResult = await pandalDiscoveryService.discoverPandals({
+          near: currentLocation,
+          radius: params.radius || (discoveryRadius * 1000) || 5000,
+          sortBy: 'nearest',
+          mode: 'nearby',
+          skipExternalSearch: true,
+        });
+
+        let candidatePandals = [...discoveryResult.pandals];
+        if (candidatePandals.length === 0) {
+          // If none within initial radius, fallback to all local verified pandals
+          const allLocal = pandalDiscoveryService.getLocalCandidates();
+          if (allLocal.length > 0) {
+            candidatePandals = allLocal.map(p => ({
+              ...p,
+              distance: calculateDistanceInMeters(currentLocation, p.location),
+            }));
+          }
+        }
+
+        // Nearest-first sorting strictly by geodesic distance
+        candidatePandals.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+
+        if (candidatePandals.length === 0) {
+          return {
+            error: 'No Durga Puja pandals found in the verified database.',
+            pandals: [],
+          };
+        }
+
+        const nearestPandal = candidatePandals[0];
+
+        // 1. Automatically select that pandal
+        setSelectedItem(nearestPandal as any);
+        setPandals(candidatePandals);
+        setSearchResults(candidatePandals);
+
+        // 2. Start the existing navigation flow to that pandal
+        // Reuses the existing Walking/Driving mode (routePreference), OSRM routing,
+        // alternatives, rerouting, GPS follow mode, HUD, ETA, and voice navigation
+        await calculateRouteToItem(nearestPandal);
+        setIsNavigating(true);
+        setActiveTab('home');
+
+        if (mapRef) {
+          if (mapRef.setView) {
+            mapRef.setView([nearestPandal.location.lat, nearestPandal.location.lng], 16);
+          } else if (mapRef.setCenter) {
+            mapRef.setCenter({ lat: nearestPandal.location.lat, lng: nearestPandal.location.lng });
+            mapRef.setZoom(16);
+          }
+        }
+
+        const distKm = nearestPandal.distance !== undefined ? (nearestPandal.distance / 1000).toFixed(1) : null;
+        const distInfo = distKm ? ` (${distKm} km away)` : '';
+        const navMessage = `Navigating to ${nearestPandal.name}${distInfo}. Turn-by-turn navigation started.`;
+
+        return {
+          pandals: [nearestPandal],
+          message: navMessage,
+        };
+      }
+
+      case 'PLAN_PUJA_ROUTE': {
+        // Respect the existing Location Required gate
+        if (!currentLocation || !hasValidGps || gpsStatus !== 'tracking') {
+          return {
+            error: 'GPS location is required to plan your Puja route from your current position. Please ensure location access is enabled and your device GPS position is acquired.',
+            pandals: [],
+          };
+        }
+
+        // Switch to the existing Multi-Pandal Puja Route feature
+        setActiveTab('routes');
+        setIsAiSheetOpen(false);
+
+        return {
+          message: 'Opened the Multi-Pandal Puja Route planner from your real GPS position. Select your pandals from the catalog below, then optimize the route to see your ordered itinerary before starting navigation.',
+          pandals: [],
+        };
+      }
+
+      case 'METRO_GATE_INTELLIGENCE': {
+        // Respect the existing Location Required gate
+        if (!currentLocation || !hasValidGps || gpsStatus !== 'tracking') {
+          return {
+            error: 'GPS location is required to evaluate metro exit routes and navigation from your position. Please ensure location access is enabled and your device GPS position is acquired.',
+            pandals: [],
+          };
+        }
+
+        // 1. Resolve target pandal using selected/existing pandal or explicit reference
+        let targetPandal: Pandal | null = null;
+        if (selectedItem && (('crowd' in selectedItem || 'historicalSignificance' in selectedItem || 'nearestMetro' in selectedItem) || pandals.some(p => p.id === selectedItem.id))) {
+          targetPandal = selectedItem as Pandal;
+        } else if (params.pandalId) {
+          targetPandal = pandals.find(p => p.id === params.pandalId) || (curatedEclipsePandals.find(p => p.id === params.pandalId) as any) || null;
+        } else if (params.pandalName || params.name || params.query) {
+          const rawQ = (params.pandalName || params.name || params.query) as string;
+          const cleanQ = rawQ
+            .toLowerCase()
+            .replace(/which metro (exit|gate) (should i take )?(for )?/gi, '')
+            .replace(/what metro (exit|gate) (should i take )?(for )?/gi, '')
+            .replace(/best metro (exit|gate) (for )?/gi, '')
+            .replace(/this pandal/gi, '')
+            .trim();
+          if (cleanQ) {
+            targetPandal = pandals.find(p => p.name.toLowerCase().includes(cleanQ)) ||
+                           (curatedEclipsePandals.find(p => p.name.toLowerCase().includes(cleanQ)) as any) || null;
+          }
+        }
+
+        if (!targetPandal && selectedItem && 'location' in selectedItem) {
+          targetPandal = selectedItem as any;
+        }
+
+        if (!targetPandal && routeStops.length > 0) {
+          const found = routeStops.find(s => pandals.some(p => p.id === s.id) || 'historicalSignificance' in s || 'crowd' in s);
+          if (found) {
+            targetPandal = found as Pandal;
+          }
+        }
+
+        if (!targetPandal) {
+          return {
+            error: 'No Durga Puja pandal is currently selected. Please select a pandal on the map or from the catalog first, or specify the pandal name (e.g. "Which metro exit should I take for College Square?").',
+            pandals: [],
+          };
+        }
+
+        setSelectedItem(targetPandal);
+
+        // 2. Find nearby metro station for this pandal
+        const nearestMetro = targetPandal.nearestMetro;
+        const pandalLoc: Location = targetPandal.location || {
+          lat: (targetPandal as any).latitude,
+          lng: (targetPandal as any).longitude,
+        };
+
+        const matchedMetroStation = metroIntelligenceProvider.findStationForPandal(
+          nearestMetro,
+          pandalLoc
+        );
+
+        if (!matchedMetroStation) {
+          return {
+            error: `No Kolkata Metro station found within walking distance for ${targetPandal.name}.`,
+            pandals: [targetPandal as any],
+          };
+        }
+
+        // 3. Compute verified gate intelligence using existing Metro Gate Intelligence service
+        const gateIntelligence = await metroIntelligenceProvider.calculateMetroGateIntelligence(
+          matchedMetroStation,
+          targetPandal
+        );
+
+        // 4. If verified gate data is unavailable, clearly say so
+        if (!gateIntelligence.hasVerifiedGates || !gateIntelligence.recommendedGate || gateIntelligence.allGateRoutes.length === 0) {
+          setActiveMetroGateIntelligence({
+            hasVerifiedGates: false,
+            station: matchedMetroStation,
+            targetPandal,
+            otherGates: [],
+            allGateRoutes: [],
+          });
+          return {
+            message: `The nearest metro station for **${targetPandal.name}** is **${matchedMetroStation.name}**. However, verified individual entrance/exit gate coordinates are not yet available for this station. Station-level coordinates are mapped, but gate-specific exit recommendations are unverified.`,
+            pandals: [targetPandal as any],
+          };
+        }
+
+        // 5. Activate verified gate intelligence on map
+        setActiveMetroGateIntelligence(gateIntelligence);
+
+        const rec = gateIntelligence.recommendedGate;
+        const others = gateIntelligence.otherGates || [];
+
+        let summaryMsg = `Recommended Metro Exit for **${targetPandal.name}**:\n` +
+          `• Exit via **Gate ${rec.gate.gateNumber}${rec.gate.name ? ` (${rec.gate.name})` : ''}** of **${matchedMetroStation.name}**\n` +
+          `• Real Walking Distance: **${rec.walkingDistanceFormatted}**\n` +
+          `• Real Walking Time: **${rec.walkingTimeFormatted}**\n` +
+          (rec.gate.landmark ? `• Orientation: Towards ${rec.gate.landmark}\n` : '');
+
+        if (others.length > 0) {
+          summaryMsg += `\nOther verified exits compared:\n` +
+            others.map(g => `• Gate ${g.gate.gateNumber}${g.gate.name ? ` (${g.gate.name})` : ''}: ${g.walkingDistanceFormatted} (${g.walkingTimeFormatted})`).join('\n');
+        }
+
+        summaryMsg += `\n\nTap **"Start Walking Navigation"** below to begin turn-by-turn guidance from Gate ${rec.gate.gateNumber} directly to ${targetPandal.name}.`;
+
+        return {
+          message: summaryMsg,
+          metroGateResult: gateIntelligence,
+          pandals: [targetPandal as any],
+        };
+      }
+
       case 'NAVIGATE_TO': {
+        const targetName = params.locationName || params.name || params.query || params.destination || '';
+        if (typeof targetName === 'string') {
+          const lower = targetName.toLowerCase();
+          if (lower.includes('nearest pandal') || lower.includes('closest pandal') || lower === 'nearest') {
+            return executeAIActionOnMap('NAVIGATE_TO_NEAREST_PANDAL', params);
+          }
+        }
+
         let item = params.itemId ? (bonediBariIntelligenceProvider.getById(params.itemId) || eventsService.getItemById(params.itemId)) : null;
         if (!item) {
-          const targetName = params.locationName || params.name || params.query || params.destination;
           if (targetName) {
             const bonediMatch = bonediBariIntelligenceProvider.getData().find(b => b.name.toLowerCase().includes(targetName.toLowerCase()));
             item = (bonediMatch as any) || pandals.find(p => p.name.toLowerCase().includes(targetName.toLowerCase())) ||
@@ -2698,6 +3106,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Metro Gate Intelligence
         activeMetroGateIntelligence,
         setActiveMetroGateIntelligence,
+        startGateWalkingNavigation,
 
         // Bengali Panjika & Events
         eventsSubTab,

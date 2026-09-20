@@ -224,6 +224,7 @@ export interface AIMessage {
   timestamp: number;
   discoveredPandals?: any[];
   discoveredBonediBaris?: any[];
+  metroGateResult?: any;
 }
 
 export interface AIConversation {

@@ -68,6 +68,10 @@ export const RoutePlanner: React.FC = () => {
     startPujaRouteNavigation,
     advancePujaRouteToNextStop,
     endPujaRoute,
+    routePreference,
+    hasValidGps,
+    gpsStatus,
+    mapRef,
   } = useAppState();
 
   // Route Planning Inputs State
@@ -286,7 +290,93 @@ export const RoutePlanner: React.FC = () => {
     setOptimizationStatus({ status: 'idle' });
   };
 
-  // Start Puja Route action - Optimizes the order of selected pandals using real GPS position and connects to navigation
+  // Optimize the order of selected pandals using real GPS position, showing the optimized ordered route before navigation starts
+  const handleOptimizePujaRouteOrder = async () => {
+    if (selectedDestinations.length === 0) return;
+
+    if (selectedDestinations.length === 1) {
+      setIsPujaRouteStarted(true);
+      setOptimizationStatus({
+        status: 'optimized',
+        message: '1 pandal selected starting from your current GPS position. Review the ordered stop below before starting navigation.',
+      });
+      return;
+    }
+
+    setIsOptimizingPujaRoute(true);
+    try {
+      const gpsLocation =
+        currentLocation &&
+        typeof currentLocation.lat === 'number' &&
+        typeof currentLocation.lng === 'number'
+          ? { lat: currentLocation.lat, lng: currentLocation.lng }
+          : null;
+
+      if (!gpsLocation) {
+        setIsPujaRouteStarted(true);
+        setOptimizationStatus({
+          status: 'fallback',
+          message: 'GPS location unavailable. Kept your original selected sequence. Please acquire GPS location to optimize order.',
+        });
+      } else {
+        const transport = routePreference === 'DRIVING' ? 'DRIVE' : (preferredTransport === 'DRIVE' ? 'DRIVE' : 'WALK');
+        const optimized = await smartPujaRoutePlannerService.optimizeDestinationOrder(
+          gpsLocation,
+          selectedDestinations,
+          transport,
+          priority
+        );
+
+        if (optimized && optimized.length === selectedDestinations.length) {
+          const originalIds = new Set(selectedDestinations.map(d => d.id));
+          const allPresent = optimized.every(d => originalIds.has(d.id));
+
+          if (allPresent) {
+            setSelectedDestinations(optimized);
+            setIsPujaRouteStarted(true);
+            setOptimizationStatus({
+              status: 'optimized',
+              message: `Route order optimized for ${optimized.length} stops from your GPS position (${routePreference === 'DRIVING' ? 'Driving' : 'Walking'} mode). Review the ordered itinerary below before starting navigation.`,
+            });
+            // Update route stops & frame map
+            setRouteStops(optimized as any);
+            if (mapRef && optimized.length > 0) {
+              const allPoints = [gpsLocation, ...optimized.map(o => o.location)];
+              if (mapRef.fitBounds) {
+                mapRef.fitBounds([
+                  [Math.min(...allPoints.map(p => p.lat)), Math.min(...allPoints.map(p => p.lng))],
+                  [Math.max(...allPoints.map(p => p.lat)), Math.max(...allPoints.map(p => p.lng))],
+                ], { padding: [40, 40] });
+              }
+            }
+          } else {
+            setIsPujaRouteStarted(true);
+            setOptimizationStatus({
+              status: 'fallback',
+              message: 'Optimization fallback: Original pandal sequence preserved. Review the ordered itinerary below.',
+            });
+          }
+        } else {
+          setIsPujaRouteStarted(true);
+          setOptimizationStatus({
+            status: 'fallback',
+            message: 'Optimization fallback: Original pandal sequence preserved. Review the ordered itinerary below.',
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[RoutePlanner] Could not optimize pandal order, keeping original order:', err);
+      setIsPujaRouteStarted(true);
+      setOptimizationStatus({
+        status: 'fallback',
+        message: 'Could not complete optimization. Original pandal order retained. Review below.',
+      });
+    } finally {
+      setIsOptimizingPujaRoute(false);
+    }
+  };
+
+  // Start Puja Route action - starts navigation to Stop 1, optimizing first if not yet done
   const handleStartPujaRoute = async () => {
     if (selectedDestinations.length === 0) return;
 
@@ -302,9 +392,15 @@ export const RoutePlanner: React.FC = () => {
       return;
     }
 
+    // If already optimized, launch navigation immediately
+    if (isPujaRouteStarted && optimizationStatus.status === 'optimized') {
+      await startPujaRouteNavigation(finalOrderedStops);
+      return;
+    }
+
+    // Otherwise optimize first from GPS, update status, and then connect to navigation
     setIsOptimizingPujaRoute(true);
     try {
-      // Use the user's current real GPS position as the starting point
       const gpsLocation =
         currentLocation &&
         typeof currentLocation.lat === 'number' &&
@@ -313,23 +409,20 @@ export const RoutePlanner: React.FC = () => {
           : null;
 
       if (!gpsLocation) {
-        // If GPS position is unavailable, keep the user's original order
         setIsPujaRouteStarted(true);
         setOptimizationStatus({
           status: 'fallback',
           message: 'GPS location unavailable. Kept your original selected order.',
         });
       } else {
-        // Optimize order of the selected pandals using existing TSP optimization logic
-        // Note: destinations array is passed directly, keeping ONLY the selected pandals as required stops
+        const transport = routePreference === 'DRIVING' ? 'DRIVE' : (preferredTransport === 'DRIVE' ? 'DRIVE' : 'WALK');
         const optimized = await smartPujaRoutePlannerService.optimizeDestinationOrder(
           gpsLocation,
           selectedDestinations,
-          preferredTransport,
+          transport,
           priority
         );
 
-        // Verify all required stops are kept without additions or removals
         if (optimized && optimized.length === selectedDestinations.length) {
           const originalIds = new Set(selectedDestinations.map(d => d.id));
           const allPresent = optimized.every(d => originalIds.has(d.id));
@@ -343,7 +436,6 @@ export const RoutePlanner: React.FC = () => {
               message: `Route order optimized for ${optimized.length} stops from your GPS position. Starting navigation...`,
             });
           } else {
-            // If mismatch, keep original order
             setIsPujaRouteStarted(true);
             setOptimizationStatus({
               status: 'fallback',
@@ -351,7 +443,6 @@ export const RoutePlanner: React.FC = () => {
             });
           }
         } else {
-          // Fallback: keep original order
           setIsPujaRouteStarted(true);
           setOptimizationStatus({
             status: 'fallback',
@@ -361,7 +452,6 @@ export const RoutePlanner: React.FC = () => {
       }
     } catch (err) {
       console.warn('[RoutePlanner] Could not optimize pandal order, keeping original order:', err);
-      // If optimization cannot be completed, keep the user's original order
       setIsPujaRouteStarted(true);
       setOptimizationStatus({
         status: 'fallback',
@@ -728,32 +818,52 @@ export const RoutePlanner: React.FC = () => {
           )}
         </div>
 
-        {/* 2. Start Puja Route Button with GPS Optimization & Navigation Connection */}
+        {/* 2. Optimize Route & Start Navigation Action Buttons */}
         <div className="space-y-2 pt-1">
-          <button
-            id="btn-start-puja-route"
-            onClick={handleStartPujaRoute}
-            disabled={selectedDestinations.length === 0 || isOptimizingPujaRoute}
-            className="w-full py-3 px-4 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-neutral-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 transition-all uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-          >
-            {isOptimizingPujaRoute ? (
-              <>
-                <RefreshCw size={14} className="animate-spin text-neutral-950" />
-                <span>Optimizing Order from GPS...</span>
-              </>
-            ) : (
-              <>
-                <Play size={14} className="fill-neutral-950" />
-                <span>
-                  {pujaRouteSession?.isActive
-                    ? 'Restart / Re-optimize Route'
-                    : isPujaRouteStarted && optimizationStatus.status === 'optimized'
-                    ? 'Re-optimize & Start Route'
-                    : 'Start Puja Route'}
-                </span>
-              </>
-            )}
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              id="btn-optimize-puja-route"
+              onClick={handleOptimizePujaRouteOrder}
+              disabled={selectedDestinations.length === 0 || isOptimizingPujaRoute}
+              className={`py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer ${
+                optimizationStatus.status === 'optimized'
+                  ? 'bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-600/50 text-emerald-300'
+                  : 'bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700'
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
+            >
+              {isOptimizingPujaRoute ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin text-neutral-300" />
+                  <span>Optimizing from GPS...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={14} className={optimizationStatus.status === 'optimized' ? 'text-emerald-400' : 'text-amber-400'} />
+                  <span>
+                    {optimizationStatus.status === 'optimized'
+                      ? 'Re-optimize Route Order'
+                      : 'Optimize Route Order (GPS)'}
+                  </span>
+                </>
+              )}
+            </button>
+
+            <button
+              id="btn-start-puja-route"
+              onClick={handleStartPujaRoute}
+              disabled={selectedDestinations.length === 0 || isOptimizingPujaRoute}
+              className="py-3 px-4 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-neutral-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 transition-all uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <Play size={14} className="fill-neutral-950" />
+              <span>
+                {pujaRouteSession?.isActive
+                  ? 'Resume / Next Stop'
+                  : optimizationStatus.status === 'optimized'
+                  ? `Start Live Nav (Stop 1)`
+                  : 'Start Puja Route'}
+              </span>
+            </button>
+          </div>
 
           {isPujaRouteStarted && (
             <div

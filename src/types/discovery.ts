@@ -16,6 +16,13 @@ export interface PandalDataSourceRecord {
   note?: string;
 }
 
+export type EclipsePandalClassification =
+  | 'PANDAL'
+  | 'BONEDI_BARI'
+  | 'POSSIBLE_PANDAL'
+  | 'POSSIBLE_BONEDI_BARI'
+  | 'OTHER';
+
 export interface DiscoveredPandal {
   id: string;
   source: PandalSource;
@@ -28,6 +35,10 @@ export interface DiscoveredPandal {
   address: string;
   area: string;
   city?: string;
+  category?: EclipsePandalClassification | string;
+  classificationConfidence?: number;
+  classificationReason?: string;
+  isUncertain?: boolean;
   distance?: number; // in meters from user GPS
   estimatedTravelTime?: string; // e.g. "8 min"
   googleMapsUri?: string;
@@ -37,6 +48,10 @@ export interface DiscoveredPandal {
   userRatingCount?: number;
   openingHours?: string;
   status?: string; // 'OPEN' | 'OPERATIONAL' | 'TEMPORARY'
+  businessStatus?: string;
+  website?: string;
+  phone?: string;
+  attributions?: Array<{ provider?: string; providerUri?: string }>;
   eventInfo?: {
     theme?: string;
     description?: string;
@@ -122,6 +137,7 @@ export interface PandalDiscoveryParams {
   area?: string;
   mode?: 'nearby' | 'text' | 'area' | 'name' | 'all';
   sortBy?: 'recommended' | 'nearest' | 'fastest' | 'least_crowded';
+  skipExternalSearch?: boolean;
 }
 
 export interface DiscoveryResult {

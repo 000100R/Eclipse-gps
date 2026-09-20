@@ -118,11 +118,12 @@ export class SmartVisitService {
 
     // 4. Summarize Traffic Factor
     let trafficSummary = '';
-    if (!traffic) {
-      trafficSummary = 'No heavy arterial congestion recorded along immediate approach.';
+    if (!traffic || traffic.status === 'UNAVAILABLE') {
+      trafficSummary = 'Traffic data unavailable for immediate access roads.';
     } else {
       const delayStr = traffic.estimatedDelayMinutes > 0 ? `+${traffic.estimatedDelayMinutes} min delay` : 'negligible delay';
-      trafficSummary = `${traffic.corridorName} is ${traffic.status} (${delayStr}). ${traffic.alternativeRoute ? 'Advisory: ' + traffic.alternativeRoute : ''}`;
+      const statusWord = traffic.status === 'HEAVY' || traffic.status === 'CONGESTED' ? 'Heavy' : traffic.status === 'MODERATE' || traffic.status === 'SLOW' ? 'Moderate' : 'Clear';
+      trafficSummary = `${traffic.corridorName} traffic is ${statusWord} (${delayStr}). ${traffic.alternativeRoute ? 'Advisory: ' + traffic.alternativeRoute : ''}`;
     }
 
     // 5. Look for Less Crowded Alternatives if this pandal is heavily congested
@@ -156,8 +157,8 @@ export class SmartVisitService {
     const isCrowdHeavy = crowd.crowdLevel === 'HEAVY' || isCrowdExtreme;
     const isCrowdHigh = crowd.crowdLevel === 'HIGH';
     const isCrowdModerate = crowd.crowdLevel === 'MODERATE';
-    const isTrafficCongested = traffic?.status === 'CONGESTED';
-    const isTrafficSlow = traffic?.status === 'SLOW';
+    const isTrafficCongested = traffic?.status === 'CONGESTED' || traffic?.status === 'HEAVY';
+    const isTrafficSlow = traffic?.status === 'SLOW' || traffic?.status === 'MODERATE';
 
     if (isCrowdExtreme) {
       status = 'AVOID';

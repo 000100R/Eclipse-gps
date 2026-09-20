@@ -54,6 +54,8 @@ import {
   ChevronUp,
   AlertCircle,
 } from 'lucide-react';
+import { TrafficBadge } from '../../components/ui/TrafficBadge';
+import { TrafficIntelligenceItem } from '../../types/crowdTraffic';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import { DiscoveredPandal } from '../../types/discovery';
 import { pujaCalendarService } from '../../services/intelligence/pujaCalendarService';
@@ -212,7 +214,25 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
     pandalCrowdTrends
   );
 
-  const trafficItem = trafficIntelligenceService.getTrafficNearPandal(
+  const [liveGoogleTraffic, setLiveGoogleTraffic] = React.useState<TrafficIntelligenceItem | null>(null);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    if (activeLocation && pandalCoords) {
+      trafficIntelligenceService
+        .fetchLiveTrafficFromGoogle(activeLocation, pandalCoords, pandal.id, pandal.name)
+        .then((res) => {
+          if (isMounted && res) {
+            setLiveGoogleTraffic(res);
+          }
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [activeLocation, pandalCoords, pandal.id, pandal.name]);
+
+  const trafficItem = liveGoogleTraffic || trafficIntelligenceService.getTrafficNearPandal(
     pandal.id,
     pandal.location
   );
@@ -640,13 +660,13 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
       {/* Real-time Crowd & Traffic Intelligence HUD */}
       <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
         {/* Crowd Intelligence Status */}
-        <div className="p-2.5 rounded-xl bg-neutral-900/90 border border-neutral-800 flex flex-col justify-between gap-1.5">
+        <div id="pandal-card-crowd-intel" className="p-3 rounded-xl bg-neutral-900/90 border border-neutral-800 flex flex-col justify-between gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider flex items-center gap-1">
-              <Users className="w-3 h-3 text-neutral-300" />
+            <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 text-primary" />
               Crowd Status
             </span>
-            <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase border ${
+            <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase border ${
               crowdItem.source === 'LIVE'
                 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                 : crowdItem.source === 'ESTIMATED'
@@ -660,51 +680,68 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
           </div>
 
           {crowdItem.crowdLevel !== 'UNAVAILABLE' ? (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                  crowdItem.crowdLevel === 'EXTREME'
-                    ? 'text-rose-400 bg-rose-500/10 border-rose-500/30 animate-pulse'
-                    : crowdItem.crowdLevel === 'HEAVY'
-                    ? 'text-orange-400 bg-orange-500/10 border-orange-500/30'
-                    : crowdItem.crowdLevel === 'HIGH'
-                    ? 'text-orange-400 bg-orange-500/10 border-orange-500/30'
-                    : crowdItem.crowdLevel === 'MODERATE'
-                    ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
-                    : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
-                }`}>
-                  {crowdItem.crowdLevel}
-                </span>
-                {crowdItem.crowdTrend !== 'UNKNOWN' && (
-                  <span className="text-[11px] text-neutral-300 flex items-center gap-0.5">
-                    {crowdItem.crowdTrend === 'RISING' && <TrendingUp className="w-3 h-3 text-rose-400" />}
-                    {crowdItem.crowdTrend === 'FALLING' && <TrendingDown className="w-3 h-3 text-emerald-400" />}
-                    {crowdItem.crowdTrend === 'STABLE' && <Minus className="w-3 h-3 text-neutral-400" />}
-                    <span className="capitalize">{crowdItem.crowdTrend.toLowerCase()}</span>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between flex-wrap gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                    crowdItem.crowdLevel === 'EXTREME'
+                      ? 'text-rose-400 bg-rose-500/10 border-rose-500/30 animate-pulse'
+                      : crowdItem.crowdLevel === 'HEAVY'
+                      ? 'text-orange-400 bg-orange-500/10 border-orange-500/30'
+                      : crowdItem.crowdLevel === 'HIGH'
+                      ? 'text-orange-400 bg-orange-500/10 border-orange-500/30'
+                      : crowdItem.crowdLevel === 'MODERATE'
+                      ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
+                      : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+                  }`}>
+                    {crowdItem.crowdLevel} CROWD
+                  </span>
+                  {crowdItem.crowdTrend !== 'UNKNOWN' && (
+                    <span className="text-[11px] text-neutral-300 flex items-center gap-0.5">
+                      {crowdItem.crowdTrend === 'RISING' && <TrendingUp className="w-3 h-3 text-rose-400" />}
+                      {crowdItem.crowdTrend === 'FALLING' && <TrendingDown className="w-3 h-3 text-emerald-400" />}
+                      {crowdItem.crowdTrend === 'STABLE' && <Minus className="w-3 h-3 text-neutral-400" />}
+                      <span className="capitalize">{crowdItem.crowdTrend.toLowerCase()}</span>
+                    </span>
+                  )}
+                </div>
+                {crowdItem.queueWaitMinutes !== undefined && (
+                  <span className="text-[11px] text-neutral-300 font-mono">
+                    ~{crowdItem.queueWaitMinutes}m wait
                   </span>
                 )}
               </div>
-              {crowdItem.queueWaitMinutes !== undefined && (
-                <span className="text-[11px] text-neutral-400 font-mono">
-                  ~{crowdItem.queueWaitMinutes}m queue
-                </span>
+
+              {/* Source-specific context details */}
+              {crowdItem.source === 'LIVE' && crowdItem.activePresenceCount !== undefined && (
+                <p className="text-[10px] text-emerald-400/90 font-mono">
+                  ● {crowdItem.activePresenceCount} active user{crowdItem.activePresenceCount > 1 ? 's' : ''} in GPS mesh
+                </p>
+              )}
+              {crowdItem.source === 'HISTORICAL' && crowdItem.historicalPeakWindow && (
+                <p className="text-[10px] text-purple-300/80 leading-tight">
+                  Benchmark peak: {crowdItem.historicalPeakWindow}
+                </p>
               )}
             </div>
           ) : (
-            <div className="py-0.5">
-              <p className="text-[11px] text-neutral-300 font-medium">
+            <div className="py-1">
+              <p className="text-xs text-neutral-300 font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-neutral-600"></span>
                 Crowd data unavailable
               </p>
-              <p className="text-[9px] text-neutral-500 mt-0.5 leading-tight">
+              <p className="text-[10px] text-neutral-500 mt-0.5 leading-tight">
                 {crowdItem.notes || 'Awaiting live user presence on-site.'}
               </p>
             </div>
           )}
 
-          <div className="flex items-center justify-between pt-1 border-t border-neutral-800/60 text-[9px] text-neutral-500">
-            <span className="truncate max-w-[130px]">{crowdItem.sourceLabel}</span>
+          <div className="flex items-center justify-between pt-1.5 border-t border-neutral-800/60 text-[9px] text-neutral-500">
+            <span className="truncate max-w-[140px]">{crowdItem.sourceLabel}</span>
             <span className="font-mono shrink-0">
-              {new Date(crowdItem.lastUpdated).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+              {crowdItem.source === 'HISTORICAL'
+                ? 'Benchmark'
+                : new Date(crowdItem.lastUpdated).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
             </span>
           </div>
         </div>
@@ -716,56 +753,54 @@ export const PandalIntelligenceCard: React.FC<PandalIntelligenceCardProps> = ({
               <Car className="w-3 h-3 text-neutral-300" />
               Arterial Traffic
             </span>
-            <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase border ${
-              trafficItem?.source === 'LIVE'
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                : trafficItem?.source === 'ESTIMATED'
-                ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
-                : 'bg-neutral-800/90 text-neutral-400 border-neutral-700'
-            }`}>
-              {trafficItem?.source || 'BASELINE'}
-            </span>
+            {trafficItem && trafficItem.status !== 'UNAVAILABLE' && trafficItem.source !== 'UNAVAILABLE' ? (
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase border ${
+                trafficItem.source === 'LIVE'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : trafficItem.source === 'ESTIMATED'
+                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                  : 'bg-neutral-800/90 text-neutral-400 border-neutral-700'
+              }`}>
+                {trafficItem.source}
+              </span>
+            ) : null}
           </div>
 
           {trafficItem && trafficItem.status !== 'UNAVAILABLE' ? (
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                  trafficItem.status === 'CONGESTED'
-                    ? 'text-rose-400 bg-rose-500/10 border-rose-500/30'
-                    : trafficItem.status === 'SLOW'
-                    ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
-                    : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
-                }`}>
-                  {trafficItem.status}
-                </span>
-                <span className="text-[11px] text-neutral-400 truncate max-w-[100px]">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <TrafficBadge status={trafficItem.status} />
+                <span className="text-[11px] text-neutral-300 truncate max-w-[120px]" title={trafficItem.affectedRoad}>
                   {trafficItem.affectedRoad}
                 </span>
               </div>
               {trafficItem.estimatedDelayMinutes !== undefined && (
-                <span className={`text-[11px] font-mono font-semibold ${
-                  trafficItem.estimatedDelayMinutes > 15 ? 'text-rose-400' : 'text-neutral-400'
+                <span className={`text-[11px] font-mono font-semibold shrink-0 ${
+                  trafficItem.estimatedDelayMinutes > 15 ? 'text-rose-400' : 'text-neutral-300'
                 }`}>
-                  {trafficItem.estimatedDelayMinutes > 0 ? `+${trafficItem.estimatedDelayMinutes}m delay` : 'Flowing'}
+                  {trafficItem.estimatedDelayMinutes > 0 ? `+${trafficItem.estimatedDelayMinutes}m delay` : 'Clear Flow'}
                 </span>
               )}
             </div>
           ) : (
             <div className="py-0.5">
-              <p className="text-[11px] text-neutral-300 font-medium">
-                Traffic data unavailable
-              </p>
-              <p className="text-[9px] text-neutral-500 mt-0.5 leading-tight">
-                No arterial congestion alerts reported along access roads.
+              <div className="flex items-center gap-1.5">
+                <TrafficBadge status="UNAVAILABLE" />
+              </div>
+              <p className="text-[9px] text-neutral-500 mt-1 leading-tight">
+                No active traffic sensors or police advisories logged along this approach road.
               </p>
             </div>
           )}
 
           <div className="flex items-center justify-between pt-1 border-t border-neutral-800/60 text-[9px] text-neutral-500">
-            <span className="truncate max-w-[130px]">{trafficItem?.sourceLabel || 'Traffic Baseline'}</span>
+            <span className="truncate max-w-[140px]">
+              {trafficItem && trafficItem.status !== 'UNAVAILABLE' ? trafficItem.sourceLabel : 'Traffic data unavailable'}
+            </span>
             <span className="font-mono shrink-0">
-              {trafficItem?.lastUpdated ? new Date(trafficItem.lastUpdated).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}
+              {trafficItem && trafficItem.status !== 'UNAVAILABLE' && trafficItem.lastUpdated
+                ? new Date(trafficItem.lastUpdated).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                : '—'}
             </span>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { BottomSheet } from '../../components/ui/BottomSheet';
 import { Send, Sparkles, AlertCircle, Compass, HelpCircle } from 'lucide-react';
 import { PandalCardList } from '../pandals/PandalCardList';
 import { BonediBariCardList } from '../bonediBari/BonediBariCardList';
+import { MetroGateCopilotCard } from '../map/MetroGateCopilotCard';
 
 export const EclipseAIChat: React.FC = () => {
   const {
@@ -38,7 +39,11 @@ export const EclipseAIChat: React.FC = () => {
   };
 
   const quickPrompts = [
-    'Find pandals near me',
+    'Which metro exit should I take for this pandal?',
+    'Plan my Puja route',
+    'Take me to the nearest pandal',
+    'Show nearby pandals',
+    'Show unvisited pandals',
     'Show Bonedi Bari near me',
     'Plan a Bonedi Bari tour',
     'Suggest a low-crowd route',
@@ -127,6 +132,14 @@ export const EclipseAIChat: React.FC = () => {
                     <BonediBariCardList
                       bonediBaris={msg.discoveredBonediBaris}
                       onActionComplete={() => setIsAiSheetOpen(false)}
+                    />
+                  )}
+
+                  {/* Metro Gate Recommendation Card */}
+                  {msg.metroGateResult && (
+                    <MetroGateCopilotCard
+                      result={msg.metroGateResult}
+                      onNavigateStart={() => setIsAiSheetOpen(false)}
                     />
                   )}
 

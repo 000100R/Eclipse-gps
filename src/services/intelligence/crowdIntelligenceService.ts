@@ -154,7 +154,16 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
         location: pLoc,
         crowdLevel: reportLevel,
         crowdTrend: 'STABLE',
-        queueWaitMinutes: reportLevel === 'EXTREME' ? 120 : reportLevel === 'HEAVY' ? 60 : reportLevel === 'MODERATE' ? 20 : 5,
+        queueWaitMinutes:
+          reportLevel === 'EXTREME'
+            ? 120
+            : reportLevel === 'HEAVY'
+            ? 60
+            : reportLevel === 'HIGH'
+            ? 45
+            : reportLevel === 'MODERATE'
+            ? 20
+            : 5,
         source: 'ESTIMATED',
         sourceLabel: 'Verified Community Report (last 30m)',
         confidence: 'MEDIUM',
@@ -166,9 +175,51 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
       return item;
     }
 
-    // 3. UNAVAILABLE: Zero real live telemetry or outside festival period
-    // No mock/static fallback is permitted. Eclipse strictly prefers "Crowd data unavailable".
-    const isFestival = pujaCalendarService.isFestivalPeriod();
+    // 3. HISTORICAL DATA: Verified festival benchmarks from curated records in project
+    const curatedMatch = curatedEclipsePandals.find(
+      (cp) => cp.id === pId || (cp.name && pName && cp.name.toLowerCase() === pName.toLowerCase())
+    );
+    const candidateLevel = (curatedMatch?.crowdLevel || (pandal?.crowdLevel && pandal.crowdLevel !== 'UNAVAILABLE' ? pandal.crowdLevel : undefined)) as CrowdStatusLevel | undefined;
+    const rawHistoricalTrend = curatedMatch?.crowdTrend || pandal?.crowdTrend;
+
+    if (candidateLevel && candidateLevel !== 'UNAVAILABLE') {
+      let trend: CrowdTrend = 'STABLE';
+      if (rawHistoricalTrend === 'RISING' || rawHistoricalTrend === 'INCREASING') trend = 'RISING';
+      else if (rawHistoricalTrend === 'FALLING' || rawHistoricalTrend === 'DECREASING') trend = 'FALLING';
+
+      const waitMins =
+        candidateLevel === 'EXTREME'
+          ? 90
+          : candidateLevel === 'HEAVY'
+          ? 60
+          : candidateLevel === 'HIGH'
+          ? 45
+          : candidateLevel === 'MODERATE'
+          ? 20
+          : 10;
+
+      const historicalItem: CrowdIntelligenceItem = {
+        id: `crowd-${pId}`,
+        pandalId: pId,
+        pandalName: pName,
+        location: pLoc,
+        crowdLevel: candidateLevel,
+        crowdTrend: trend,
+        queueWaitMinutes: waitMins,
+        source: 'HISTORICAL',
+        sourceLabel: 'Historical Puja Benchmark',
+        confidence: 'MEDIUM',
+        lastUpdated: Date.now(),
+        historicalPeakWindow: '07:00 PM – 02:00 AM (Ashtami / Navami peak)',
+        notes: 'Documented Durga Puja footfall benchmark from past festival editions. Live telemetry activates when on-site presence is detected.',
+      };
+
+      this.crowdCache.set(pId, historicalItem);
+      return historicalItem;
+    }
+
+    // 4. UNAVAILABLE: Zero real live telemetry, no community report, and no verified historical record
+    // Never invent or guess crowd data.
     const unavailableItem: CrowdIntelligenceItem = {
       id: `crowd-${pId}`,
       pandalId: pId,
@@ -177,14 +228,10 @@ class CrowdIntelligenceService implements IntelligenceDataProvider<CrowdIntellig
       crowdLevel: 'UNAVAILABLE',
       crowdTrend: 'UNKNOWN',
       source: 'UNAVAILABLE',
-      sourceLabel: isFestival
-        ? 'No live telemetry detected within geofence'
-        : 'Festival period not yet started — no live presence data',
+      sourceLabel: 'Crowd data unavailable',
       confidence: 'NONE',
       lastUpdated: Date.now(),
-      notes: isFestival
-        ? 'Crowd data unavailable. Awaiting live user check-ins on-site.'
-        : 'Durga Puja 2026 begins in October. Live crowd telemetry activates when devotees arrive on-site.',
+      notes: 'Crowd data unavailable. Awaiting live user check-ins on-site.',
     };
 
     this.crowdCache.set(pId, unavailableItem);

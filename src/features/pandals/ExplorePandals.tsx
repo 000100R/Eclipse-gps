@@ -5,6 +5,7 @@ import { CrowdBadge } from '../../components/ui/CrowdBadge';
 import { crowdService } from '../../services/realtime/crowdService';
 import { isFirebaseConfigured } from '../../services/firebase';
 import { getPandalCrowdMetrics } from '../../utils/crowdUtils';
+import { crowdIntelligenceService } from '../../services/intelligence/crowdIntelligenceService';
 import { Star, Check, Navigation, AlertTriangle, MessageSquare, HelpCircle, Users } from 'lucide-react';
 import { CrowdLevel } from '../../types';
 
@@ -131,6 +132,12 @@ export const ExplorePandals: React.FC = () => {
           filteredPandals.map((pandal) => {
             const isVisited = visitedIds.includes(pandal.id);
             const isFav = isSaved(pandal.id);
+            const crowdItem = crowdIntelligenceService.getCrowdForPandal(
+              pandal.id,
+              pandal,
+              pandalCrowdCounts,
+              pandalCrowdTrends
+            );
 
             return (
               <GlassPanel key={pandal.id} className="p-4 flex flex-col space-y-3.5">
@@ -138,7 +145,7 @@ export const ExplorePandals: React.FC = () => {
                   <div className="min-w-0 pr-2">
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">{pandal.zone} Kolkata</span>
-                      <CrowdBadge level={pandal.crowdLevel} />
+                      <CrowdBadge level={crowdItem.crowdLevel} status={crowdItem.source} showStatus={true} />
                       {isVisited && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                           <Check size={10} className="stroke-[3]" />
@@ -179,11 +186,11 @@ export const ExplorePandals: React.FC = () => {
                     <p className="text-neutral-300 font-semibold mt-0.5 truncate">{pandal.theme}</p>
                   </div>
                   <div>
-                    <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider">Queue Time (Est.)</span>
-                    {pandal.crowdLevel === 'UNAVAILABLE' ? (
+                    <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider">Queue Wait (Est.)</span>
+                    {crowdItem.crowdLevel === 'UNAVAILABLE' ? (
                       <p className="text-neutral-500 font-medium mt-0.5">⏱ Unavailable</p>
                     ) : (
-                      <p className="text-emerald-400 font-bold mt-0.5">⏱ {pandal.queueTimeMinutes} mins wait</p>
+                      <p className="text-emerald-400 font-bold mt-0.5">⏱ ~{crowdItem.queueWaitMinutes ?? 15} mins</p>
                     )}
                   </div>
                   <div>
@@ -194,28 +201,48 @@ export const ExplorePandals: React.FC = () => {
                     <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-wider">Rating & Safety</span>
                     <p className="text-amber-400 font-semibold mt-0.5">★ {pandal.rating} • {pandal.safetyStatus || 'SECURE'}</p>
                   </div>
-                  {isFirebaseConfigured() && (
-                    <div className="col-span-2 border-t border-neutral-900 pt-2 flex flex-col space-y-1 text-[11px]">
+                  <div className="col-span-2 border-t border-neutral-900 pt-2 flex flex-col space-y-1 text-[11px]">
+                    <div className="flex items-center justify-between">
                       <span className="text-[9px] text-indigo-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                        <Users size={10} /> Live Crowd Intelligence
+                        <Users size={10} /> Crowd Intelligence
                       </span>
-                      {(() => {
-                        const metrics = getPandalCrowdMetrics(pandal.id, pandalCrowdCounts, pandalCrowdTrends);
-                        if (!metrics.available) {
-                          return <p className="text-neutral-500 italic mt-0.5">Live crowd data unavailable</p>;
-                        }
-                        return (
-                          <div className="flex items-center justify-between mt-0.5">
-                            <span className="text-neutral-300 font-semibold">👥 {metrics.count} Eclipse users nearby</span>
-                            <span className="flex items-center space-x-1.5">
-                              <span className={`font-bold ${metrics.levelColorClass}`}>{metrics.levelLabel}</span>
-                              <span className="text-neutral-400 font-semibold">• {metrics.trendLabel}</span>
-                            </span>
-                          </div>
-                        );
-                      })()}
+                      <span className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-bold uppercase border ${
+                        crowdItem.source === 'LIVE'
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                          : crowdItem.source === 'ESTIMATED'
+                          ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                          : crowdItem.source === 'HISTORICAL'
+                          ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                          : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                      }`}>
+                        {crowdItem.source}
+                      </span>
                     </div>
-                  )}
+                    {crowdItem.crowdLevel === 'UNAVAILABLE' ? (
+                      <p className="text-neutral-500 italic mt-0.5">Crowd data unavailable</p>
+                    ) : (
+                      <div className="flex items-center justify-between mt-0.5 flex-wrap gap-1">
+                        <span className="text-neutral-300 font-semibold text-[10px]">
+                          {crowdItem.source === 'LIVE' && crowdItem.activePresenceCount !== undefined
+                            ? `👥 ${crowdItem.activePresenceCount} active in GPS mesh`
+                            : crowdItem.sourceLabel}
+                        </span>
+                        <span className="flex items-center space-x-1.5">
+                          <span className={`font-bold ${
+                            crowdItem.crowdLevel === 'EXTREME' ? 'text-rose-400' :
+                            crowdItem.crowdLevel === 'HEAVY' ? 'text-orange-400' :
+                            crowdItem.crowdLevel === 'HIGH' ? 'text-orange-400' :
+                            crowdItem.crowdLevel === 'MODERATE' ? 'text-amber-400' : 'text-emerald-400'
+                          }`}>
+                            {crowdItem.crowdLevel}
+                          </span>
+                          {crowdItem.crowdTrend !== 'UNKNOWN' && (
+                            <span className="text-neutral-400 font-semibold">• {crowdItem.crowdTrend}</span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Additional Amenities Badges */}

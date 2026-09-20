@@ -325,21 +325,20 @@ export const GoogleMapView: React.FC = () => {
       map.setTilt(0);
       map.setHeading(0);
     } else if (mapStyle === '3d') {
-      map.setMapTypeId('roadmap');
-      map.setTilt(55); // WebGL Vector perspective tilt
-
-      // Wait a frame and check vector capability
-      setTimeout(() => {
-        if (mapInstanceRef.current) {
-          const isVector = mapInstanceRef.current.getRenderingType() === 'VECTOR';
-          const hasMapId = !!mapId;
-          if (!isVector || !hasMapId) {
-            setIs3DSupported(false);
-          } else {
-            setIs3DSupported(true);
-          }
-        }
-      }, 500);
+      const isVector = map.getRenderingType() === 'VECTOR';
+      const hasValidMapId = !!mapId;
+      if (isVector && hasValidMapId) {
+        map.setMapTypeId('roadmap');
+        map.setTilt(55); // WebGL Vector perspective tilt
+        setIs3DSupported(true);
+      } else {
+        // True 3D is not supported by current configuration; do not fake 3D view
+        map.setMapTypeId('roadmap');
+        map.setTilt(0);
+        map.setHeading(0);
+        setIs3DSupported(false);
+        setMapStyle('standard');
+      }
     }
   }, [mapStyle, googleLoaded, mapId]);
 
@@ -369,8 +368,13 @@ export const GoogleMapView: React.FC = () => {
     // 3. Draw Eclipse Puja festival arterial corridors
     const corridors = trafficIntelligenceService.getAllCorridors();
     corridors.forEach((c) => {
-      const color = c.status === 'CONGESTED' ? '#f43f5e' : c.status === 'SLOW' ? '#f59e0b' : '#10b981';
-      const weight = c.status === 'CONGESTED' ? 7 : c.status === 'SLOW' ? 6 : 5;
+      const isHeavy = c.status === 'CONGESTED' || c.status === 'HEAVY';
+      const isModerate = c.status === 'SLOW' || c.status === 'MODERATE';
+      const isClear = c.status === 'CLEAR';
+
+      const color = isHeavy ? '#f43f5e' : isModerate ? '#f59e0b' : isClear ? '#10b981' : '#737373';
+      const weight = isHeavy ? 7 : isModerate ? 6 : 5;
+      const statusLabel = isHeavy ? 'Heavy' : isModerate ? 'Moderate' : isClear ? 'Clear' : 'Unavailable';
 
       if (c.polyPoints && c.polyPoints.length > 1) {
         const polyline = new google.maps.Polyline({
@@ -385,11 +389,11 @@ export const GoogleMapView: React.FC = () => {
       }
 
       // Corridor advisory marker
-      const delayText = c.estimatedDelayMinutes > 0 ? `+${c.estimatedDelayMinutes}m` : 'Flowing';
+      const delayText = c.estimatedDelayMinutes > 0 ? `+${c.estimatedDelayMinutes}m delay` : 'Clear Flow';
       const tMarker = new google.maps.Marker({
         position: { lat: c.location.lat, lng: c.location.lng },
         map,
-        title: `${c.corridorName}: ${c.status} (${delayText})`,
+        title: `${c.corridorName}: ${statusLabel} (${delayText})`,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 7,
@@ -423,9 +427,9 @@ export const GoogleMapView: React.FC = () => {
     crowdItems.forEach((item) => {
       if (item.crowdLevel === 'UNAVAILABLE') return;
 
-      const radius = item.crowdLevel === 'HEAVY' ? 260 : item.crowdLevel === 'HIGH' ? 200 : item.crowdLevel === 'MODERATE' ? 140 : 90;
-      const color = item.crowdLevel === 'HEAVY' ? '#f43f5e' : item.crowdLevel === 'HIGH' ? '#f97316' : item.crowdLevel === 'MODERATE' ? '#f59e0b' : '#10b981';
-      const opacity = item.crowdLevel === 'HEAVY' ? 0.28 : item.crowdLevel === 'HIGH' ? 0.22 : 0.16;
+      const radius = item.crowdLevel === 'EXTREME' ? 320 : item.crowdLevel === 'HEAVY' ? 260 : item.crowdLevel === 'HIGH' ? 200 : item.crowdLevel === 'MODERATE' ? 140 : 90;
+      const color = item.crowdLevel === 'EXTREME' ? '#e11d48' : item.crowdLevel === 'HEAVY' ? '#f43f5e' : item.crowdLevel === 'HIGH' ? '#f97316' : item.crowdLevel === 'MODERATE' ? '#f59e0b' : '#10b981';
+      const opacity = item.crowdLevel === 'EXTREME' ? 0.35 : item.crowdLevel === 'HEAVY' ? 0.28 : item.crowdLevel === 'HIGH' ? 0.22 : 0.16;
 
       const circle = new google.maps.Circle({
         strokeColor: color,

@@ -157,8 +157,14 @@ function classifyGeminiError(error: any): { message: string; type: string; statu
     };
   }
 
+  const rawMsg = error?.message || 'Internal server error';
+  // Strip out any sensitive query strings or key patterns if present in error message
+  const sanitizedMsg = rawMsg
+    .replace(/key=[A-Za-z0-9_-]+/gi, 'key=[REDACTED]')
+    .replace(/AIza[0-9A-Za-z_-]{30,}/g, '[REDACTED_KEY]');
+
   return {
-    message: `Gemini server/API route failure: ${error?.message || 'Internal server error'}`,
+    message: `Gemini server/API route failure: ${sanitizedMsg}`,
     type: 'SERVER_ROUTE_ERROR',
     status: typeof status === 'number' && status >= 400 && status < 600 ? status : 500,
   };
@@ -308,6 +314,10 @@ You support the following validated ACTION_TYPE values. You must select the sing
 - QUERY_CROWD_INTELLIGENCE: Use when the user asks about crowd density, footfall levels, queue times, or finding low-crowd pandals, e.g. "Which pandals are less crowded right now?", "Where can I find lower crowds nearby?", "How crowded is College Square?", "Is Maddox Square crowded?", "Find pandals with short wait times". (Parameters: pandalName, query, crowdPreference)
 - QUERY_TRAFFIC_INTELLIGENCE: Use when the user asks about traffic conditions, police road advisories, delays, or arterial congestion, e.g. "Is traffic heavy near Bagbazar?", "How is traffic on EM Bypass?", "Traffic near Rash Behari Avenue", "What roads are congested right now?". (Parameters: corridorName, area, query)
 - SMART_VISIT_RECOMMENDATION: Use when the user asks whether they should visit a pandal now or later, or asks for the best time to visit based on combined crowd and traffic conditions, e.g. "Should I go to College Square now or later?", "When should I visit Maddox Square?", "Is it a good time to go to Sreebhumi?". (Parameters: pandalName, query)
+- METRO_GATE_INTELLIGENCE: Use when the user asks "Which metro exit should I take for this pandal?", "Which metro exit should I take?", "Which metro gate should I take?", "Best metro exit for this pandal", "Which metro gate for pandal", "Metro exit for this pandal", or asks which metro gate/exit to take for a pandal. (Parameters: pandalName, query)
+- PLAN_PUJA_ROUTE: Use when the user asks "Plan my Puja route", "Plan puja route", "Plan my route", "Multi pandal route planner", "Plan my pandal tour", or wants to plan a custom multi-pandal Puja route from their GPS position. (Parameters: category: "pandal")
+- NAVIGATE_TO_NEAREST_PANDAL: Use when the user asks to navigate, route, or take them to the nearest or closest pandal, e.g. "Take me to the nearest pandal", "Navigate to the nearest pandal", "Route me to the nearest pandal", "Take me to closest pandal", "Go to the nearest pandal", "Walk to nearest pandal", "Drive to nearest pandal". (Parameters: category: "pandal")
+- SHOW_UNVISITED_PANDALS: Use when the user asks to see pandals they have not visited yet, e.g. "Show unvisited pandals", "Show pandals I haven't visited", "Unvisited pandals near me", "Which pandals have I not seen?", "Pandals not visited yet". (Parameters: radius: 5000, category: "pandal")
 - SEARCH_NEARBY_PANDALS: Use when the user asks for pandals around them, e.g. "Find nearby pandals", "Show pandals near me", "What pandals are around me?", "Show all nearby Durga Puja pandals". (Parameters: radius: 5000, category: "pandal")
 - SEARCH_PANDALS_BY_NAME: Use when the user searches for a specific pandal by name, e.g. "Find Maddox Square", "Show Maddox Square on the map", "Show Deshapriya Park", "Find Sreebhumi". (Parameters: name, query)
 - SEARCH_PANDALS_BY_AREA: Use when the user asks for pandals in a specific neighborhood or zone, e.g. "Find pandals near Salt Lake", "Show pandals around Ballygunge", "Show all pandals around South Kolkata", "Pandals in Behala". (Parameters: area, query)
@@ -334,8 +344,32 @@ You support the following validated ACTION_TYPE values. You must select the sing
 - SHOW_ALERTS: View active warnings or crowd alerts. (Parameters: query)
 - NO_ACTION: When the user asks a general informational question or makes chit-chat that doesn't trigger map adjustments. (Parameters: query)
 
+IMPORTANT DIRECTIVE FOR METRO EXIT / GATE INTELLIGENCE:
+When the user asks "Which metro exit should I take for this pandal?", "Which metro exit should I take?", "Which metro gate should I take?", "Best metro exit for this pandal", "Which metro gate for pandal", "Metro exit for this pandal", or asks which metro gate/exit to take for a pandal:
+1. Select action "METRO_GATE_INTELLIGENCE" with parameters: { "query": "<user prompt>", "pandalName": "<pandal name if mentioned, otherwise empty string>" }.
+2. In your "text" field, give a short, immediate confirmation (e.g., "Analyzing verified Metro Gate Intelligence to find the nearest metro station, compare walking routes from available gates, and recommend the best exit.").
+3. Do NOT guess or invent metro gates, coordinates, distances, or times. The application's verified Metro Gate Intelligence service will look up genuine metro stations and verified gate data, calculate real walking routes and durations from each gate to the pandal, and allow starting navigation. If verified gate data is unavailable for that station, the application will clearly state so.
+
+IMPORTANT DIRECTIVE FOR MULTI-PANDAL PUJA ROUTE:
+When the user asks to "Plan my Puja route", "Plan puja route", "Plan my route", "Multi pandal route planner", "Plan my pandal tour", or similar multi-pandal route planning commands:
+1. Select action "PLAN_PUJA_ROUTE" with parameters: { "category": "pandal" }.
+2. In your "text" field, give a short, immediate confirmation (e.g., "Opening the Multi-Pandal Puja Route planner with your real GPS position as the start point. You can select your pandals and optimize the route.").
+3. Do NOT add or invent pandals, do NOT fabricate stops, and do NOT fabricate distances. The application's existing Multi-Pandal Puja Route feature will allow the user to select pandals, run the existing route optimization logic from their real GPS position, show the optimized ordered route, and start navigation using the existing walking/driving routing system.
+
+IMPORTANT DIRECTIVE FOR NAVIGATE TO NEAREST PANDAL:
+When the user asks to "Take me to the nearest pandal", "Navigate to the nearest pandal", "Route me to the nearest pandal", "Take me to closest pandal", or similar commands:
+1. Select action "NAVIGATE_TO_NEAREST_PANDAL" with parameters: { "category": "pandal" }.
+2. In your "text" field, give a short, immediate confirmation (e.g., "Finding the nearest verified Durga Puja pandal from your GPS position and starting turn-by-turn navigation.").
+3. Do NOT invent a pandal name, do NOT fabricate distance, and do NOT execute an internal AI search. The application's local Pandal Discovery Service will calculate the exact nearest pandal from the user's real GPS position and launch turn-by-turn navigation.
+
+IMPORTANT DIRECTIVE FOR UNVISITED PANDALS:
+When the user asks to "Show unvisited pandals", "Show pandals I haven't visited", "Unvisited pandals near me", or similar queries:
+1. Select action "SHOW_UNVISITED_PANDALS" with parameters: { "radius": 5000, "category": "pandal" }.
+2. In your "text" field, give a short, immediate confirmation (e.g., "Finding verified Durga Puja pandals you haven't visited yet near your GPS coordinates.").
+3. Do NOT execute an internal AI search for pandals, do NOT invent or list pandal names, and do NOT fabricate distances. The application's local Pandal Discovery Service and Visited Pandals tracking will filter and display genuine unvisited pandals sorted nearest-first using existing pandal cards.
+
 IMPORTANT DIRECTIVE FOR NEARBY PANDAL DISCOVERY:
-When the user asks to "Find nearby pandals", "Show pandals near me", "What pandals are around me?", or similar nearby discovery queries:
+When the user asks to "Show nearby pandals", "Find nearby pandals", "Show pandals near me", "What pandals are around me?", or similar nearby discovery queries:
 1. Select action "SEARCH_NEARBY_PANDALS" with parameters: { "radius": 5000, "category": "pandal" }.
 2. In your "text" field, give a short, immediate confirmation (e.g., "Scanning verified Durga Puja pandals near your GPS coordinates.").
 3. Do NOT execute an internal AI search for pandals, do NOT fabricate or list pandal names in your response, and do NOT include a "query" parameter for generic nearby requests. The application's local Pandal Discovery Engine will directly query the verified 531-record Eclipse pandal database using their exact GPS coordinates and render interactive pandal cards.
@@ -416,6 +450,108 @@ How to handle specific festival inquiries:
  */
 function generateFallbackIntent(promptText: string, userLocation?: { lat: number; lng: number }): { text: string; action: string; parameters: any } {
   const p = (promptText || '').toLowerCase();
+
+  // -6. Metro Exit / Gate Intelligence (Action: METRO_GATE_INTELLIGENCE)
+  if (
+    p.includes('which metro exit') ||
+    p.includes('which metro gate') ||
+    p.includes('what metro exit') ||
+    p.includes('what metro gate') ||
+    p.includes('metro exit should i take') ||
+    p.includes('metro gate should i take') ||
+    p.includes('best metro exit') ||
+    p.includes('best metro gate') ||
+    p.includes('exit should i take for this pandal') ||
+    p.includes('metro exit for this pandal') ||
+    p.includes('metro gate for this pandal') ||
+    (p.includes('metro exit') && (p.includes('pandal') || p.includes('take') || p.includes('for'))) ||
+    (p.includes('metro gate') && (p.includes('pandal') || p.includes('take') || p.includes('for'))) ||
+    p.trim() === 'which metro exit should i take for this pandal?' ||
+    p.trim() === 'which metro exit should i take for this pandal'
+  ) {
+    return {
+      text: "Evaluating verified Metro Gate Intelligence to find the nearest station, compare walking routes from available gates, and recommend the best exit.",
+      action: "METRO_GATE_INTELLIGENCE",
+      parameters: { query: promptText },
+    };
+  }
+
+  // -5. Plan my Puja route (Action: PLAN_PUJA_ROUTE)
+  if (
+    p.includes('plan my puja route') ||
+    p.includes('plan puja route') ||
+    p.includes('plan my route') ||
+    p.includes('multi pandal route') ||
+    p.includes('multi-pandal route') ||
+    p.includes('pandal route planner') ||
+    p.includes('plan route') ||
+    p.includes('puja route') ||
+    p.trim() === 'plan my puja route'
+  ) {
+    return {
+      text: "Opening the Multi-Pandal Puja Route planner with your real GPS position as the start point. You can select your pandals and optimize the route.",
+      action: "PLAN_PUJA_ROUTE",
+      parameters: { category: "pandal" },
+    };
+  }
+
+  // -4. Unvisited Durga Puja Pandals (Action: SHOW_UNVISITED_PANDALS)
+  if (
+    p.includes('show unvisited pandals') ||
+    p.includes('unvisited pandals') ||
+    p.includes('pandals i haven\'t visited') ||
+    p.includes('pandals i havent visited') ||
+    p.includes('not visited yet') ||
+    p.includes('unvisited puja') ||
+    p.includes('pujas not visited') ||
+    p.includes('unvisited') ||
+    p.trim() === 'show unvisited pandals'
+  ) {
+    return {
+      text: "Finding verified Durga Puja pandals you haven't visited yet near your GPS coordinates.",
+      action: "SHOW_UNVISITED_PANDALS",
+      parameters: { radius: 5000, category: "pandal" },
+    };
+  }
+
+  // -3. Take me to the nearest pandal (Action: NAVIGATE_TO_NEAREST_PANDAL)
+  if (
+    p.includes('take me to the nearest pandal') ||
+    p.includes('take me to nearest pandal') ||
+    p.includes('navigate to the nearest pandal') ||
+    p.includes('navigate to nearest pandal') ||
+    p.includes('route me to the nearest pandal') ||
+    p.includes('route me to nearest pandal') ||
+    p.includes('take me to the closest pandal') ||
+    p.includes('take me to closest pandal') ||
+    (p.includes('nearest pandal') && (p.includes('take me') || p.includes('navigate') || p.includes('route') || p.includes('go to') || p.includes('lead me') || p.includes('walk') || p.includes('drive'))) ||
+    (p.includes('closest pandal') && (p.includes('take me') || p.includes('navigate') || p.includes('route') || p.includes('go to') || p.includes('lead me') || p.includes('walk') || p.includes('drive'))) ||
+    p.trim() === 'take me to the nearest pandal'
+  ) {
+    return {
+      text: "Locating the nearest verified Durga Puja pandal from your GPS position and starting turn-by-turn navigation.",
+      action: "NAVIGATE_TO_NEAREST_PANDAL",
+      parameters: { category: "pandal" },
+    };
+  }
+
+  // -2. Nearby Durga Puja Pandals (Action: SEARCH_NEARBY_PANDALS)
+  if (
+    p.includes('show nearby pandals') ||
+    p.includes('nearby pandals') ||
+    p.includes('pandals nearby') ||
+    p.includes('find nearby pandals') ||
+    p.includes('pandals near me') ||
+    p.includes('nearby puja') ||
+    p.includes('pujas near me') ||
+    p.trim() === 'show nearby pandals'
+  ) {
+    return {
+      text: "Scanning verified Durga Puja pandals near your current GPS position.",
+      action: "SEARCH_NEARBY_PANDALS",
+      parameters: { radius: 5000, category: "pandal" },
+    };
+  }
 
   // -1. Durga Puja Festival Calendar & Ritual Queries
   if (p.includes('what can i visit on ashtami') || (p.includes('ashtami') && (p.includes('visit') || p.includes('plan') || p.includes('what') || p.includes('ritual')))) {
@@ -648,28 +784,29 @@ function generateFallbackIntent(promptText: string, userLocation?: { lat: number
 interface PlacesCacheEntry {
   timestamp: number;
   places: any[];
+  nextPageToken?: string | null;
 }
 const placesSearchCache = new Map<string, PlacesCacheEntry>();
 const placesDetailsCache = new Map<string, any>();
 const PLACES_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes TTL
 
-function getPlacesCache(key: string): any[] | null {
+function getPlacesCache(key: string): PlacesCacheEntry | null {
   const entry = placesSearchCache.get(key);
   if (!entry) return null;
   if (Date.now() - entry.timestamp > PLACES_CACHE_TTL_MS) {
     placesSearchCache.delete(key);
     return null;
   }
-  return entry.places;
+  return entry;
 }
 
-function setPlacesCache(key: string, places: any[]): void {
+function setPlacesCache(key: string, places: any[], nextPageToken?: string | null): void {
   // Cap cache size to avoid unbounded memory growth
-  if (placesSearchCache.size > 200) {
+  if (placesSearchCache.size > 300) {
     const oldestKey = placesSearchCache.keys().next().value;
     if (oldestKey) placesSearchCache.delete(oldestKey);
   }
-  placesSearchCache.set(key, { timestamp: Date.now(), places });
+  placesSearchCache.set(key, { timestamp: Date.now(), places, nextPageToken: nextPageToken || null });
 
   // Also cache individual place items by id
   for (const place of places) {
@@ -681,21 +818,22 @@ function setPlacesCache(key: string, places: any[]): void {
 
 // Secure endpoint for Google Places API (New) Text Search Proxy
 app.post('/api/places/search', async (req, res) => {
-  const { query, location, radius, bounds, strictRestriction } = req.body;
+  const { query, location, radius, bounds, strictRestriction, pageToken } = req.body;
   const gApiKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
 
   if (!gApiKey) {
-    return res.json({ places: [], status: 'NO_API_KEY' });
+    return res.json({ places: [], nextPageToken: null, status: 'NO_API_KEY' });
   }
 
   // Generate cache key
   const locKey = location ? `${location.lat.toFixed(3)}_${location.lng.toFixed(3)}_${radius || 5000}` : 'noloc';
   const boundsKey = bounds ? `${bounds.north.toFixed(3)}_${bounds.south.toFixed(3)}_${bounds.east.toFixed(3)}_${bounds.west.toFixed(3)}` : 'nobounds';
-  const cacheKey = `text_${(query || 'default').toLowerCase().trim()}_${locKey}_${boundsKey}_${!!strictRestriction}`;
+  const pageKey = pageToken ? String(pageToken).slice(-16) : 'p0';
+  const cacheKey = `text_${(query || 'default').toLowerCase().trim()}_${locKey}_${boundsKey}_${!!strictRestriction}_${pageKey}`;
 
   const cached = getPlacesCache(cacheKey);
   if (cached) {
-    return res.json({ places: cached, status: 'OK', cached: true });
+    return res.json({ places: cached.places, nextPageToken: cached.nextPageToken, status: 'OK', cached: true });
   }
 
   try {
@@ -704,6 +842,10 @@ app.post('/api/places/search', async (req, res) => {
       textQuery: query || 'Durga Puja pandal',
       maxResultCount: 20,
     };
+
+    if (pageToken && typeof pageToken === 'string') {
+      requestBody.pageToken = pageToken;
+    }
 
     if (bounds && typeof bounds.north === 'number' && typeof bounds.south === 'number') {
       requestBody.locationRestriction = {
@@ -741,7 +883,7 @@ app.post('/api/places/search', async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': gApiKey,
-        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount,places.googleMapsUri,places.photos,places.businessStatus',
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount,places.googleMapsUri,places.photos,places.businessStatus,places.websiteUri,places.nationalPhoneNumber,places.regularOpeningHours,places.attributions,nextPageToken',
         'X-Goog-Maps-Solution-ID': 'gmp_git_agentskills_v1',
       },
       body: JSON.stringify(requestBody),
@@ -749,17 +891,18 @@ app.post('/api/places/search', async (req, res) => {
 
     if (!gResponse.ok) {
       console.warn(`[Places API] Google Places search returned status ${gResponse.status}`);
-      return res.json({ places: [], status: `ERROR_${gResponse.status}` });
+      return res.json({ places: [], nextPageToken: null, status: `ERROR_${gResponse.status}` });
     }
 
     const data = await gResponse.json();
     const places = data.places || [];
-    setPlacesCache(cacheKey, places);
+    const nextPageToken = data.nextPageToken || null;
+    setPlacesCache(cacheKey, places, nextPageToken);
 
-    return res.json({ places, status: 'OK', cached: false });
+    return res.json({ places, nextPageToken, status: 'OK', cached: false });
   } catch (err: any) {
     console.warn('[Places API] Search proxy error:', err.message);
-    return res.json({ places: [], status: 'NETWORK_ERROR' });
+    return res.json({ places: [], nextPageToken: null, status: 'NETWORK_ERROR' });
   }
 });
 
@@ -783,7 +926,7 @@ app.post('/api/places/nearby', async (req, res) => {
   const cacheKey = `nearby_${location.lat.toFixed(3)}_${location.lng.toFixed(3)}_${radius || 2000}_${types.join(',')}`;
   const cached = getPlacesCache(cacheKey);
   if (cached) {
-    return res.json({ places: cached, status: 'OK', cached: true });
+    return res.json({ places: cached.places, status: 'OK', cached: true });
   }
 
   try {
@@ -807,7 +950,7 @@ app.post('/api/places/nearby', async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': gApiKey,
-        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount,places.googleMapsUri,places.photos,places.businessStatus',
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount,places.googleMapsUri,places.photos,places.businessStatus,places.websiteUri,places.nationalPhoneNumber,places.regularOpeningHours,places.attributions',
         'X-Goog-Maps-Solution-ID': 'gmp_git_agentskills_v1',
       },
       body: JSON.stringify(requestBody),
@@ -820,12 +963,43 @@ app.post('/api/places/nearby', async (req, res) => {
 
     const data = await gResponse.json();
     const places = data.places || [];
-    setPlacesCache(cacheKey, places);
+    setPlacesCache(cacheKey, places, null);
 
     return res.json({ places, status: 'OK', cached: false });
   } catch (err: any) {
     console.warn('[Places API] Nearby proxy error:', err.message);
     return res.json({ places: [], status: 'NETWORK_ERROR' });
+  }
+});
+
+// Secure endpoint for Google Places Photo Proxy (Keeps API key strictly on server)
+app.get('/api/places/photo', async (req, res) => {
+  const photoName = req.query.name as string;
+  const gApiKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+
+  if (!photoName || !gApiKey) {
+    return res.status(404).send('Photo not found or API key missing');
+  }
+
+  // Strict SSRF guard: Ensure photoName conforms strictly to Google Places photo resource pattern
+  if (!photoName.startsWith('places/') || !photoName.includes('/photos/')) {
+    return res.status(400).send('Invalid photo resource name');
+  }
+
+  try {
+    const photoUrl = `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=800&maxWidthPx=1000&key=${gApiKey}&skipHttpRedirect=true`;
+    const photoRes = await fetch(photoUrl);
+    if (!photoRes.ok) {
+      return res.status(photoRes.status).send('Failed to fetch photo');
+    }
+    const data = (await photoRes.json()) as { photoUri?: string };
+    if (data.photoUri) {
+      return res.redirect(data.photoUri);
+    }
+    return res.status(404).send('Photo URI not found');
+  } catch (err: any) {
+    console.warn('[Places API] Photo proxy error:', err.message);
+    return res.status(500).send('Internal photo fetch error');
   }
 });
 

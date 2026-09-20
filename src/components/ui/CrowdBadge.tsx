@@ -47,7 +47,7 @@ export const CrowdBadge: React.FC<CrowdBadgeProps> = ({
     },
     UNAVAILABLE: {
       color: 'text-neutral-400 bg-neutral-900/80 border-neutral-800 shadow-none',
-      label: 'Crowd Unavailable',
+      label: 'Crowd Data Unavailable',
       dot: 'bg-neutral-600',
     },
   };

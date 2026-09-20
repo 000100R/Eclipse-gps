@@ -1,48 +1,43 @@
 import { Location, TrafficStatus } from '../../types';
+import { trafficIntelligenceService } from '../intelligence/trafficIntelligenceService';
 
 export class TrafficService {
-  private trafficDatabase: Map<string, TrafficStatus> = new Map();
-
-  constructor() {
-    // Seed with initial realistic mock traffic states for development
-    this.trafficDatabase.set('route-sreebhumi', {
-      routeId: 'pandal-1',
-      level: 'jam',
-      lastUpdated: Date.now() - 3 * 60000, // 3 mins ago
-    });
-    this.trafficDatabase.set('route-santosh', {
-      routeId: 'pandal-2',
-      level: 'heavy',
-      lastUpdated: Date.now() - 10 * 60000,
-    });
-    this.trafficDatabase.set('route-maddox', {
-      routeId: 'pandal-3',
-      level: 'moderate',
-      lastUpdated: Date.now() - 1 * 60000,
-    });
-  }
-
   async getTrafficForRoute(routeId: string): Promise<TrafficStatus> {
-    // If we have a cached status, return it, otherwise generate a moderate/low demo status
-    if (this.trafficDatabase.has(routeId)) {
-      return this.trafficDatabase.get(routeId)!;
+    const item = trafficIntelligenceService.getTrafficNearPandal(routeId);
+    if (!item || item.status === 'UNAVAILABLE') {
+      return {
+        routeId,
+        level: 'low',
+        lastUpdated: Date.now(),
+      };
     }
+
+    const levelMap: Record<string, 'low' | 'moderate' | 'heavy' | 'jam'> = {
+      CLEAR: 'low',
+      MODERATE: 'moderate',
+      SLOW: 'moderate',
+      HEAVY: 'heavy',
+      CONGESTED: 'jam',
+      UNAVAILABLE: 'low',
+    };
 
     return {
       routeId,
-      level: Math.random() > 0.5 ? 'low' : 'moderate',
-      lastUpdated: Date.now(),
+      level: levelMap[item.status] || 'low',
+      lastUpdated: item.lastUpdated,
     };
   }
 
   async getTrafficNearLocation(location: Location): Promise<'low' | 'moderate' | 'heavy' | 'jam'> {
-    // Simulate real-time API call
-    const rand = Math.random();
-    if (rand > 0.85) return 'jam';
-    if (rand > 0.6) return 'heavy';
-    if (rand > 0.3) return 'moderate';
+    const item = trafficIntelligenceService.getTrafficNearPandal('', location);
+    if (!item || item.status === 'UNAVAILABLE') {
+      return 'low';
+    }
+    if (item.status === 'HEAVY' || item.status === 'CONGESTED') return 'heavy';
+    if (item.status === 'MODERATE' || item.status === 'SLOW') return 'moderate';
     return 'low';
   }
 }
 
 export const trafficService = new TrafficService();
+

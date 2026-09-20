@@ -7,6 +7,12 @@ import {
   verifyPandalAreaMatch,
   VERIFIED_NAKTALA_COORDINATES,
 } from '../../utils/coordinateValidation';
+import {
+  isDuplicatePandal,
+  mergeDuplicatePandals,
+  getRecordPriority,
+} from '../../utils/pandalDeduplication';
+import { normalizeGooglePlaceRecord } from '../../utils/googlePlacesNormalizer';
 
 /**
  * Grid Cell definition for multi-cell geographic exploration
@@ -20,15 +26,210 @@ export interface GeographicGridCell {
 }
 
 /**
- * Multi-query searches required for high-recall Durga Puja discovery
+ * Kolkata Geographic Coverage Area specification
+ */
+export interface KolkataGeographicSearchArea {
+  id: string;
+  name: string;
+  center: Location;
+  radius: number; // in meters (overlapping with neighbors)
+}
+
+/**
+ * Systematic Kolkata Metropolitan Coverage Areas (Requirement 2: Overlapping Geographic Search)
+ */
+export const KOLKATA_COVERAGE_AREAS: readonly KolkataGeographicSearchArea[] = [
+  { id: 'central-kolkata', name: 'Central Kolkata', center: { lat: 22.5684, lng: 88.3580 }, radius: 3000 },
+  { id: 'north-kolkata', name: 'North Kolkata', center: { lat: 22.5985, lng: 88.3678 }, radius: 3200 },
+  { id: 'south-kolkata', name: 'South Kolkata', center: { lat: 22.5186, lng: 88.3585 }, radius: 3500 },
+  { id: 'east-kolkata', name: 'East Kolkata', center: { lat: 22.5450, lng: 88.4000 }, radius: 3500 },
+  { id: 'west-kolkata', name: 'West Kolkata / Riverfront', center: { lat: 22.5540, lng: 88.3380 }, radius: 3000 },
+  { id: 'salt-lake-bidhannagar', name: 'Salt Lake / Bidhannagar', center: { lat: 22.5862, lng: 88.4116 }, radius: 3500 },
+  { id: 'rajarhat-new-town', name: 'Rajarhat / New Town', center: { lat: 22.5898, lng: 88.4682 }, radius: 4500 },
+  { id: 'behala', name: 'Behala', center: { lat: 22.4952, lng: 88.3188 }, radius: 3800 },
+  { id: 'jadavpur', name: 'Jadavpur', center: { lat: 22.4955, lng: 88.3708 }, radius: 3000 },
+  { id: 'tollygunge', name: 'Tollygunge', center: { lat: 22.4988, lng: 88.3468 }, radius: 3000 },
+  { id: 'garia-patuli-naktala', name: 'Garia / Patuli / Naktala', center: { lat: 22.4640, lng: 88.3832 }, radius: 3500 },
+  { id: 'dum-dum', name: 'Dum Dum', center: { lat: 22.6395, lng: 88.4190 }, radius: 3800 },
+  { id: 'lake-town', name: 'Lake Town', center: { lat: 22.5998, lng: 88.4019 }, radius: 2800 },
+  { id: 'maniktala', name: 'Maniktala', center: { lat: 22.5840, lng: 88.3760 }, radius: 2800 },
+  { id: 'shyambazar', name: 'Shyambazar', center: { lat: 22.6025, lng: 88.3710 }, radius: 2800 },
+  { id: 'barasat-fringe', name: 'Barasat-side Fringe', center: { lat: 22.6780, lng: 88.4480 }, radius: 5000 },
+  { id: 'howrah-side', name: 'Howrah-side Locations', center: { lat: 22.5880, lng: 88.3280 }, radius: 4000 },
+  { id: 'ballygunge-gariahat', name: 'Ballygunge / Gariahat', center: { lat: 22.5250, lng: 88.3660 }, radius: 2800 },
+  { id: 'alipore-new-alipore', name: 'Alipore / New Alipore', center: { lat: 22.5150, lng: 88.3320 }, radius: 3000 },
+  { id: 'kasba-ruby', name: 'Kasba / Ruby', center: { lat: 22.5186, lng: 88.3980 }, radius: 3200 },
+];
+
+/**
+ * Multi-query searches required for high-recall Durga Puja and Bonedi Bari discovery
+ * Systematically covers:
+ * - Durga Puja (pandal, pujo, mandap, celebration, festival)
+ * - Durga Pujo (pujo pandal, pujo committee, pujo club, pujo samiti, pujo sangha)
+ * - Puja committee (durga puja committee, sharad utsav committee, puja samity)
+ * - Puja club (durga puja club, club durga pujo, local puja club)
+ * - Puja samiti / samity (durga puja samiti, barowari samiti, sarbojanin samiti)
+ * - Puja sangha (durga puja sangha, sarbojanin sangha, udayan/jubak sangha puja)
+ * - Sarbojanin Puja / Sarbojanin Durgotsav / Barowari Puja
+ * - Durgotsav / Durgotsab / Sharadotsav / Sharadiya Puja
+ * - Bonedi Bari / Bonedi Barir Puja / Bonedi Bari Durga Puja
+ * - Rajbari / Rajbari Durga Puja / Rajbari Puja
+ * - Zamindar Bari / Zamindar Bari Durga Puja / Zamindari Puja
+ * - Heritage Durga Puja / Heritage Bonedi Bari / Historic Puja
+ * - Traditional Durga Puja / Traditional Bonedi Bari / Traditional Puja Mandap
+ * - Family Durga Puja / Old Family Durga Puja / Family Barir Puja
+ * Plus Bengali script equivalents for accurate local Google Places listings
  */
 export const MULTI_QUERY_SEARCH_TERMS = [
+  // 1. Durga Puja core & structural variations
   'Durga Puja',
-  'Durga Puja Pandal',
-  'Durga Puja Mandap',
-  'Puja Pandal',
-  'Durga Puja Committee',
+  'Durga Puja pandal',
+  'Durga Puja puja',
   'Durga Puja Kolkata',
+  'Durga Puja mandap',
+  'Durga Puja celebration',
+  'Durga Puja ground',
+
+  // 2. Durga Pujo variations (colloquial & common Google Maps naming)
+  'Durga Pujo',
+  'Durga Pujo pandal',
+  'Durga Pujo Kolkata',
+  'Durga Pujo mandap',
+  'Kolkata Durga Pujo',
+
+  // 3. Puja committee variations
+  'Durga Puja committee',
+  'Durga Pujo committee',
+  'Puja committee',
+  'Puja committee Kolkata',
+  'Puja samity committee',
+  'Sarbojanin Puja committee',
+  'Sharad Utsav committee',
+
+  // 4. Puja club variations
+  'Durga Puja club',
+  'Durga Pujo club',
+  'Puja club',
+  'Puja club Kolkata',
+  'Club Durga Puja',
+  'Club Durga Pujo',
+
+  // 5. Puja samiti / samity variations
+  'Durga Puja Samiti',
+  'Durga Pujo Samiti',
+  'Puja Samiti',
+  'Puja Samiti Kolkata',
+  'Durga Puja Samity',
+  'Puja Samity',
+  'Sarbojanin Puja Samiti',
+  'Barowari Puja Samiti',
+
+  // 6. Puja sangha variations
+  'Durga Puja Sangha',
+  'Durga Pujo Sangha',
+  'Puja Sangha',
+  'Puja Sangha Kolkata',
+  'Sarbojanin Puja Sangha',
+  'Jubak Sangha Durga Puja',
+  'Tarun Sangha Durga Puja',
+
+  // 7. Sarbojanin Puja & Barowari variations
+  'Sarbojanin Durga Puja',
+  'Sarbojanin Puja',
+  'Sarbojanin Durgotsav',
+  'Sarbojanin Durga Pujo',
+  'Sarbajanin Durga Puja',
+  'Sarbojanin Durgotsab',
+  'Barowari Durga Puja',
+  'Barowari Puja',
+
+  // 8. Durgotsav / Durgotsab & Utsav variations
+  'Durgotsav',
+  'Durgotsab',
+  'Durga Utsav',
+  'Durga Puja Utsav',
+  'Sharadotsav',
+  'Sharadotsav Durga Puja',
+  'Sharadiya Durga Puja',
+  'Sharadiya Durgotsav',
+
+  // 9. Bonedi Bari & Bonedi Barir Puja variations
+  'Bonedi Bari Durga Puja',
+  'Bonedi Barir Puja',
+  'Bonedi Barir Durga Puja',
+  'Bonedi Bari Puja',
+  'Bonedi Bari Durga Pujo',
+  'Bonedi Durga Puja',
+  'Bonedi Bari Kolkata',
+  'Kolkata Bonedi Bari Puja',
+  'Barir Durga Puja',
+  'Barir Puja Kolkata',
+
+  // 10. Rajbari variations
+  'Rajbari Durga Puja',
+  'Rajbari Puja',
+  'Rajbari Durga Pujo',
+  'Rajbari Kolkata',
+  'Kolkata Rajbari Durga Puja',
+  'Rajbari Barir Puja',
+
+  // 11. Zamindar Bari variations
+  'Zamindar Bari Durga Puja',
+  'Zamindar Bari Puja',
+  'Zamindar Bari Durga Pujo',
+  'Zamindari Durga Puja',
+  'Zamindar Barir Puja',
+
+  // 12. Heritage Durga Puja variations
+  'heritage Durga Puja',
+  'heritage Durga Pujo',
+  'heritage Puja Kolkata',
+  'heritage Bonedi Bari',
+  'historic Durga Puja',
+  'historic Bonedi Bari Puja',
+
+  // 13. Traditional Durga Puja variations
+  'traditional Durga Puja',
+  'traditional Durga Pujo',
+  'traditional Puja Kolkata',
+  'traditional Bonedi Bari',
+  'traditional family Puja',
+  'traditional Barir Puja',
+
+  // 14. Family Durga Puja & Old family variations
+  'family Durga Puja',
+  'family Durga Pujo',
+  'family Puja Kolkata',
+  'old family Durga Puja',
+  'old family Puja Kolkata',
+  'old family Bonedi Bari',
+  'aristocratic family Durga Puja',
+
+  // 15. Bengali script queries (matching local Bengali Place titles on Google Maps)
+  'দুর্গা পূজা',
+  'দুর্গাপূজা',
+  'দুর্গা পুজো',
+  'দুর্গাপুজো',
+  'দুর্গোৎসব',
+  'সর্বজনীন দুর্গাপূজা',
+  'সর্বজনীন দুর্গোৎসব',
+  'সর্বজনীন দুর্গা পুজো',
+  'বারোয়ারি দুর্গা পূজা',
+  'পূজা কমিটি',
+  'পূজা সমিতি',
+  'পূজা সংঘ',
+  'পূজা ক্লাব',
+  'বনেদি বাড়ির পুজো',
+  'বনেদি বাড়ি দুর্গা পূজা',
+  'বনেদি বাড়ি দুর্গাপূজা',
+  'বনেদি বাড়ির দুর্গাপূজা',
+  'রাজবাড়ি দুর্গা পূজা',
+  'রাজবাড়ির পুজো',
+  'রাজবাড়ি দুর্গাপূজা',
+  'জমিদার বাড়ি দুর্গা পূজা',
+  'জমিদার বাড়ির পুজো',
+  'ঐতিহ্যবাহী দুর্গাপূজা',
+  'পারিবারিক দুর্গাপূজা',
 ] as const;
 
 /**
@@ -277,18 +478,32 @@ export class PandalGridSearchEngine {
       const discoveredInCell: DiscoveredPandal[] = [];
 
       // Determine queries to run
-      const queriesToRun: string[] = customQuery && customQuery.trim().length > 2
-        ? [customQuery, 'Durga Puja', 'Durga Puja Pandal']
-        : [MULTI_QUERY_SEARCH_TERMS[0], MULTI_QUERY_SEARCH_TERMS[1], MULTI_QUERY_SEARCH_TERMS[2]];
+      const queriesToRun: string[] = [];
+      if (customQuery && customQuery.trim().length > 2) {
+        queriesToRun.push(customQuery.trim());
+      }
+      for (const q of MULTI_QUERY_SEARCH_TERMS) {
+        if (!queriesToRun.some((existing) => existing.toLowerCase() === q.toLowerCase())) {
+          queriesToRun.push(q);
+        }
+      }
 
-      // A. Run Text Searches with location bias/restriction
-      for (const query of queriesToRun) {
-        try {
-          const textResults = await this.fetchServerPlacesSearch(query, cell.center, cell.radius);
-          if (textResults && textResults.length > 0) {
-            discoveredInCell.push(...textResults);
+      // A. Run Text Searches in parallel batches of 3 to discover pandals and Bonedi Baris without overloading
+      const BATCH_SIZE = 3;
+      for (let b = 0; b < queriesToRun.length; b += BATCH_SIZE) {
+        const batch = queriesToRun.slice(b, b + BATCH_SIZE);
+        const batchPromises = batch.map((query) =>
+          this.fetchServerPlacesSearch(query, cell.center, cell.radius).catch(() => [])
+        );
+        const batchResults = await Promise.all(batchPromises);
+        for (const res of batchResults) {
+          if (res && res.length > 0) {
+            discoveredInCell.push(...res);
           }
-        } catch (_) {}
+        }
+        if (b + BATCH_SIZE < queriesToRun.length) {
+          await new Promise((resolve) => setTimeout(resolve, 40));
+        }
       }
 
       // B. Run Nearby Search with locationRestriction.circle and cultural/worship types
@@ -315,37 +530,55 @@ export class PandalGridSearchEngine {
   }
 
   /**
-   * Helper: Calls /api/places/search
+   * Helper: Calls /api/places/search with full pagination (Requirement 4)
+   * Continues until all available pages allowed by the API are retrieved.
    */
   private async fetchServerPlacesSearch(
     query: string,
     center: Location,
     radius: number
   ): Promise<DiscoveredPandal[]> {
+    const list: DiscoveredPandal[] = [];
+    let pageToken: string | undefined = undefined;
+    const MAX_PAGES = 3; // Google Places Text Search supports up to 3 pages
+    let pageCount = 0;
+
     try {
-      const res = await fetch('/api/places/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query,
-          location: center,
-          radius,
-        }),
-      });
+      while (pageCount < MAX_PAGES) {
+        pageCount++;
+        const res = await fetch('/api/places/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query,
+            location: center,
+            radius,
+            pageToken,
+          }),
+        });
 
-      if (!res.ok) return [];
-      const data = await res.json();
-      if (!Array.isArray(data.places)) return [];
+        if (!res.ok) break;
+        const data = await res.json();
+        if (!Array.isArray(data.places) || data.places.length === 0) break;
 
-      const list: DiscoveredPandal[] = [];
-      for (const p of data.places) {
-        const normalized = this.normalizeGooglePlace(p, center);
-        if (normalized) list.push(normalized);
+        for (const p of data.places) {
+          const normalized = this.normalizeGooglePlace(p, center);
+          if (normalized) list.push(normalized);
+        }
+
+        // Check if there is an additional page available
+        if (data.nextPageToken && typeof data.nextPageToken === 'string') {
+          pageToken = data.nextPageToken;
+          // Google Places API recommends a small pause between page requests
+          await new Promise((resolve) => setTimeout(resolve, 80));
+        } else {
+          // No more pages
+          break;
+        }
       }
-      return list;
-    } catch (_) {
-      return [];
-    }
+    } catch (_) {}
+
+    return list;
   }
 
   /**
@@ -389,80 +622,33 @@ export class PandalGridSearchEngine {
 
   /**
    * Normalizes a raw Google Place record with strict coordinate and Naktala verification
+   * Delegates to unified normalizeGooglePlaceRecord
    */
   public normalizeGooglePlace(place: any, defaultCenter?: Location): DiscoveredPandal | null {
-    if (!place || !place.id) return null;
+    return normalizeGooglePlaceRecord(place, defaultCenter);
+  }
 
-    const rawName = place.displayName?.text || place.name || '';
-    if (!rawName || rawName.trim().length === 0) return null;
+  /**
+   * Systematic Kolkata Metropolitan Area Coverage (Prompt Requirement 2)
+   * Discovers pandals & Bonedi Bari locations across all predefined overlapping zones:
+   * Central, North, South, East, West, Salt Lake, Rajarhat, Behala, Jadavpur, Tollygunge,
+   * Garia, Dum Dum, Lake Town, Maniktala, Shyambazar, Barasat fringe, Howrah, etc.
+   */
+  public async discoverKolkataMetropolitanCoverage(
+    customQuery?: string
+  ): Promise<DiscoveredPandal[]> {
+    const coverageCells: GeographicGridCell[] = KOLKATA_COVERAGE_AREAS.map((area) => {
+      const key = this.getCellKey(area.center.lat, area.center.lng, area.radius);
+      return {
+        id: `coverage-${area.id}-${key}`,
+        key,
+        center: area.center,
+        radius: area.radius,
+      };
+    });
 
-    // Filter out places that clearly have nothing to do with Durga Puja or Pandals/Clubs/Temples
-    const cleanLower = rawName.toLowerCase();
-    const isPujaRelated =
-      cleanLower.includes('durga') ||
-      cleanLower.includes('puja') ||
-      cleanLower.includes('pandal') ||
-      cleanLower.includes('mandap') ||
-      cleanLower.includes('durgotsav') ||
-      cleanLower.includes('samiti') ||
-      cleanLower.includes('sangha') ||
-      cleanLower.includes('club') ||
-      cleanLower.includes('sarbojanin') ||
-      cleanLower.includes('kalibari') ||
-      cleanLower.includes('mandir');
-
-    // If types are place_of_worship or community_center, accept even if name lacks "puja"
-    const types = Array.isArray(place.types) ? place.types : [];
-    const isWorship = types.includes('place_of_worship') || types.includes('hindu_temple') || types.includes('cultural_landmark');
-
-    if (!isPujaRelated && !isWorship) {
-      return null;
-    }
-
-    // Extract & validate coordinates
-    const coords = extractPlaceCoordinates(place) || defaultCenter;
-    if (!coords) return null;
-
-    const validatedCoords = validateAndNormalizeCoordinates(coords.lat, coords.lng, rawName);
-    if (!validatedCoords) return null;
-
-    // Strict Naktala Safeguard: If name matches Naktala Udayan Sangha, force verified coordinates
-    const areaCheck = verifyPandalAreaMatch(rawName, place.formattedAddress || '', validatedCoords.lat, validatedCoords.lng);
-    const finalCoords = (!areaCheck.valid && areaCheck.correctedCoords)
-      ? areaCheck.correctedCoords
-      : validatedCoords;
-
-    const address = place.formattedAddress || 'Kolkata, West Bengal';
-    const area = this.extractAreaFromAddress(address) || this.extractAreaFromName(rawName) || 'Kolkata';
-
-    return {
-      id: `gp-${place.id}`,
-      name: rawName,
-      latitude: finalCoords.lat,
-      longitude: finalCoords.lng,
-      location: { lat: finalCoords.lat, lng: finalCoords.lng },
-      address,
-      area,
-      city: 'Kolkata',
-      source: 'GOOGLE_PLACES',
-      sourceId: place.id,
-      verificationStatus: 'UNVERIFIED',
-      rating: place.rating,
-      userRatingCount: place.userRatingCount,
-      googleMapsUri: place.googleMapsUri,
-      photos: Array.isArray(place.photos)
-        ? place.photos.map((p: any) => p.name || p.photo_reference).filter(Boolean)
-        : [],
-      crowdLevel: 'MODERATE',
-      verified: false,
-      status: place.businessStatus || 'OPERATIONAL',
-      queueEstimate: '20 - 30 mins',
-      queueTimeMinutes: 25,
-      parkingAvailability: 'limited',
-      parkingStatus: 'moderate',
-      estimatedVisitDuration: 30,
-      accessibility: true,
-    };
+    const results = await this.executeGridSearch(coverageCells, customQuery);
+    return this.deduplicateAndMerge(results);
   }
 
   /**
@@ -525,47 +711,17 @@ export class PandalGridSearchEngine {
    * Never merge different nearby pandals if their normalized names differ!
    */
   public deduplicateAndMerge(candidates: DiscoveredPandal[]): DiscoveredPandal[] {
-    // Sort by source priority first
+    // Sort by authority priority first (ECLIPSE_CURATED, AGAMONI, GOOGLE_EARTH, GOOGLE_PLACES, etc.)
     const prioritized = [...candidates].sort((a, b) => {
-      return this.getPriorityScore(a) - this.getPriorityScore(b);
+      return getRecordPriority(a) - getRecordPriority(b);
     });
 
     const merged: DiscoveredPandal[] = [];
 
     for (const candidate of prioritized) {
-      let matchIdx = -1;
-
-      // Rule 1: Exact sourceId / ID match
-      matchIdx = merged.findIndex(
-        (e) => e.id === candidate.id || (e.sourceId && candidate.sourceId && e.sourceId === candidate.sourceId)
+      const matchIdx = merged.findIndex(
+        (existing) => isDuplicatePandal(existing, candidate).isDuplicate
       );
-
-      // Rule 2: Coordinate Proximity (< 35 meters: virtually identical spot)
-      if (matchIdx === -1) {
-        matchIdx = merged.findIndex((e) => {
-          const dist = this.calculateDistanceInMeters(e.location, candidate.location);
-          return dist < 35;
-        });
-      }
-
-      // Rule 3: Normalized Name Match + Distance (< 400 meters)
-      if (matchIdx === -1) {
-        const candNorm = this.normalizePandalName(candidate.name);
-        if (candNorm.length >= 4) {
-          matchIdx = merged.findIndex((e) => {
-            const eNorm = this.normalizePandalName(e.name);
-            const isNameMatch =
-              eNorm === candNorm ||
-              eNorm.includes(candNorm) ||
-              candNorm.includes(eNorm);
-
-            if (!isNameMatch) return false;
-
-            const dist = this.calculateDistanceInMeters(e.location, candidate.location);
-            return dist < 400;
-          });
-        }
-      }
 
       if (matchIdx === -1) {
         // Enforce Naktala safeguard on newly added record
@@ -573,21 +729,7 @@ export class PandalGridSearchEngine {
         merged.push(safeguarded);
       } else {
         // Merge attributes into existing higher priority item
-        const existing = merged[matchIdx];
-        const lowerPriority = candidate;
-
-        merged[matchIdx] = {
-          ...existing,
-          photos: existing.photos?.length ? existing.photos : lowerPriority.photos,
-          images: existing.images?.length ? existing.images : lowerPriority.images,
-          rating: existing.rating || lowerPriority.rating,
-          userRatingCount: existing.userRatingCount || lowerPriority.userRatingCount,
-          googleMapsUri: existing.googleMapsUri || lowerPriority.googleMapsUri,
-          openingHours: existing.openingHours || lowerPriority.openingHours,
-          description: existing.description || lowerPriority.description,
-          theme: existing.theme || lowerPriority.theme,
-          status: existing.status || lowerPriority.status,
-        };
+        merged[matchIdx] = mergeDuplicatePandals(merged[matchIdx], candidate);
       }
     }
 

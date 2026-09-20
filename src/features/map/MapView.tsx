@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { LeafletMapView } from './LeafletMapView';
 import { GoogleMapView } from './GoogleMapView';
@@ -20,6 +20,14 @@ export const MapView: React.FC = () => {
   const isValidKey = apiKey.startsWith('AIzaSy') && apiKey.length > 20;
   const isGoogleActive = mapProvider === 'google' && isValidKey;
   const hasMapId = mapId.length > 5;
+  const isTrue3DSupported = isGoogleActive && hasMapId;
+
+  // If 3D mode was set but true 3D is not supported by current provider/configuration, revert to standard
+  useEffect(() => {
+    if (!isTrue3DSupported && mapStyle === '3d') {
+      setMapStyle('standard');
+    }
+  }, [isTrue3DSupported, mapStyle, setMapStyle]);
 
   return (
     <div id="eclipse-map-viewport" className="absolute inset-0 w-full h-full z-0 overflow-hidden">
@@ -39,7 +47,7 @@ export const MapView: React.FC = () => {
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             className="flex items-center space-x-2 px-4 py-2 bg-neutral-950/90 hover:bg-neutral-900 border border-neutral-800/80 text-white font-bold text-xs rounded-2xl shadow-2xl transition-all duration-300 select-none cursor-pointer h-11"
             style={{ minHeight: '44px' }}
-            title="Change Map Style (Standard, Satellite, Hybrid, 3D)"
+            title={isTrue3DSupported ? "Change Map Style (Standard, Satellite, Hybrid, 3D)" : "Change Map Style (Standard, Satellite, Hybrid)"}
           >
             <span className="text-base">🗺️</span>
             <span className="tracking-wider uppercase">MAP: {mapStyle.toUpperCase()}</span>
@@ -55,58 +63,91 @@ export const MapView: React.FC = () => {
 
               {/* Standard Mode */}
               <button
+                type="button"
+                id="btn-map-style-standard"
                 onClick={() => {
                   setMapStyle('standard');
                   setIsMenuOpen(false);
                 }}
-                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all hover:bg-neutral-900/60 text-left h-10"
+                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all hover:bg-neutral-900/60 text-left h-10 cursor-pointer"
                 style={{ minHeight: '40px' }}
               >
                 <span className={mapStyle === 'standard' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
                   {mapStyle === 'standard' ? '✓ ' : '  '}Standard
                 </span>
+                {mapStyle === 'standard' && <Check size={14} className="text-indigo-400" />}
               </button>
 
               {/* Satellite Mode */}
               <button
+                type="button"
+                id="btn-map-style-satellite"
                 onClick={() => {
                   setMapStyle('satellite');
                   setIsMenuOpen(false);
                 }}
-                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60"
+                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60 text-left cursor-pointer"
                 style={{ minHeight: '40px' }}
               >
                 <span className={mapStyle === 'satellite' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
                   {mapStyle === 'satellite' ? '✓ ' : '  '}Satellite
                 </span>
+                {mapStyle === 'satellite' && <Check size={14} className="text-indigo-400" />}
               </button>
 
               {/* Hybrid Mode */}
               <button
+                type="button"
+                id="btn-map-style-hybrid"
                 onClick={() => {
                   setMapStyle('hybrid');
                   setIsMenuOpen(false);
                 }}
-                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60"
+                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60 text-left cursor-pointer"
                 style={{ minHeight: '40px' }}
               >
                 <span className={mapStyle === 'hybrid' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
                   {mapStyle === 'hybrid' ? '✓ ' : '  '}Hybrid
                 </span>
+                {mapStyle === 'hybrid' && <Check size={14} className="text-indigo-400" />}
               </button>
 
               {/* 3D Mode */}
               <button
+                type="button"
+                id="btn-map-style-3d"
+                disabled={!isTrue3DSupported}
                 onClick={() => {
-                  setMapStyle('3d');
-                  setIsMenuOpen(false);
+                  if (isTrue3DSupported) {
+                    setMapStyle('3d');
+                    setIsMenuOpen(false);
+                  }
                 }}
-                className="flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 hover:bg-neutral-900/60"
+                className={`flex items-center justify-between w-full px-2.5 py-2 text-xs font-bold rounded-xl transition-all h-10 text-left ${
+                  !isTrue3DSupported
+                    ? 'opacity-40 cursor-not-allowed text-neutral-500 hover:bg-transparent select-none'
+                    : 'hover:bg-neutral-900/60 text-neutral-300 hover:text-white cursor-pointer'
+                }`}
                 style={{ minHeight: '40px' }}
+                title={
+                  isTrue3DSupported
+                    ? 'Switch to 3D perspective view'
+                    : mapProvider === 'leaflet'
+                    ? '3D map unavailable (Leaflet 2D engine in use)'
+                    : '3D map unavailable (Requires Google Maps Vector Map ID)'
+                }
               >
-                <span className={mapStyle === '3d' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300 hover:text-white'}>
-                  {mapStyle === '3d' ? '✓ ' : '  '}3D View
-                </span>
+                <div className="flex items-center space-x-1.5 truncate">
+                  <span className={!isTrue3DSupported ? 'text-neutral-500' : mapStyle === '3d' ? 'text-indigo-400 font-extrabold' : 'text-neutral-300'}>
+                    {mapStyle === '3d' && isTrue3DSupported ? '✓ ' : '  '}3D View
+                  </span>
+                  {!isTrue3DSupported && (
+                    <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-neutral-900/90 text-amber-500/90 border border-neutral-800 tracking-tight">
+                      Unavailable
+                    </span>
+                  )}
+                </div>
+                {mapStyle === '3d' && isTrue3DSupported && <Check size={14} className="text-indigo-400" />}
               </button>
             </GlassPanel>
           )}

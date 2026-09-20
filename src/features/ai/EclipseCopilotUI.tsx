@@ -5,6 +5,8 @@ import { askEclipseCopilotStructured } from '../../services/gemini/copilotServic
 import { useAppState } from '../../hooks/AppStateProvider';
 import { PandalCardList } from '../pandals/PandalCardList';
 import { DiscoveredPandal } from '../../types/discovery';
+import { MetroGateCopilotCard } from '../map/MetroGateCopilotCard';
+import { MetroGateIntelligenceResult } from '../../types/metro';
 
 interface Message {
   id: string;
@@ -12,10 +14,11 @@ interface Message {
   text: string;
   timestamp: number;
   discoveredPandals?: DiscoveredPandal[];
+  metroGateResult?: MetroGateIntelligenceResult;
 }
 
 export const EclipseCopilotUI: React.FC = () => {
-  const { currentLocation, executeAIActionOnMap } = useAppState();
+  const { currentLocation, hasValidGps, gpsStatus, executeAIActionOnMap } = useAppState();
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -24,16 +27,20 @@ export const EclipseCopilotUI: React.FC = () => {
     {
       id: 'welcome',
       sender: 'gemini',
-      text: 'Hello! I am your Eclipse GPS Copilot. I can search Durga Puja pandals, calculate real-time road routes, and help you navigate Kolkata. Ask me "Find nearby pandals" or search for a specific puja!',
+      text: 'Hello! I am your Eclipse GPS Copilot. I can search Durga Puja pandals, calculate real-time road routes, and help you navigate Kolkata. Ask me "Show nearby pandals" or search for a specific puja!',
       timestamp: Date.now(),
     },
   ]);
 
   const quickPrompts = [
+    'Which metro exit should I take for this pandal?',
+    'Plan my Puja route',
+    'Take me to the nearest pandal',
+    'Show unvisited pandals',
+    'Show nearby pandals',
     'Which pandals are less crowded right now?',
     'Is traffic heavy near Bagbazar?',
     'Should I go to College Square now or later?',
-    'Find nearby pandals',
     'Plan a 4-pandal tour',
   ];
 
@@ -69,14 +76,26 @@ export const EclipseCopilotUI: React.FC = () => {
       setError(null);
 
       let discoveredPandals: DiscoveredPandal[] | undefined = undefined;
+      let metroGateResult: MetroGateIntelligenceResult | undefined = undefined;
       let finalResponseText = response.text;
 
       if (response.action) {
         const actionResult = await executeAIActionOnMap(response.action, response.parameters || {});
         if (actionResult?.error) {
           finalResponseText = actionResult.error;
-        } else if (actionResult?.pandals && actionResult.pandals.length > 0) {
-          discoveredPandals = actionResult.pandals;
+        } else {
+          if (actionResult?.message) {
+            finalResponseText = actionResult.message;
+          }
+          if (actionResult?.pandals && actionResult.pandals.length > 0) {
+            discoveredPandals = actionResult.pandals;
+          }
+          if (actionResult?.metroGateResult) {
+            metroGateResult = actionResult.metroGateResult;
+          }
+          if (response.action === 'NAVIGATE_TO_NEAREST_PANDAL' || response.action === 'NAVIGATE_TO' || response.action === 'PLAN_PUJA_ROUTE') {
+            setIsOpen(false);
+          }
         }
       }
 
@@ -86,6 +105,7 @@ export const EclipseCopilotUI: React.FC = () => {
         text: finalResponseText,
         timestamp: Date.now(),
         discoveredPandals,
+        metroGateResult,
       };
 
       setMessages((prev) => [...prev, copilotMsg]);
@@ -267,7 +287,18 @@ export const EclipseCopilotUI: React.FC = () => {
 
                         {/* Discovered Durga Puja Pandal Cards */}
                         {msg.discoveredPandals && msg.discoveredPandals.length > 0 && (
-                          <PandalCardList pandals={msg.discoveredPandals} />
+                          <PandalCardList
+                            pandals={msg.discoveredPandals}
+                            onActionComplete={() => setIsOpen(false)}
+                          />
+                        )}
+
+                        {/* Metro Gate Recommendation Card */}
+                        {msg.metroGateResult && (
+                          <MetroGateCopilotCard
+                            result={msg.metroGateResult}
+                            onNavigateStart={() => setIsOpen(false)}
+                          />
                         )}
                       </div>
 

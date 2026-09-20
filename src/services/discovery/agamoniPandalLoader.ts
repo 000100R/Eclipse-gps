@@ -29,6 +29,7 @@ export function loadAgamoniPandals(): DiscoveredPandal[] {
       city: 'Kolkata',
       source: 'AGAMONI',
       sourceId: item.id,
+      category: 'PANDAL',
       verificationStatus: 'VERIFIED',
       rating: 4.8,
       userRatingCount: 500,

@@ -42,9 +42,11 @@ export interface CrowdIntelligenceItem {
 }
 
 /**
- * Standard Eclipse Traffic Status Levels: CLEAR / SLOW / CONGESTED
+ * Standard Eclipse Traffic Status Levels:
+ * CLEAR / MODERATE / HEAVY / UNAVAILABLE
+ * (SLOW & CONGESTED retained for backwards compatibility)
  */
-export type TrafficStatusLevel = 'CLEAR' | 'SLOW' | 'CONGESTED' | 'UNAVAILABLE';
+export type TrafficStatusLevel = 'CLEAR' | 'MODERATE' | 'HEAVY' | 'UNAVAILABLE' | 'SLOW' | 'CONGESTED';
 
 export type TrafficCongestion = 'LOW' | 'MODERATE' | 'HIGH' | 'SEVERE';
 

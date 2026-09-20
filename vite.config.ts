@@ -25,8 +25,9 @@ const cleanEnvVar = (val: string | undefined): string => {
 };
 
 export default defineConfig(() => {
-  const mapsApiKey = cleanEnvVar(process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY);
-  const mapsMapId = cleanEnvVar(process.env.VITE_GOOGLE_MAPS_MAP_ID || process.env.GOOGLE_MAPS_MAP_ID);
+  // Only expose client-safe VITE_ prefixed environment variables into the frontend bundle
+  const mapsApiKey = cleanEnvVar(process.env.VITE_GOOGLE_MAPS_API_KEY);
+  const mapsMapId = cleanEnvVar(process.env.VITE_GOOGLE_MAPS_MAP_ID);
 
   return {
     plugins: [react(), tailwindcss()],

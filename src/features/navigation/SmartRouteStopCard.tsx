@@ -64,13 +64,17 @@ export const SmartRouteStopCard: React.FC<SmartRouteStopCardProps> = ({
               <>
                 <span className="text-neutral-500">•</span>
                 <span className={`text-[10px] font-semibold ${
-                  incomingLeg.trafficStatus === 'CONGESTED' 
+                  incomingLeg.trafficStatus === 'CONGESTED' || incomingLeg.trafficStatus === 'HEAVY'
                     ? 'text-rose-400' 
-                    : incomingLeg.trafficStatus === 'MODERATE' 
+                    : incomingLeg.trafficStatus === 'MODERATE' || incomingLeg.trafficStatus === 'SLOW'
                     ? 'text-amber-400' 
                     : 'text-emerald-400'
                 }`}>
-                  {incomingLeg.trafficStatus === 'CONGESTED' ? 'Heavy Traffic' : incomingLeg.trafficStatus === 'MODERATE' ? 'Moderate Traffic' : 'Clear Flow'}
+                  {incomingLeg.trafficStatus === 'CONGESTED' || incomingLeg.trafficStatus === 'HEAVY'
+                    ? 'Heavy'
+                    : incomingLeg.trafficStatus === 'MODERATE' || incomingLeg.trafficStatus === 'SLOW'
+                    ? 'Moderate'
+                    : 'Clear'}
                 </span>
               </>
             )}

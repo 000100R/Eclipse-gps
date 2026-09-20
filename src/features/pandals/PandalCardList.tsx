@@ -2,6 +2,7 @@ import React from 'react';
 import { DiscoveredPandal } from '../../types/discovery';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { getPandalCrowdMetrics } from '../../utils/crowdUtils';
+import { crowdIntelligenceService } from '../../services/intelligence/crowdIntelligenceService';
 import { MapPin, Navigation, Users, Sparkles, ExternalLink, CheckCircle2 } from 'lucide-react';
 
 interface PandalCardListProps {
@@ -42,7 +43,7 @@ export const PandalCardList: React.FC<PandalCardListProps> = ({ pandals, onActio
         return { text: 'LOW CROWD', bg: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' };
       case 'UNAVAILABLE':
       default:
-        return { text: 'CROWD UNAVAILABLE', bg: 'bg-neutral-800 text-neutral-400 border-neutral-700' };
+        return { text: 'CROWD DATA UNAVAILABLE', bg: 'bg-neutral-800 text-neutral-400 border-neutral-700' };
     }
   };
 
@@ -57,9 +58,13 @@ export const PandalCardList: React.FC<PandalCardListProps> = ({ pandals, onActio
 
       <div className="space-y-2 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
         {pandals.map((pandal) => {
-          const liveMetrics = getPandalCrowdMetrics(pandal.id, pandalCrowdCounts, pandalCrowdTrends);
-          const effectiveLevel = liveMetrics.available ? liveMetrics.level : (pandal.crowdLevel || 'UNAVAILABLE');
-          const crowdInfo = getCrowdBadge(effectiveLevel);
+          const crowdItem = crowdIntelligenceService.getCrowdForPandal(
+            pandal.id,
+            pandal,
+            pandalCrowdCounts,
+            pandalCrowdTrends
+          );
+          const crowdInfo = getCrowdBadge(crowdItem.crowdLevel);
           const distKm = pandal.distance ? (pandal.distance / 1000).toFixed(1) : null;
 
           return (
@@ -84,12 +89,25 @@ export const PandalCardList: React.FC<PandalCardListProps> = ({ pandals, onActio
                   </p>
                 </div>
 
-                {/* Crowd Badge */}
-                <span
-                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${crowdInfo.bg}`}
-                >
-                  {crowdInfo.text}
-                </span>
+                {/* Crowd Badge & Provenance */}
+                <div className="flex items-center gap-1 shrink-0">
+                  {crowdItem.crowdLevel !== 'UNAVAILABLE' && (
+                    <span className={`text-[8px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                      crowdItem.source === 'LIVE'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : crowdItem.source === 'ESTIMATED'
+                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                        : 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                    }`}>
+                      {crowdItem.source}
+                    </span>
+                  )}
+                  <span
+                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${crowdInfo.bg}`}
+                  >
+                    {crowdInfo.text}
+                  </span>
+                </div>
               </div>
 
               {/* Theme / Description */}
@@ -117,12 +135,12 @@ export const PandalCardList: React.FC<PandalCardListProps> = ({ pandals, onActio
                     🚇 {pandal.nearestMetro}
                   </span>
                 )}
-                {pandal.queueEstimate && (
+                {crowdItem.crowdLevel !== 'UNAVAILABLE' && crowdItem.queueWaitMinutes !== undefined ? (
                   <span className="flex items-center gap-1 text-neutral-400">
                     <Users size={11} />
-                    Queue: {pandal.queueEstimate}
+                    Queue: ~{crowdItem.queueWaitMinutes}m
                   </span>
-                )}
+                ) : null}
               </div>
 
               {/* Action Buttons: SHOW ON MAP & NAVIGATE */}

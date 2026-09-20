@@ -11,6 +11,9 @@ import { pandalGridSearchEngine } from './pandalGridSearchEngine';
 import { googleEarthImportService } from '../geoImport/googleEarthImportService';
 import { pandalEnrichmentService } from '../intelligence/pandalEnrichmentService';
 import { loadAgamoniPandals } from './agamoniPandalLoader';
+import { curatedBonediBariList } from '../../data/curatedBonediBari';
+import { isDuplicatePandal, mergeDuplicatePandals } from '../../utils/pandalDeduplication';
+import { normalizeGooglePlaceRecord } from '../../utils/googlePlacesNormalizer';
 
 // Known Kolkata neighborhoods for area-based resolution
 const KNOWN_AREAS: Record<string, Location> = {
@@ -53,14 +56,162 @@ const KNOWN_AREAS: Record<string, Location> = {
   'rash behari': { lat: 22.5186, lng: 88.3533 },
 };
 
-// Multi-pass queries for exhaustive real search
-const DISCOVERY_PASS_QUERIES = [
-  'Durga Puja pandal',
+// Multi-pass queries for exhaustive real search including Sarbojanin pandals and Bonedi Bari locations
+// Includes all requested variations across Durga Puja, Durga Pujo, Puja committee, Puja club,
+// Puja samiti, Puja sangha, Sarbojanin Puja, Durgotsav, Bonedi Bari, Bonedi Barir Puja,
+// Rajbari, Zamindar Bari, heritage Durga Puja, traditional Durga Puja, family Durga Puja,
+// and Bengali-script equivalents
+export const DISCOVERY_PASS_QUERIES = [
+  // 1. Durga Puja core & structural variations
   'Durga Puja',
-  'Durga Puja Mandap',
-  'Durga Puja Committee',
-  'Durga Puja Festival',
-];
+  'Durga Puja pandal',
+  'Durga Puja puja',
+  'Durga Puja Kolkata',
+  'Durga Puja mandap',
+  'Durga Puja celebration',
+  'Durga Puja ground',
+
+  // 2. Durga Pujo variations (colloquial & common Google Maps naming)
+  'Durga Pujo',
+  'Durga Pujo pandal',
+  'Durga Pujo Kolkata',
+  'Durga Pujo mandap',
+  'Kolkata Durga Pujo',
+
+  // 3. Puja committee variations
+  'Durga Puja committee',
+  'Durga Pujo committee',
+  'Puja committee',
+  'Puja committee Kolkata',
+  'Puja samity committee',
+  'Sarbojanin Puja committee',
+  'Sharad Utsav committee',
+
+  // 4. Puja club variations
+  'Durga Puja club',
+  'Durga Pujo club',
+  'Puja club',
+  'Puja club Kolkata',
+  'Club Durga Puja',
+  'Club Durga Pujo',
+
+  // 5. Puja samiti / samity variations
+  'Durga Puja Samiti',
+  'Durga Pujo Samiti',
+  'Puja Samiti',
+  'Puja Samiti Kolkata',
+  'Durga Puja Samity',
+  'Puja Samity',
+  'Sarbojanin Puja Samiti',
+  'Barowari Puja Samiti',
+
+  // 6. Puja sangha variations
+  'Durga Puja Sangha',
+  'Durga Pujo Sangha',
+  'Puja Sangha',
+  'Puja Sangha Kolkata',
+  'Sarbojanin Puja Sangha',
+  'Jubak Sangha Durga Puja',
+  'Tarun Sangha Durga Puja',
+
+  // 7. Sarbojanin Puja & Barowari variations
+  'Sarbojanin Durga Puja',
+  'Sarbojanin Puja',
+  'Sarbojanin Durgotsav',
+  'Sarbojanin Durga Pujo',
+  'Sarbajanin Durga Puja',
+  'Sarbojanin Durgotsab',
+  'Barowari Durga Puja',
+  'Barowari Puja',
+
+  // 8. Durgotsav / Durgotsab & Utsav variations
+  'Durgotsav',
+  'Durgotsab',
+  'Durga Utsav',
+  'Durga Puja Utsav',
+  'Sharadotsav',
+  'Sharadotsav Durga Puja',
+  'Sharadiya Durga Puja',
+  'Sharadiya Durgotsav',
+
+  // 9. Bonedi Bari & Bonedi Barir Puja variations
+  'Bonedi Bari Durga Puja',
+  'Bonedi Barir Puja',
+  'Bonedi Barir Durga Puja',
+  'Bonedi Bari Puja',
+  'Bonedi Bari Durga Pujo',
+  'Bonedi Durga Puja',
+  'Bonedi Bari Kolkata',
+  'Kolkata Bonedi Bari Puja',
+  'Barir Durga Puja',
+  'Barir Puja Kolkata',
+
+  // 10. Rajbari variations
+  'Rajbari Durga Puja',
+  'Rajbari Puja',
+  'Rajbari Durga Pujo',
+  'Rajbari Kolkata',
+  'Kolkata Rajbari Durga Puja',
+  'Rajbari Barir Puja',
+
+  // 11. Zamindar Bari variations
+  'Zamindar Bari Durga Puja',
+  'Zamindar Bari Puja',
+  'Zamindar Bari Durga Pujo',
+  'Zamindari Durga Puja',
+  'Zamindar Barir Puja',
+
+  // 12. Heritage Durga Puja variations
+  'heritage Durga Puja',
+  'heritage Durga Pujo',
+  'heritage Puja Kolkata',
+  'heritage Bonedi Bari',
+  'historic Durga Puja',
+  'historic Bonedi Bari Puja',
+
+  // 13. Traditional Durga Puja variations
+  'traditional Durga Puja',
+  'traditional Durga Pujo',
+  'traditional Puja Kolkata',
+  'traditional Bonedi Bari',
+  'traditional family Puja',
+  'traditional Barir Puja',
+
+  // 14. Family Durga Puja & Old family variations
+  'family Durga Puja',
+  'family Durga Pujo',
+  'family Puja Kolkata',
+  'old family Durga Puja',
+  'old family Puja Kolkata',
+  'old family Bonedi Bari',
+  'aristocratic family Durga Puja',
+
+  // 15. Bengali script queries (matching local Bengali Place titles on Google Maps)
+  'দুর্গা পূজা',
+  'দুর্গাপূজা',
+  'দুর্গা পুজো',
+  'দুর্গাপুজো',
+  'দুর্গোৎসব',
+  'সর্বজনীন দুর্গাপূজা',
+  'সর্বজনীন দুর্গোৎসব',
+  'সর্বজনীন দুর্গা পুজো',
+  'বারোয়ারি দুর্গা পূজা',
+  'পূজা কমিটি',
+  'পূজা সমিতি',
+  'পূজা সংঘ',
+  'পূজা ক্লাব',
+  'বনেদি বাড়ির পুজো',
+  'বনেদি বাড়ি দুর্গা পূজা',
+  'বনেদি বাড়ি দুর্গাপূজা',
+  'বনেদি বাড়ির দুর্গাপূজা',
+  'রাজবাড়ি দুর্গা পূজা',
+  'রাজবাড়ির পুজো',
+  'রাজবাড়ি দুর্গাপূজা',
+  'জমিদার বাড়ি দুর্গা পূজা',
+  'জমিদার বাড়ির পুজো',
+  'ঐতিহ্যবাহী দুর্গাপূজা',
+  'পারিবারিক দুর্গাপূজা',
+] as const;
 
 // Progressive Smart Radius ladder in meters: 5 km -> 7 km -> 10 km (max 10 km, stop if >= 20 unique pandals)
 const SMART_RADIUS_STEPS = [5000, 7000, 10000] as const;
@@ -113,10 +264,41 @@ export class PandalDiscoveryService {
       }));
 
     const agamoniCandidates = loadAgamoniPandals();
+
+    const bonediCandidates: DiscoveredPandal[] = curatedBonediBariList.map((b) => ({
+      id: b.id,
+      name: b.name,
+      latitude: b.latitude,
+      longitude: b.longitude,
+      location: { lat: b.latitude, lng: b.longitude },
+      address: b.address,
+      area: b.zone || 'Kolkata',
+      city: 'Kolkata',
+      source: 'ECLIPSE_CURATED' as const,
+      sourceId: b.id,
+      verificationStatus: 'VERIFIED' as const,
+      category: 'BONEDI_BARI',
+      theme: 'Traditional Bonedi Bari Heritage Puja',
+      description: b.heritageDescription,
+      rating: 4.9,
+      userRatingCount: 450,
+      verified: true,
+      crowdLevel: 'MODERATE' as const,
+      crowdTrend: 'STEADY' as const,
+      confidence: 0.98,
+      queueEstimate: '10 - 20 mins',
+      queueTimeMinutes: 15,
+      parkingAvailability: 'limited' as const,
+      parkingStatus: 'moderate' as const,
+      estimatedVisitDuration: 40,
+      accessibility: true,
+    }));
+
     this.cachedLocalCandidates = [
-      ...curatedEclipsePandals,
-      ...googleEarthCandidates,
+      ...curatedEclipsePandals.map((p) => ({ ...p, category: p.category || 'PANDAL' })),
+      ...googleEarthCandidates.map((p) => ({ ...p, category: p.category || 'PANDAL' })),
       ...agamoniCandidates,
+      ...bonediCandidates,
     ];
     return this.cachedLocalCandidates;
   }
@@ -265,16 +447,20 @@ export class PandalDiscoveryService {
         rawQuery
       );
 
-      // Avoid unnecessary Google Places requests when the local Eclipse database already has nearby results.
-      // Only perform external multi-pass search if the local database has 0 results in this area.
-      if (discoveredPandals.length === 0) {
+      // Perform external multi-pass Google Places discovery when external search is not skipped
+      if (!params.skipExternalSearch) {
         const passResults = await this.runMultiPassDiscovery(effectiveCenter, finalRadius, rawQuery);
-        discoveredPandals = this.mergeAndDeduplicate(
-          passResults,
-          effectiveCenter,
-          finalRadius,
-          rawQuery
-        );
+        if (passResults && passResults.length > 0) {
+          discoveredPandals = this.mergeAndDeduplicate(
+            passResults,
+            effectiveCenter,
+            finalRadius,
+            rawQuery
+          );
+          if (!sourcesUsed.includes('GOOGLE_PLACES')) {
+            sourcesUsed.push('GOOGLE_PLACES');
+          }
+        }
       }
 
       // If 20 or more unique pandals are found, keep the current radius
@@ -401,37 +587,71 @@ export class PandalDiscoveryService {
     radius: number,
     customQuery?: string
   ): Promise<DiscoveredPandal[]> {
-    const queries = customQuery && customQuery.trim().length > 3
-      ? [customQuery, 'Durga Puja pandal']
-      : DISCOVERY_PASS_QUERIES.slice(0, 3);
+    const queries: string[] = [];
+    if (customQuery && customQuery.trim().length > 2) {
+      queries.push(customQuery.trim());
+    }
+    for (const q of DISCOVERY_PASS_QUERIES) {
+      if (!queries.some((existing) => existing.toLowerCase() === q.toLowerCase())) {
+        queries.push(q);
+      }
+    }
 
     const accumulated: DiscoveredPandal[] = [];
+    const BATCH_SIZE = 3;
 
-    for (const q of queries) {
-      try {
-        const response = await fetch('/api/places/search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query: q,
-            location: center,
-            radius,
-          }),
-        });
+    for (let b = 0; b < queries.length; b += BATCH_SIZE) {
+      const batch = queries.slice(b, b + BATCH_SIZE);
+      const batchPromises = batch.map(async (q) => {
+        const queryResults: DiscoveredPandal[] = [];
+        let pageToken: string | undefined = undefined;
+        let pageCount = 0;
+        const MAX_PAGES = 3;
 
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data.places)) {
-            data.places.forEach((p: any) => {
-              const normalized = this.normalizeGooglePlace(p, center);
-              if (normalized) {
-                accumulated.push(normalized);
-              }
+        try {
+          while (pageCount < MAX_PAGES) {
+            pageCount++;
+            const response = await fetch('/api/places/search', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                query: q,
+                location: center,
+                radius,
+                pageToken,
+              }),
             });
+
+            if (!response.ok) break;
+            const data = await response.json();
+            if (!Array.isArray(data.places) || data.places.length === 0) break;
+
+            for (const p of data.places) {
+              const normalized = this.normalizeGooglePlace(p, center);
+              if (normalized) queryResults.push(normalized);
+            }
+
+            if (data.nextPageToken && typeof data.nextPageToken === 'string') {
+              pageToken = data.nextPageToken;
+              await new Promise((resolve) => setTimeout(resolve, 80));
+            } else {
+              break;
+            }
           }
+        } catch (_) {
+          // Individual pass error handled
         }
-      } catch (_) {
-        // Individual pass error handled
+        return queryResults;
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      for (const res of batchResults) {
+        if (res && res.length > 0) {
+          accumulated.push(...res);
+        }
+      }
+      if (b + BATCH_SIZE < queries.length) {
+        await new Promise((resolve) => setTimeout(resolve, 40));
       }
     }
 
@@ -565,59 +785,63 @@ export class PandalDiscoveryService {
   }
 
   /**
-   * Normalize Google Places API (New) response
+   * Normalize Google Places API response using unified normalizer
    */
   private normalizeGooglePlace(place: any, userLoc: Location): DiscoveredPandal | null {
-    const coords = extractPlaceCoordinates(place);
-    if (!coords) {
-      console.warn(`[PandalDiscovery] Rejected Google Place without valid coordinates: ${place.name || place.displayName?.text}`);
-      return null;
-    }
+    const candidate = normalizeGooglePlaceRecord(place, userLoc);
+    if (!candidate) return null;
+    return this.enrichPandalWithMetrics(candidate, userLoc);
+  }
 
-    const name = place.displayName?.text || place.name || 'Durga Puja Pandal';
-    const address = place.formattedAddress || place.vicinity || 'Kolkata, West Bengal';
-    const area = address.split(',')[0]?.trim() || 'Kolkata';
+  /**
+   * Discovers pandals & Bonedi Bari across all Kolkata metropolitan coverage zones
+   * Merges and deduplicates with the local authoritative Eclipse database.
+   */
+  public async discoverKolkataMetropolitanCoverage(customQuery?: string): Promise<{
+    mergedRecords: DiscoveredPandal[];
+    googleCandidates: DiscoveredPandal[];
+    pandalCount: number;
+    bonediBariCount: number;
+    possibleCount: number;
+  }> {
+    const local = this.getLocalCandidates();
+    const googleRaw = await pandalGridSearchEngine.discoverKolkataMetropolitanCoverage(customQuery);
 
-    // Verify area consistency (especially Naktala/Garia)
-    const areaCheck = verifyPandalAreaMatch(name, area, coords.lat, coords.lng);
-    const finalCoords = (!areaCheck.valid && areaCheck.correctedCoords) ? areaCheck.correctedCoords : coords;
+    const merged = pandalGridSearchEngine.deduplicateAndMerge([...local, ...googleRaw]);
 
-    const sourceId = String(place.id || place.place_id || `gplaces-${finalCoords.lat}-${finalCoords.lng}`);
+    const pandalCount = googleRaw.filter((p) => p.category === 'PANDAL').length;
+    const bonediBariCount = googleRaw.filter((p) => p.category === 'BONEDI_BARI').length;
+    const possibleCount = googleRaw.filter(
+      (p) => p.category === 'POSSIBLE_PANDAL' || p.category === 'POSSIBLE_BONEDI_BARI'
+    ).length;
 
-    const pandal: DiscoveredPandal = {
-      id: `gplaces-${sourceId}`,
-      source: 'GOOGLE_PLACES',
-      sourceId,
-      verificationStatus: 'VERIFIED',
-      name,
-      latitude: finalCoords.lat,
-      longitude: finalCoords.lng,
-      location: { lat: finalCoords.lat, lng: finalCoords.lng },
-      address,
-      area,
-      city: 'Kolkata',
-      zone: 'DISCOVERED',
-      theme: 'Durga Puja Mandap',
-      description: `Discovered through Google Places: ${address}`,
-      googleMapsUri: place.googleMapsUri || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`,
-      placeTypes: place.types || ['place_of_worship'],
-      photos: place.photos?.map((ph: any) => ph.name ? `/api/places/photo?name=${encodeURIComponent(ph.name)}` : ph) || [],
-      rating: place.rating || 4.7,
-      userRatingCount: place.userRatingCount || 200,
-      status: place.businessStatus === 'CLOSED_TEMPORARILY' ? 'TEMPORARY' : 'OPERATIONAL',
-      crowdLevel: 'UNAVAILABLE',
-      crowdTrend: 'STEADY',
-      confidence: 0.92,
-      verified: true,
-      queueEstimate: 'Unavailable',
-      queueTimeMinutes: 0,
-      parkingAvailability: 'limited',
-      parkingStatus: 'moderate',
-      estimatedVisitDuration: 35,
-      accessibility: true,
+    return {
+      mergedRecords: merged,
+      googleCandidates: googleRaw,
+      pandalCount,
+      bonediBariCount,
+      possibleCount,
     };
+  }
 
-    return this.enrichPandalWithMetrics(pandal, userLoc);
+  /**
+   * Returns current statistics of the database breakdown
+   */
+  public getSourceCounts(): {
+    eclipseCurated: number;
+    agamoni: number;
+    googleEarth: number;
+    curatedBonediBari: number;
+    totalLocal: number;
+  } {
+    const local = this.getLocalCandidates();
+    return {
+      eclipseCurated: local.filter((p) => p.source === 'ECLIPSE_CURATED' && p.category !== 'BONEDI_BARI').length,
+      agamoni: local.filter((p) => p.source === 'AGAMONI').length,
+      googleEarth: local.filter((p) => p.source === 'GOOGLE_EARTH').length,
+      curatedBonediBari: local.filter((p) => p.category === 'BONEDI_BARI').length,
+      totalLocal: local.length,
+    };
   }
 
   /**
@@ -686,49 +910,15 @@ export class PandalDiscoveryService {
         }
       }
 
-      // Find existing match in deduplicated list
-      const existingIdx = deduplicated.findIndex((p) => {
-        // Match by Source ID
-        if (p.sourceId && candidate.sourceId && p.sourceId === candidate.sourceId) return true;
-
-        // Match by proximity (< 75 meters)
-        const distBetween = this.calculateDistanceInMeters(p.location, candidate.location);
-        if (distBetween < 75) return true;
-
-        // Match by normalized name within same neighborhood (< 500 meters)
-        const normA = this.normalizePandalName(p.name);
-        const normB = this.normalizePandalName(candidate.name);
-        if (normA && normB && normA.length >= 4 && normB.length >= 4) {
-          const isNameMatch = normA === normB || normA.includes(normB) || normB.includes(normA);
-          if (isNameMatch && distBetween < 500) {
-            return true;
-          }
-        }
-
-        return false;
-      });
+      // Deduplicate against existing records using place ID, coordinates and name/address similarity
+      const existingIdx = deduplicated.findIndex((p) => isDuplicatePandal(p, candidate).isDuplicate);
 
       if (existingIdx === -1) {
         deduplicated.push(this.enrichPandalWithMetrics(candidate, center));
       } else {
-        // Merge records: prefer richer curated data, supplement with live Google metadata
+        // Merge records: authoritative data preserved, supplemented with live Google metadata
         const existing = deduplicated[existingIdx];
-        const isCandidateCurated = candidate.source === 'ECLIPSE_CURATED';
-
-        const merged: DiscoveredPandal = {
-          ...(isCandidateCurated ? candidate : existing),
-          sourceId: existing.sourceId || candidate.sourceId,
-          verificationStatus: (existing.verificationStatus === 'VERIFIED' || candidate.verificationStatus === 'VERIFIED')
-            ? 'VERIFIED'
-            : (existing.verificationStatus || candidate.verificationStatus || 'UNVERIFIED'),
-          googleMapsUri: candidate.googleMapsUri || existing.googleMapsUri,
-          rating: Math.max(candidate.rating || 0, existing.rating || 0) || 4.7,
-          userRatingCount: Math.max(candidate.userRatingCount || 0, existing.userRatingCount || 0) || 100,
-          photos: [...(existing.photos || []), ...(candidate.photos || [])].slice(0, 3),
-          confidence: Math.max(candidate.confidence || 0, existing.confidence || 0),
-          verified: candidate.verified || existing.verified,
-        };
-
+        const merged = mergeDuplicatePandals(existing, candidate);
         deduplicated[existingIdx] = this.enrichPandalWithMetrics(merged, center);
       }
     });

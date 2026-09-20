@@ -26,6 +26,7 @@ import L from 'leaflet';
 export const LeafletMapView: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const [isMapReady, setIsMapReady] = useState<boolean>(false);
   const activeTilesRef = useRef<L.Layer[]>([]);
   const markersGroupRef = useRef<L.FeatureGroup | null>(null);
   const routePolylineRef = useRef<L.Polyline | null>(null);
@@ -130,13 +131,6 @@ export const LeafletMapView: React.FC = () => {
   useEffect(() => {
     if (!containerRef.current || mapInstanceRef.current) return;
 
-    // 100% free OpenStreetMap tiles with custom dark theme filter applied via CSS
-    const darkTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19,
-      className: 'map-tiles-dark'
-    });
-
     const initialCenter: [number, number] = currentLocation
       ? [currentLocation.lat, currentLocation.lng]
       : [22.5697, 88.3639];
@@ -148,6 +142,7 @@ export const LeafletMapView: React.FC = () => {
     });
 
     mapInstanceRef.current = map;
+    setIsMapReady(true);
 
     // Update Intelligence Grid viewport bounds & zoom
     const updateViewport = () => {
@@ -223,6 +218,7 @@ export const LeafletMapView: React.FC = () => {
       resizeObserver.disconnect();
       map.remove();
       mapInstanceRef.current = null;
+      setIsMapReady(false);
       setMapRef(null);
     };
   }, []);
@@ -230,13 +226,28 @@ export const LeafletMapView: React.FC = () => {
   // Dynamic MapStyle tile switcher (Standard, Satellite, Hybrid, 3D)
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map) return;
+    if (!map || !isMapReady) return;
 
     // 1. Clear any active tile layers
     activeTilesRef.current.forEach((layer) => {
-      map.removeLayer(layer);
+      try {
+        map.removeLayer(layer);
+      } catch (e) {
+        // Ignore removal error
+      }
     });
     activeTilesRef.current = [];
+
+    // Also sweep map for any stray TileLayers
+    map.eachLayer((layer) => {
+      if (layer instanceof L.TileLayer) {
+        try {
+          map.removeLayer(layer);
+        } catch (e) {
+          // Ignore
+        }
+      }
+    });
 
     // 2. Create and add new layer(s) based on mapStyle
     const layersToAdd: L.Layer[] = [];
@@ -256,25 +267,27 @@ export const LeafletMapView: React.FC = () => {
       layersToAdd.push(satelliteLayer);
     } else if (mapStyle === 'hybrid') {
       const baseLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
+        maxZoom: 19
+      });
+      const transportationLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri',
         maxZoom: 19
       });
-      const labelLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; CartoDB',
-        maxZoom: 19
+      const labelLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+        maxZoom: 19,
+        subdomains: 'abcd'
       });
-      layersToAdd.push(baseLayer, labelLayer);
-    } else if (mapStyle === '3d') {
-      // 3D mode in Leaflet tilts the map container and overlays hybrid styling
-      const hybridBase = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri',
-        maxZoom: 19
+      layersToAdd.push(baseLayer, transportationLayer, labelLayer);
+    } else {
+      // Leaflet is 2D only — true 3D is not supported by this provider. Do NOT fake a 3D view.
+      const standardLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19,
+        className: 'map-tiles-dark'
       });
-      const labelLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; CartoDB',
-        maxZoom: 19
-      });
-      layersToAdd.push(hybridBase, labelLayer);
+      layersToAdd.push(standardLayer);
     }
 
     // Add new layers to map and save references
@@ -283,20 +296,12 @@ export const LeafletMapView: React.FC = () => {
       activeTilesRef.current.push(layer);
     });
 
-    // 3. Handle 3D Tilt CSS Transform
-    if (mapStyle === '3d') {
-      if (containerRef.current) {
-        containerRef.current.style.transform = 'perspective(900px) rotateX(42deg) scale(1.18)';
-        containerRef.current.style.transformOrigin = 'bottom center';
-        containerRef.current.style.transition = 'transform 0.4s ease-out';
-      }
-    } else {
-      if (containerRef.current) {
-        containerRef.current.style.transform = 'none';
-        containerRef.current.style.transition = 'transform 0.4s ease-out';
-      }
+    // 3. Leaflet is 2D only — ensure container has no fake 3D perspective or tilt distortion
+    if (containerRef.current) {
+      containerRef.current.style.transform = 'none';
+      containerRef.current.style.transition = 'none';
     }
-  }, [mapStyle, mapInstanceRef.current]);
+  }, [mapStyle, isMapReady]);
 
   // Update User GPS Marker and Accuracy Circle
   useEffect(() => {
@@ -607,9 +612,9 @@ export const LeafletMapView: React.FC = () => {
     crowdItems.forEach((item) => {
       if (item.crowdLevel === 'UNAVAILABLE') return;
 
-      const radius = item.crowdLevel === 'HEAVY' ? 260 : item.crowdLevel === 'HIGH' ? 200 : item.crowdLevel === 'MODERATE' ? 140 : 90;
-      const color = item.crowdLevel === 'HEAVY' ? '#f43f5e' : item.crowdLevel === 'HIGH' ? '#f97316' : item.crowdLevel === 'MODERATE' ? '#f59e0b' : '#10b981';
-      const opacity = item.crowdLevel === 'HEAVY' ? 0.28 : item.crowdLevel === 'HIGH' ? 0.22 : 0.16;
+      const radius = item.crowdLevel === 'EXTREME' ? 320 : item.crowdLevel === 'HEAVY' ? 260 : item.crowdLevel === 'HIGH' ? 200 : item.crowdLevel === 'MODERATE' ? 140 : 90;
+      const color = item.crowdLevel === 'EXTREME' ? '#e11d48' : item.crowdLevel === 'HEAVY' ? '#f43f5e' : item.crowdLevel === 'HIGH' ? '#f97316' : item.crowdLevel === 'MODERATE' ? '#f59e0b' : '#10b981';
+      const opacity = item.crowdLevel === 'EXTREME' ? 0.35 : item.crowdLevel === 'HEAVY' ? 0.28 : item.crowdLevel === 'HIGH' ? 0.22 : 0.16;
 
       // 1. Density circle halo
       const circle = L.circle([item.location.lat, item.location.lng], {
@@ -617,7 +622,7 @@ export const LeafletMapView: React.FC = () => {
         color,
         fillColor: color,
         fillOpacity: opacity,
-        weight: item.crowdLevel === 'HEAVY' ? 2 : 1.5,
+        weight: item.crowdLevel === 'EXTREME' ? 2.5 : item.crowdLevel === 'HEAVY' ? 2 : 1.5,
         interactive: false,
       });
       crowdLayer.addLayer(circle);
@@ -659,8 +664,13 @@ export const LeafletMapView: React.FC = () => {
     const corridors = trafficIntelligenceService.getAllCorridors();
 
     corridors.forEach((corridor) => {
-      const color = corridor.status === 'CONGESTED' ? '#f43f5e' : corridor.status === 'SLOW' ? '#f59e0b' : '#10b981';
-      const weight = corridor.status === 'CONGESTED' ? 7 : corridor.status === 'SLOW' ? 6 : 5;
+      const isHeavy = corridor.status === 'CONGESTED' || corridor.status === 'HEAVY';
+      const isModerate = corridor.status === 'SLOW' || corridor.status === 'MODERATE';
+      const isClear = corridor.status === 'CLEAR';
+
+      const color = isHeavy ? '#f43f5e' : isModerate ? '#f59e0b' : isClear ? '#10b981' : '#737373';
+      const weight = isHeavy ? 7 : isModerate ? 6 : 5;
+      const statusLabel = isHeavy ? 'Heavy' : isModerate ? 'Moderate' : isClear ? 'Clear' : 'Unavailable';
 
       // 1. Draw corridor polyline if coordinates available
       if (corridor.polyPoints && corridor.polyPoints.length > 1) {
@@ -670,23 +680,23 @@ export const LeafletMapView: React.FC = () => {
             color,
             weight,
             opacity: 0.85,
-            dashArray: corridor.status === 'SLOW' ? '8, 6' : undefined,
+            dashArray: isModerate ? '8, 6' : undefined,
           }
         );
         polyline.bindTooltip(
-          `<strong>${corridor.corridorName}</strong><br/>Status: <b>${corridor.status}</b> (${corridor.estimatedDelayMinutes > 0 ? `+${corridor.estimatedDelayMinutes}m delay` : 'Flowing'})<br/>Advisory: ${corridor.alternativeRoute || 'Normal festival flow'}`,
+          `<strong>${corridor.corridorName}</strong><br/>Status: <b>${statusLabel}</b> (${corridor.estimatedDelayMinutes > 0 ? `+${corridor.estimatedDelayMinutes}m delay` : 'Clear Flow'})<br/>Advisory: ${corridor.alternativeRoute || 'Normal festival flow'}`,
           { sticky: true }
         );
         trafficLayer.addLayer(polyline);
       }
 
       // 2. Draw traffic advisory node marker
-      const delayBadge = corridor.estimatedDelayMinutes > 0 ? `+${corridor.estimatedDelayMinutes}m` : 'Flowing';
+      const delayBadge = corridor.estimatedDelayMinutes > 0 ? `+${corridor.estimatedDelayMinutes}m delay` : 'Clear Flow';
       const markerHtml = `
         <div class="relative flex flex-col items-center pointer-events-auto cursor-pointer">
           <div class="px-2 py-0.5 rounded-md text-[10px] font-bold shadow-md border flex items-center gap-1 whitespace-nowrap"
                style="background: rgba(10, 10, 15, 0.95); color: ${color}; border-color: ${color};">
-            <span>🚗 ${corridor.status}</span>
+            <span>🚗 ${statusLabel}</span>
             <span class="font-mono text-[9px] opacity-80">${delayBadge}</span>
           </div>
         </div>
@@ -702,7 +712,7 @@ export const LeafletMapView: React.FC = () => {
         <div style="color: #fff; font-size: 12px; max-width: 240px;">
           <h4 style="font-weight: bold; margin-bottom: 4px; color: ${color};">${corridor.corridorName}</h4>
           <p style="margin: 2px 0;">Road: ${corridor.affectedRoad}</p>
-          <p style="margin: 2px 0;">Status: <b>${corridor.status}</b> (${delayBadge})</p>
+          <p style="margin: 2px 0;">Status: <b>${statusLabel}</b> (${delayBadge})</p>
           ${corridor.alternativeRoute ? `<p style="margin: 4px 0 0 0; color: #aaa; font-size: 11px;">Advisory: ${corridor.alternativeRoute}</p>` : ''}
           <div style="margin-top: 6px; font-size: 9px; color: #888;">Provenance: ${corridor.source} (${corridor.sourceLabel})</div>
         </div>

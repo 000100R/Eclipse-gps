@@ -42,7 +42,7 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
       affectedRoad: 'VIP Road (Nazrul Islam Sarani)',
       affectedArea: 'North-East Kolkata',
       location: { lat: 22.5995, lng: 88.4035 },
-      status: 'CONGESTED',
+      status: 'HEAVY',
       congestionLevel: 'HIGH',
       estimatedDelayMinutes: 25,
       affectedPandalIds: ['pandal-1', 'sreebhumi-sporting-club', 'dum-dum-park-bharat-chakra', 'dum-dum-park-tarun-sangha', 'lake-town-netaji-sangha'],
@@ -63,7 +63,7 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
       affectedRoad: 'Chittaranjan Avenue (CR Avenue)',
       affectedArea: 'Central Kolkata',
       location: { lat: 22.5785, lng: 88.3610 },
-      status: 'CONGESTED',
+      status: 'HEAVY',
       congestionLevel: 'HIGH',
       estimatedDelayMinutes: 30,
       affectedPandalIds: ['pandal-2', 'santosh-mitra-square', 'pandal-6', 'college-square', 'mohammad-ali-park', 'chaltabagan'],
@@ -84,7 +84,7 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
       affectedRoad: 'Rashbehari Avenue (Chetla to Gariahat)',
       affectedArea: 'South Kolkata',
       location: { lat: 22.5185, lng: 88.3580 },
-      status: 'SLOW',
+      status: 'MODERATE',
       congestionLevel: 'MODERATE',
       estimatedDelayMinutes: 18,
       affectedPandalIds: ['pandal-4', 'ballygunge-cultural-association', 'pandal-5', 'chetla-agrani-club', 'pandal-7', 'ekdalia-evergreen-club', 'pandal-8', 'deshapriya-park', 'pandal-11', 'singhi-park'],
@@ -126,7 +126,7 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
       affectedRoad: 'Bhupen Bose Ave & Girish Avenue',
       affectedArea: 'North Kolkata',
       location: { lat: 22.6025, lng: 88.3710 },
-      status: 'SLOW',
+      status: 'MODERATE',
       congestionLevel: 'MODERATE',
       estimatedDelayMinutes: 15,
       affectedPandalIds: ['pandal-9', 'bagbazar-sarbojanin', 'kumartuli-park', 'sovabazar-rajbari', 'shyambazar-pally'],
@@ -147,7 +147,7 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
       affectedRoad: 'Diamond Harbour Road (Taratala to Behala Chowrasta)',
       affectedArea: 'South-West Kolkata',
       location: { lat: 22.4980, lng: 88.3180 },
-      status: 'SLOW',
+      status: 'MODERATE',
       congestionLevel: 'MODERATE',
       estimatedDelayMinutes: 20,
       affectedPandalIds: ['behala-notun-dal', 'behala-club', 'behala-budo-shibtala', 'pandal-behala-1'],
@@ -213,6 +213,101 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
     // Cleanup if needed
   }
 
+  private googleTrafficCache: Map<string, { item: TrafficIntelligenceItem; expiry: number }> = new Map();
+
+  /**
+   * Real Google Maps Traffic integration.
+   * If Google Maps API is loaded and available on window, queries DirectionsService for live traffic delays.
+   * NEVER invents data. If unavailable, fails, or unsupported, returns null.
+   */
+  public async fetchLiveTrafficFromGoogle(
+    origin: Location,
+    destination: Location,
+    pandalId?: string,
+    pandalName?: string
+  ): Promise<TrafficIntelligenceItem | null> {
+    if (typeof window === 'undefined' || !(window as any).google?.maps?.DirectionsService) {
+      return null;
+    }
+
+    const cacheKey = `${origin.lat.toFixed(3)},${origin.lng.toFixed(3)}->${destination.lat.toFixed(3)},${destination.lng.toFixed(3)}`;
+    const cached = this.googleTrafficCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiry) {
+      return cached.item;
+    }
+
+    return new Promise((resolve) => {
+      try {
+        const googleMaps = (window as any).google.maps;
+        const directionsService = new googleMaps.DirectionsService();
+        directionsService.route(
+          {
+            origin: new googleMaps.LatLng(origin.lat, origin.lng),
+            destination: new googleMaps.LatLng(destination.lat, destination.lng),
+            travelMode: googleMaps.TravelMode.DRIVING,
+            drivingOptions: {
+              departureTime: new Date(),
+              trafficModel: googleMaps.TrafficModel.BEST_GUESS,
+            },
+          },
+          (result: any, status: any) => {
+            if (status === googleMaps.DirectionsStatus.OK && result && result.routes && result.routes.length > 0) {
+              const leg = result.routes[0].legs[0];
+              const normalDurationSec = leg.duration?.value || 0;
+              const trafficDurationSec = leg.duration_in_traffic ? leg.duration_in_traffic.value : normalDurationSec;
+              const delaySec = Math.max(0, trafficDurationSec - normalDurationSec);
+              const delayMinutes = Math.round(delaySec / 60);
+
+              let trafficStatus: TrafficStatusLevel = 'CLEAR';
+              let congestion: TrafficCongestion = 'LOW';
+
+              if (delayMinutes >= 15 || (normalDurationSec > 0 && trafficDurationSec / normalDurationSec >= 1.35 && delayMinutes >= 5)) {
+                trafficStatus = 'HEAVY';
+                congestion = 'HIGH';
+              } else if (delayMinutes >= 4 || (normalDurationSec > 0 && trafficDurationSec / normalDurationSec >= 1.15 && delayMinutes >= 2)) {
+                trafficStatus = 'MODERATE';
+                congestion = 'MODERATE';
+              } else {
+                trafficStatus = 'CLEAR';
+                congestion = 'LOW';
+              }
+
+              const roadName = leg.steps && leg.steps.length > 0
+                ? (leg.steps[0] as any).instructions?.replace(/<[^>]*>/g, '').slice(0, 40)
+                : 'Arterial Corridor';
+
+              const item: TrafficIntelligenceItem = {
+                id: `google-traffic-${pandalId || 'dest'}`,
+                corridorName: leg.summary ? `Via ${leg.summary}` : `${pandalName || 'Destination'} Approach`,
+                affectedRoad: roadName || 'Connecting Arteries',
+                affectedArea: 'Kolkata Metropolitan Area',
+                location: destination,
+                status: trafficStatus,
+                congestionLevel: congestion,
+                estimatedDelayMinutes: delayMinutes,
+                affectedPandalIds: pandalId ? [pandalId] : [],
+                source: 'LIVE',
+                sourceLabel: 'Google Maps Live Traffic',
+                lastUpdated: Date.now(),
+              };
+
+              this.googleTrafficCache.set(cacheKey, { item, expiry: Date.now() + 3 * 60 * 1000 });
+              if (pandalId) {
+                this.googleTrafficCache.set(`pandal:${pandalId}`, { item, expiry: Date.now() + 3 * 60 * 1000 });
+              }
+              resolve(item);
+            } else {
+              resolve(null);
+            }
+          }
+        );
+      } catch (err) {
+        console.warn('Google Maps live traffic query skipped:', err);
+        resolve(null);
+      }
+    });
+  }
+
   /**
    * Synchronizes active traffic alerts into live corridor statuses
    */
@@ -225,7 +320,7 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
         if (alert.itemId) {
           const matched = this.corridors.find(c => c.affectedPandalIds.includes(alert.itemId!));
           if (matched) {
-            matched.status = 'CONGESTED';
+            matched.status = 'HEAVY';
             matched.congestionLevel = 'HIGH';
             matched.source = 'LIVE';
             matched.sourceLabel = `Eclipse Live Police Feed (${alert.title})`;
@@ -242,12 +337,22 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
   }
 
   /**
-   * Gets traffic status for a specific pandal
+   * Gets traffic status for a specific pandal.
+   * STRICT REQUIREMENT: Never invent traffic conditions.
+   * Returns a real Google Maps or verified corridor item, or explicit UNAVAILABLE item.
    */
   public getTrafficNearPandal(pandalId: string, pandalLocation?: Location): TrafficIntelligenceItem | null {
     if (!pandalId && !pandalLocation) return null;
 
-    // 1. Direct match by affected pandal ID
+    // 1. Check if live Google Maps traffic was cached for this pandal
+    if (pandalId) {
+      const cachedGoogle = this.googleTrafficCache.get(`pandal:${pandalId}`);
+      if (cachedGoogle && Date.now() < cachedGoogle.expiry) {
+        return cachedGoogle.item;
+      }
+    }
+
+    // 2. Direct match by affected pandal ID in verified Kolkata Police festival corridors
     if (pandalId) {
       const direct = this.corridors.find(c =>
         c.affectedPandalIds.some(id => id.toLowerCase() === pandalId.toLowerCase() || pandalId.toLowerCase().includes(id.toLowerCase()))
@@ -255,7 +360,7 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
       if (direct) return direct;
     }
 
-    // 2. Proximity match within 1.2 km of a corridor center
+    // 3. Proximity match within 1.5 km of a verified corridor center
     if (pandalLocation) {
       let closest: TrafficIntelligenceItem | null = null;
       let minDistance = 1500; // 1.5 km threshold
@@ -271,25 +376,78 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
       if (closest) return closest;
     }
 
-    // 3. Fallback baseline if in Kolkata central bounds
-    if (pandalLocation && pandalLocation.lat >= 22.45 && pandalLocation.lat <= 22.65 && pandalLocation.lng >= 88.28 && pandalLocation.lng <= 88.46) {
+    // 4. If neither Google live traffic nor a verified corridor is available:
+    // STRICT RULE: NEVER INVENT DATA. Return explicit UNAVAILABLE record.
+    return {
+      id: `traffic-unavail-${pandalId || 'local'}`,
+      corridorName: 'Connecting Arteries',
+      affectedRoad: 'Access Roads',
+      affectedArea: 'Kolkata Metropolitan Area',
+      location: pandalLocation || { lat: 22.5726, lng: 88.3639 },
+      status: 'UNAVAILABLE',
+      congestionLevel: 'LOW',
+      estimatedDelayMinutes: 0,
+      affectedPandalIds: pandalId ? [pandalId] : [],
+      source: 'UNAVAILABLE',
+      sourceLabel: 'Traffic data unavailable',
+      lastUpdated: Date.now(),
+    };
+  }
+
+  /**
+   * Helper to get standardized display labels & styling
+   */
+  public getDisplayStatus(status?: string): {
+    label: 'Clear' | 'Moderate' | 'Heavy' | 'Unavailable';
+    colorClass: string;
+    bgClass: string;
+    borderClass: string;
+    isAvailable: boolean;
+  } {
+    if (!status) {
       return {
-        id: `traffic-gen-${pandalId || 'local'}`,
-        corridorName: 'Local Kolkata Connecting Road',
-        affectedRoad: 'Connecting Arteries',
-        affectedArea: 'Kolkata Metropolitan Area',
-        location: pandalLocation,
-        status: 'CLEAR',
-        congestionLevel: 'LOW',
-        estimatedDelayMinutes: 5,
-        affectedPandalIds: [pandalId],
-        source: 'ESTIMATED',
-        sourceLabel: 'Citywide Flow Baseline',
-        lastUpdated: Date.now() - 10 * 60 * 1000,
+        label: 'Unavailable',
+        colorClass: 'text-neutral-400',
+        bgClass: 'bg-neutral-900/80',
+        borderClass: 'border-neutral-800',
+        isAvailable: false,
       };
     }
-
-    return null;
+    const s = status.toUpperCase();
+    if (s === 'CLEAR') {
+      return {
+        label: 'Clear',
+        colorClass: 'text-emerald-400',
+        bgClass: 'bg-emerald-500/10',
+        borderClass: 'border-emerald-500/30',
+        isAvailable: true,
+      };
+    }
+    if (s === 'MODERATE' || s === 'SLOW') {
+      return {
+        label: 'Moderate',
+        colorClass: 'text-amber-400',
+        bgClass: 'bg-amber-500/10',
+        borderClass: 'border-amber-500/30',
+        isAvailable: true,
+      };
+    }
+    if (s === 'HEAVY' || s === 'CONGESTED' || s === 'JAM') {
+      return {
+        label: 'Heavy',
+        colorClass: 'text-rose-400',
+        bgClass: 'bg-rose-500/10',
+        borderClass: 'border-rose-500/30',
+        isAvailable: true,
+      };
+    }
+    return {
+      label: 'Unavailable',
+      colorClass: 'text-neutral-400',
+      bgClass: 'bg-neutral-900/80',
+      borderClass: 'border-neutral-800',
+      isAvailable: false,
+    };
   }
 
   /**
@@ -301,17 +459,17 @@ class TrafficIntelligenceService implements IntelligenceDataProvider<TrafficInte
   }
 
   /**
-   * Updates a corridor's status based on real calculated route delays (e.g. from OSRM)
+   * Updates a corridor's status based on real calculated route delays
    */
   public updateCorridorDelay(corridorId: string, delayMinutes: number, alternative?: string): void {
     const c = this.corridors.find(cor => cor.id === corridorId);
     if (c) {
       c.estimatedDelayMinutes = delayMinutes;
       if (delayMinutes >= 20) {
-        c.status = 'CONGESTED';
+        c.status = 'HEAVY';
         c.congestionLevel = 'HIGH';
       } else if (delayMinutes >= 10) {
-        c.status = 'SLOW';
+        c.status = 'MODERATE';
         c.congestionLevel = 'MODERATE';
       } else {
         c.status = 'CLEAR';

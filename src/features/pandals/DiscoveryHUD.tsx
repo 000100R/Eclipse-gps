@@ -232,12 +232,14 @@ export const DiscoveryHUD: React.FC = () => {
                       </div>
 
                       <div className="flex items-center space-x-1.5">
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                          pandal.crowdLevel === 'LOW' ? 'bg-emerald-500/10 text-emerald-400' :
-                          pandal.crowdLevel === 'MODERATE' ? 'bg-blue-500/10 text-blue-400' :
-                          pandal.crowdLevel === 'HEAVY' ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                          pandal.crowdLevel === 'LOW' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                          pandal.crowdLevel === 'MODERATE' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                          pandal.crowdLevel === 'HIGH' || pandal.crowdLevel === 'HEAVY' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                          pandal.crowdLevel === 'EXTREME' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse' :
+                          'bg-neutral-800 text-neutral-400 border-neutral-700'
                         }`}>
-                          {pandal.crowdLevel}
+                          {pandal.crowdLevel && pandal.crowdLevel !== 'UNAVAILABLE' ? pandal.crowdLevel : 'Crowd unavailable'}
                         </span>
 
                         <button
