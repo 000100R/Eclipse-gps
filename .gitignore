@@ -25,6 +25,10 @@ client_secret*.json
 *.crt
 *.pfx
 *.p12
+*.keystore
+*.jks
+google-services.json
+GoogleService-Info.plist
 
 # Firebase local state and debug logs
 .firebase/
