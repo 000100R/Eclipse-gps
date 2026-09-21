@@ -31,7 +31,8 @@ import {
   listenToFriends,
   listenToFriendLocation,
   publishLiveLocation,
-  clearLiveLocation
+  clearLiveLocation,
+  syncUserProfile,
 } from '../services/realtime/friendsService';
 import {
   PujaGroup,
@@ -936,10 +937,8 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Synchronize custom local identity with public user registry in Firebase RTDB
   useEffect(() => {
     if (isFirebaseConfigured() && userId && displayName) {
-      import('../services/realtime/friendsService').then(({ syncUserProfile }) => {
-        syncUserProfile(userId, displayName).catch((err) => {
-          console.error('Failed to sync user profile with Firebase:', err);
-        });
+      syncUserProfile(userId, displayName).catch((err) => {
+        console.error('Failed to sync user profile with Firebase:', err);
       });
     }
   }, [userId, displayName]);
