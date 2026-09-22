@@ -735,7 +735,9 @@ export class PandalDiscoveryService {
       const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
         query
       )}&countrycodes=in&viewbox=88.1,22.75,88.6,22.3&bounded=1&limit=5`;
-      const res = await fetch(url, { headers: { 'User-Agent': 'EclipseGPS-PandalDiscovery/2.0' } });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 3500);
+      const res = await fetch(url, { headers: { 'User-Agent': 'EclipseGPS-PandalDiscovery/2.0' }, signal: ctrl.signal }).finally(() => clearTimeout(timer));
       if (!res.ok) return [];
       const data = await res.json();
       const results: DiscoveredPandal[] = [];
@@ -1019,7 +1021,9 @@ export class PandalDiscoveryService {
       const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
         `${area}, Kolkata, West Bengal`
       )}&countrycodes=in&limit=1`;
-      const res = await fetch(url, { headers: { 'User-Agent': 'EclipseGPS-AreaResolver/2.0' } });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 3500);
+      const res = await fetch(url, { headers: { 'User-Agent': 'EclipseGPS-AreaResolver/2.0' }, signal: ctrl.signal }).finally(() => clearTimeout(timer));
       if (res.ok) {
         const data = await res.json();
         if (data && data.length > 0) {

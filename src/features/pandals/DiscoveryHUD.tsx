@@ -25,6 +25,8 @@ export const DiscoveryHUD: React.FC = () => {
     gpsStatus,
     gpsErrorMsg,
     visitedIds,
+    isNavigating,
+    selectedItem,
   } = useAppState();
 
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -58,7 +60,8 @@ export const DiscoveryHUD: React.FC = () => {
     });
   };
 
-  const isVisible = activeTab === 'home';
+  // Only visible on home tab when not actively navigating and not inspecting an individual item card
+  const isVisible = activeTab === 'home' && !isNavigating && !selectedItem;
 
   // Calculate distance between discovery center and map center to see if "Search this area" button is needed
   const getDistance = (p1: any, p2: any) => {
@@ -154,9 +157,9 @@ export const DiscoveryHUD: React.FC = () => {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 12, scale: 0.98 }}
               transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute bottom-20 left-3 right-3 sm:left-4 sm:right-4 pointer-events-auto md:w-96 md:bottom-24 z-20"
+              className="absolute bottom-20 left-3 right-3 sm:left-4 sm:right-4 pointer-events-auto md:w-96 md:bottom-24 z-30"
             >
-              <div className="bg-neutral-950/95 border border-neutral-850 rounded-2xl shadow-2xl overflow-hidden p-3.5 sm:p-4 space-y-3.5 backdrop-blur-md max-h-[calc(100vh-165px)] flex flex-col">
+              <div className="bg-neutral-950/95 border border-neutral-850 rounded-2xl shadow-2xl overflow-hidden p-3.5 sm:p-4 space-y-3.5 backdrop-blur-md max-h-[calc(100vh-140px)] sm:max-h-[75vh] flex flex-col">
                 
                 {/* Header & Status Indicator + Show/Hide Toggle */}
                 <div className="flex items-center justify-between border-b border-neutral-900/90 pb-2.5 shrink-0">

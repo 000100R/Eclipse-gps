@@ -74,25 +74,29 @@ export const TopBar: React.FC = () => {
   };
 
   return (
-    <div id="top-bar-overlay" className="fixed top-4 left-4 right-4 z-40 flex items-center space-x-3 pointer-events-none max-w-lg md:mx-auto">
+    <div
+      id="top-bar-overlay"
+      style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.65rem)' }}
+      className="fixed left-3 right-3 sm:left-4 sm:right-4 z-40 flex items-center space-x-2 sm:space-x-3 pointer-events-none max-w-lg md:mx-auto"
+    >
       {/* Search Input Panel */}
-      <GlassPanel className="flex-1 flex flex-col pointer-events-auto relative">
-        <div className="flex items-center px-4 py-2 bg-neutral-950/40">
-          <Search size={18} className="text-neutral-400 mr-3" />
+      <GlassPanel className="flex-1 min-w-0 flex flex-col pointer-events-auto relative">
+        <div className="flex items-center px-3 sm:px-4 py-2 bg-neutral-950/40">
+          <Search size={16} className="text-neutral-400 mr-2 sm:mr-3 shrink-0" />
           <input
             id="search-input-field"
             type="text"
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             onFocus={() => setShowResults(true)}
-            placeholder='Search places, events, pandals...'
-            className="flex-1 bg-transparent border-none text-neutral-100 text-sm placeholder-neutral-500 focus:outline-none focus:ring-0 py-1"
+            placeholder='Search places, pandals...'
+            className="flex-1 min-w-0 bg-transparent border-none text-neutral-100 text-xs sm:text-sm placeholder-neutral-500 focus:outline-none focus:ring-0 py-0.5 sm:py-1 truncate"
           />
           {inputVal && (
             <button
               id="btn-clear-search"
               onClick={clearSearch}
-              className="p-1 rounded-full text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors ml-1"
+              className="p-1 rounded-full text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors ml-1 shrink-0"
             >
               <X size={14} />
             </button>
@@ -143,22 +147,24 @@ export const TopBar: React.FC = () => {
       <button
         id="btn-topbar-panjika-pill"
         onClick={openPanjika}
-        className="pointer-events-auto px-2.5 py-2.5 bg-neutral-900/80 backdrop-blur-md border border-amber-500/30 hover:border-amber-500/60 rounded-xl text-amber-300 hover:text-amber-200 shadow-xl transition-all duration-300 flex items-center gap-1.5 text-xs font-semibold shrink-0"
+        className="pointer-events-auto px-2 sm:px-2.5 py-2 sm:py-2.5 bg-neutral-900/80 backdrop-blur-md border border-amber-500/30 hover:border-amber-500/60 rounded-xl text-amber-300 hover:text-amber-200 shadow-xl transition-all duration-300 flex items-center gap-1 sm:gap-1.5 text-xs font-semibold shrink-0 touch-manipulation cursor-pointer"
         title="বাংলা পঞ্জিকা খুলুন (Open Bengali Panjika)"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
         <span className="hidden sm:inline font-mono">{todayBengali.dayBengali} {todayBengali.monthNameBn}</span>
-        <span className="sm:hidden font-mono text-[11px]">{todayBengali.dayBengali} {todayBengali.monthNameBn}</span>
+        <span className="sm:hidden font-mono text-[10.5px]">{todayBengali.dayBengali} {todayBengali.monthNameBn}</span>
       </button>
 
       {/* Warnings & Alerts Bell */}
-      <div ref={alertsRef} className="pointer-events-auto relative">
+      <div ref={alertsRef} className="pointer-events-auto relative shrink-0">
         <button
           id="btn-alerts-bell"
           onClick={() => setShowAlertsDropdown(!showAlertsDropdown)}
-          className="p-3 bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-400 hover:text-neutral-100 shadow-xl transition-all duration-300 relative"
+          className="p-2.5 sm:p-3 bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-400 hover:text-neutral-100 shadow-xl transition-all duration-300 relative flex items-center justify-center touch-manipulation cursor-pointer"
+          title="Active Alerts"
+          aria-label="Active Alerts"
         >
-          <Bell size={18} />
+          <Bell size={17} />
           {alerts.length > 0 && (
             <span className="absolute -top-1 -right-1 bg-rose-600 text-[9px] font-bold text-white px-1.5 py-0.5 rounded-full flex items-center justify-center border border-neutral-900 min-w-[18px]">
               {alerts.length}

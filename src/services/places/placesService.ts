@@ -23,6 +23,16 @@ export interface IPlacesProvider {
   reverseGeocode(location: Location): Promise<string>;
 }
 
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 3500): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export class NominatimPlacesProvider implements IPlacesProvider {
   async search(query: string, near?: Location): Promise<ISearchResult[]> {
     const results: ISearchResult[] = [];
@@ -107,7 +117,7 @@ export class NominatimPlacesProvider implements IPlacesProvider {
     }
 
     try {
-      const response = await fetch(nominatimUrl, {
+      const response = await fetchWithTimeout(nominatimUrl, {
         headers: {
           'User-Agent': 'EclipseGPS/1.0',
         },
@@ -207,7 +217,7 @@ export class NominatimPlacesProvider implements IPlacesProvider {
     const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&viewbox=${location.lng - 0.05},${location.lat + 0.05},${location.lng + 0.05},${location.lat - 0.05}&bounded=1`;
 
     try {
-      const response = await fetch(nominatimUrl, {
+      const response = await fetchWithTimeout(nominatimUrl, {
         headers: {
           'User-Agent': 'EclipseGPS/1.0',
         },
@@ -270,7 +280,7 @@ export class NominatimPlacesProvider implements IPlacesProvider {
   async geocode(address: string): Promise<Location | null> {
     const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`;
     try {
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         headers: {
           'User-Agent': 'EclipseGPS/1.0',
         },
@@ -290,7 +300,7 @@ export class NominatimPlacesProvider implements IPlacesProvider {
   async reverseGeocode(location: Location): Promise<string> {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${location.lat}&lon=${location.lng}`;
     try {
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         headers: {
           'User-Agent': 'EclipseGPS/1.0',
         },

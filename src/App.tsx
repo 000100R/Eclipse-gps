@@ -25,6 +25,9 @@ const AppContent: React.FC = () => {
     currentLocation,
     gpsStatus,
     activeTab,
+    isCalculatingRoute,
+    routingError,
+    clearRoutingError,
     rerouteSuggestion,
     setRerouteSuggestion,
     acceptSmartReroute,
@@ -47,6 +50,31 @@ const AppContent: React.FC = () => {
       {/* 3. Top Mounted Search Decks and Alert Notifications */}
       <TopBar />
 
+      {/* Route Calculation Progress Indicator */}
+      {isCalculatingRoute && (
+        <div
+          id="route-calculating-banner"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 4.5rem)' }}
+          className="fixed left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-indigo-950/95 border border-indigo-500/50 rounded-full shadow-2xl flex items-center space-x-2.5 text-indigo-200 text-xs font-semibold backdrop-blur-md whitespace-nowrap"
+        >
+          <div className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+          <span>Calculating route...</span>
+        </div>
+      )}
+
+      {/* Routing Error Notice */}
+      {routingError && (
+        <div
+          id="route-error-banner"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 4.5rem)' }}
+          className="fixed left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-rose-950/95 border border-rose-500/50 rounded-2xl shadow-2xl flex items-center space-x-2.5 text-rose-200 text-xs font-semibold backdrop-blur-md max-w-[90vw]"
+        >
+          <AlertTriangle size={15} className="text-rose-400 shrink-0" />
+          <span className="truncate">{routingError}</span>
+          <button onClick={clearRoutingError} className="ml-2 text-rose-400 hover:text-white font-bold text-xs p-1">✕</button>
+        </div>
+      )}
+
       {/* Pandal Discovery 2.0 HUD Overlay */}
       <DiscoveryHUD />
 
@@ -54,7 +82,11 @@ const AppContent: React.FC = () => {
       {activeTab !== 'home' && (
         <div
           id="sliding-control-panel"
-          className="absolute inset-x-0 bottom-16 top-20 z-30 bg-neutral-950/90 backdrop-blur-md border-t border-neutral-900 px-4 py-4 overflow-y-auto custom-scrollbar md:bottom-20 md:top-24 md:left-4 md:right-auto md:w-96 md:rounded-2xl md:border md:border-neutral-800"
+          style={{
+            top: 'calc(env(safe-area-inset-top, 0px) + 4.25rem)',
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 3.75rem)',
+          }}
+          className="fixed inset-x-0 z-30 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-900 px-3.5 sm:px-4 py-3 sm:py-4 overflow-y-auto custom-scrollbar md:bottom-20 md:top-24 md:left-4 md:right-auto md:w-96 md:rounded-2xl md:border md:border-neutral-800 shadow-2xl"
         >
           {activeTab === 'explore' && <ExplorePandals />}
           {activeTab === 'routes' && <RoutePlanner />}

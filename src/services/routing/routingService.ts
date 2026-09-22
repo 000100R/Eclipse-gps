@@ -17,7 +17,7 @@ export interface IRoutingProvider {
 }
 
 // Haversine distance helper (for local fallback calculation)
-function getHaversineDistance(p1: Location, p2: Location): number {
+export function getHaversineDistance(p1: Location, p2: Location): number {
   const R = 6371e3; // meters
   const phi1 = (p1.lat * Math.PI) / 180;
   const phi2 = (p2.lat * Math.PI) / 180;
@@ -32,8 +32,133 @@ function getHaversineDistance(p1: Location, p2: Location): number {
   return R * c; // in meters
 }
 
+/**
+ * Robustly extract a valid Location object from any pandal, event, station, or coordinate object
+ */
+export function extractLocation(item: any): Location | null {
+  if (!item) return null;
+  if (typeof item.lat === 'number' && typeof item.lng === 'number' && !isNaN(item.lat) && !isNaN(item.lng)) {
+    return { lat: item.lat, lng: item.lng };
+  }
+  if (typeof item.latitude === 'number' && typeof item.longitude === 'number' && !isNaN(item.latitude) && !isNaN(item.longitude)) {
+    return { lat: item.latitude, lng: item.longitude };
+  }
+  if (item.location && typeof item.location.lat === 'number' && typeof item.location.lng === 'number' && !isNaN(item.location.lat) && !isNaN(item.location.lng)) {
+    return { lat: item.location.lat, lng: item.location.lng };
+  }
+  return null;
+}
+
 export class OSRMRoutingProvider implements IRoutingProvider {
   isFallback: boolean = false;
+  private routeCache = new Map<string, { route: Route; timestamp: number }>();
+
+  private calculateGoogleRoute(
+    origin: Location,
+    destination: Location,
+    waypoints: RouteWaypoint[],
+    alternatives: boolean | number,
+    profile: 'driving' | 'foot'
+  ): Promise<Route | null> {
+    return new Promise((resolve) => {
+      try {
+        const googleMaps = (window as any).google?.maps;
+        if (!googleMaps || !googleMaps.DirectionsService) {
+          resolve(null);
+          return;
+        }
+
+        const directionsService = new googleMaps.DirectionsService();
+        const travelMode = profile === 'driving' ? googleMaps.TravelMode.DRIVING : googleMaps.TravelMode.WALKING;
+
+        directionsService.route(
+          {
+            origin: new googleMaps.LatLng(origin.lat, origin.lng),
+            destination: new googleMaps.LatLng(destination.lat, destination.lng),
+            waypoints: waypoints.map((wp) => ({
+              location: new googleMaps.LatLng(wp.location.lat, wp.location.lng),
+              stopover: true,
+            })),
+            travelMode,
+            provideRouteAlternatives: Boolean(alternatives),
+          },
+          (result: any, status: any) => {
+            if (status === 'OK' && result && result.routes && result.routes.length > 0) {
+              const primaryGRoute = result.routes[0];
+              const geometry: Location[] = primaryGRoute.overview_path.map((pt: any) => ({
+                lat: pt.lat(),
+                lng: pt.lng(),
+              }));
+
+              let totalDistance = 0;
+              let totalDuration = 0;
+              const instructions: RouteInstruction[] = [];
+
+              for (const leg of primaryGRoute.legs || []) {
+                totalDistance += leg.distance?.value || 0;
+                totalDuration += leg.duration?.value || 0;
+
+                for (const step of leg.steps || []) {
+                  const rawText = step.instructions || 'Continue';
+                  const cleanText = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+                  instructions.push({
+                    text: cleanText,
+                    distance: step.distance?.value || 0,
+                    duration: step.duration?.value || 0,
+                  });
+                }
+              }
+
+              const altRoutes: Route[] = [];
+              if (result.routes.length > 1) {
+                for (let i = 1; i < result.routes.length && i <= 3; i++) {
+                  const alt = result.routes[i];
+                  const altGeom: Location[] = alt.overview_path.map((latLng: any) => ({
+                    lat: latLng.lat(),
+                    lng: latLng.lng(),
+                  }));
+                  let altDist = 0;
+                  let altDur = 0;
+                  for (const leg of alt.legs || []) {
+                    altDist += leg.distance?.value || 0;
+                    altDur += leg.duration?.value || 0;
+                  }
+                  altRoutes.push({
+                    id: `google-alt-${i}-${Date.now()}`,
+                    name: `Alternative Route ${i}`,
+                    origin,
+                    destination,
+                    waypoints,
+                    geometry: altGeom,
+                    distance: altDist,
+                    duration: altDur,
+                    instructions: [],
+                  });
+                }
+              }
+
+              resolve({
+                id: `google-route-${Date.now()}`,
+                name: waypoints.length > 0 ? `Google Route via ${waypoints.length} stops` : 'Google Primary Route',
+                origin,
+                destination,
+                waypoints,
+                geometry,
+                distance: totalDistance,
+                duration: totalDuration,
+                instructions,
+                alternatives: altRoutes,
+              });
+            } else {
+              resolve(null);
+            }
+          }
+        );
+      } catch (e) {
+        resolve(null);
+      }
+    });
+  }
 
   private parseRouteFromOSRM(
     osrmRoute: any,
@@ -111,30 +236,84 @@ export class OSRMRoutingProvider implements IRoutingProvider {
   async calculateRoute(
     origin: Location,
     destination: Location,
-    waypoints: RouteWaypoint[],
+    waypoints: RouteWaypoint[] = [],
     alternatives: boolean | number = false,
     profile: 'driving' | 'foot' = 'foot'
   ): Promise<Route> {
-    // Semicolon-separated coordinates list: lng,lat;lng,lat...
-    const coordsList: string[] = [];
-    coordsList.push(`${origin.lng},${origin.lat}`);
-    
-    for (const wp of waypoints) {
-      coordsList.push(`${wp.location.lng},${wp.location.lat}`);
+    // Sanitize origin
+    let safeOrigin = extractLocation(origin);
+    if (!safeOrigin) {
+      safeOrigin = { lat: 22.5726, lng: 88.3639 }; // Default Kolkata central reference
     }
-    coordsList.push(`${destination.lng},${destination.lat}`);
 
-    const coordsString = coordsList.join(';');
+    // Sanitize destination
+    let safeDestination = extractLocation(destination);
+    if (!safeDestination) {
+      safeDestination = { lat: safeOrigin.lat + 0.005, lng: safeOrigin.lng + 0.005 };
+    }
+
+    // Filter valid waypoints
+    const validWaypoints: RouteWaypoint[] = (waypoints || []).filter(wp => {
+      const loc = extractLocation(wp?.location);
+      return loc !== null;
+    }).map(wp => ({
+      ...wp,
+      location: extractLocation(wp.location)!,
+    }));
+
     const osrmProfile = profile === 'foot' ? 'foot' : 'driving';
     const altParam = typeof alternatives === 'number'
       ? alternatives
       : (alternatives ? 3 : 'false');
+
+    // Check fast in-memory cache (valid for 5 minutes)
+    const cacheKey = `${safeOrigin.lat.toFixed(4)},${safeOrigin.lng.toFixed(4)}->${safeDestination.lat.toFixed(4)},${safeDestination.lng.toFixed(4)}_${osrmProfile}_${validWaypoints.length}_${altParam}`;
+    const cached = this.routeCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 300000) {
+      return cached.route;
+    }
+
+    // 1. If Google Maps Directions API is available in project/window, query it directly
+    if (typeof window !== 'undefined' && (window as any).google?.maps?.DirectionsService) {
+      try {
+        const googleRoute = await this.calculateGoogleRoute(
+          safeOrigin,
+          safeDestination,
+          validWaypoints,
+          alternatives,
+          profile
+        );
+        if (googleRoute) {
+          this.isFallback = false;
+          this.routeCache.set(cacheKey, { route: googleRoute, timestamp: Date.now() });
+          return googleRoute;
+        }
+      } catch (gErr) {
+        console.warn('[RoutingService] Google DirectionsService unavailable or failed, falling back to OSRM:', gErr);
+      }
+    }
+
+    // Semicolon-separated coordinates list: lng,lat;lng,lat...
+    const coordsList: string[] = [];
+    coordsList.push(`${safeOrigin.lng},${safeOrigin.lat}`);
+    for (const wp of validWaypoints) {
+      coordsList.push(`${wp.location.lng},${wp.location.lat}`);
+    }
+    coordsList.push(`${safeDestination.lng},${safeDestination.lat}`);
+
+    const coordsString = coordsList.join(';');
     const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coordsString}?overview=full&geometries=geojson&steps=true&alternatives=${altParam}`;
 
+    // Use 4.5 second AbortController timeout to prevent UI freezes on slow/unreachable networks
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        throw new Error('OSRM network request failed');
+        throw new Error(`OSRM network request returned ${response.status}`);
       }
       const data = await response.json();
 
@@ -143,21 +322,27 @@ export class OSRMRoutingProvider implements IRoutingProvider {
       }
 
       this.isFallback = false;
-      const primaryRoute = this.parseRouteFromOSRM(data.routes[0], origin, destination, waypoints, 0);
+      const primaryRoute = this.parseRouteFromOSRM(data.routes[0], safeOrigin, safeDestination, validWaypoints, 0);
 
       // Parse up to 3 reasonable alternative routes if returned by OSRM
       if (data.routes.length > 1) {
         const altRoutes = data.routes
           .slice(1, 4)
-          .map((r: any, idx: number) => this.parseRouteFromOSRM(r, origin, destination, waypoints, idx + 1));
+          .map((r: any, idx: number) => this.parseRouteFromOSRM(r, safeOrigin, safeDestination, validWaypoints, idx + 1));
         primaryRoute.alternatives = altRoutes;
       }
 
+      // Save to cache
+      this.routeCache.set(cacheKey, { route: primaryRoute, timestamp: Date.now() });
+
       return primaryRoute;
-    } catch (err) {
-      console.warn('OSRM routing failed, falling back to Haversine straight-line simulation:', err);
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      const isTimeout = err?.name === 'AbortError';
+      console.warn(`[RoutingService] OSRM routing ${isTimeout ? 'timed out' : 'failed'}, using guaranteed direct fallback:`, err?.message || err);
       this.isFallback = true;
-      return this.generateFallbackRoute(origin, destination, waypoints, osrmProfile);
+      const fallback = this.generateFallbackRoute(safeOrigin, safeDestination, validWaypoints, osrmProfile);
+      return fallback;
     }
   }
 

@@ -3,7 +3,7 @@ import { Location, Place, Event, Pandal, Route, SavedLocation, Alert, AIMessage,
 import { eventsService } from '../services/events/eventsService';
 import { visitedPandalsService } from '../services/visited/visitedPandalsService';
 import { placesService } from '../services/places/placesService';
-import { routingService } from '../services/routing/routingService';
+import { routingService, extractLocation } from '../services/routing/routingService';
 import { alertService } from '../services/realtime/alertService';
 import { pandalDiscoveryService } from '../services/discovery/pandalDiscoveryService';
 import { pandalIntelligenceProvider } from '../services/intelligence/pandalIntelligenceProvider';
@@ -97,6 +97,9 @@ interface AppStateContextType {
   // Routing State
   activeRoute: Route | null;
   setActiveRoute: (route: Route | null) => void;
+  isCalculatingRoute: boolean;
+  routingError: string | null;
+  clearRoutingError: () => void;
   routeStops: (Pandal | Event)[];
   setRouteStops: React.Dispatch<React.SetStateAction<(Pandal | Event)[]>>;
   addStop: (item: Pandal | Event | any) => void;
@@ -113,6 +116,7 @@ interface AppStateContextType {
   // Turn-by-turn Navigation
   isNavigating: boolean;
   setIsNavigating: (nav: boolean) => void;
+  stopNavigation: () => void;
   currentStepIndex: number;
   setCurrentStepIndex: (idx: number) => void;
   triggerOffRouteReroute: () => Promise<void>;
@@ -267,6 +271,10 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Routing and Navigation States
   const [activeRoute, setActiveRoute] = useState<Route | null>(null);
+  const [isCalculatingRoute, setIsCalculatingRoute] = useState<boolean>(false);
+  const [routingError, setRoutingError] = useState<string | null>(null);
+  const clearRoutingError = useCallback(() => setRoutingError(null), []);
+  const routeRequestIdRef = useRef<number>(0);
   const [routeStops, setRouteStops] = useState<(Pandal | Event)[]>([]);
   const [isNavigating, setIsNavigating] = useState<boolean>(false);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
@@ -547,41 +555,26 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const merged = [...hydratedPandals, ...(userPandalsInRadius as any[])];
       if (sortBy === 'nearest') {
-        // 2. First find the nearest candidates using the existing geographic-distance search
+        // 2. First find the nearest candidates using geographic distance
         merged.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
 
-        // 3. Take only the closest 10 candidates
+        // 3. Take closest 10 candidates
         const closestCandidates = merged.slice(0, 10);
         const remainingCandidates = merged.slice(10);
 
-        // 4. Use the EXISTING OSRM routing service to calculate walking distance and walking time for those candidates
-        const routedCandidates = await Promise.all(
-          closestCandidates.map(async (candidate) => {
-            try {
-              const route = await routingService.calculateRoute(
-                center,
-                candidate.location,
-                [],
-                false,
-                'foot'
-              );
-              if (route && !route.id.startsWith('route-fallback-') && typeof route.distance === 'number') {
-                const walkingMeters = Math.round(route.distance);
-                const walkingMinutes = Math.max(1, Math.round(route.duration / 60));
-                return {
-                  ...candidate,
-                  distance: walkingMeters,
-                  estimatedTravelTime: `${walkingMinutes} min walk`,
-                };
-              }
-            } catch (err) {
-              // If walking-route data is unavailable, keep the existing geographic distance
-            }
-            return candidate;
-          })
-        );
+        // 4. Instant walking distance & time calculation (0ms latency, eliminates 10 concurrent network calls)
+        const routedCandidates = closestCandidates.map((candidate) => {
+          const directDist = candidate.distance ?? calculateDistanceInMeters(center, candidate.location);
+          const walkingMeters = Math.round(directDist * 1.25);
+          const walkingMinutes = Math.max(1, Math.round(walkingMeters / 78));
+          return {
+            ...candidate,
+            distance: walkingMeters,
+            estimatedTravelTime: `${walkingMinutes} min walk`,
+          };
+        });
 
-        // 5. Display/sort those 10 candidates by actual walking distance when available
+        // 5. Sort candidates by calculated walking distance
         routedCandidates.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
         setPandals([...routedCandidates, ...remainingCandidates]);
       } else {
@@ -1321,17 +1314,36 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     discoverNearbyPandals(discoveryCenter, discoveryRadius, discoverySort);
   }, [discoveryCenter, discoveryRadius, discoverySort, hasValidGps]);
 
-  // Continuous Geolocation Tracking when valid GPS is active
+  // Continuous Geolocation Tracking with throttling and jitter filtering
+  const lastProcessedPosRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
+  const lastValidLocationRef = useRef<Location | null>(null);
+
   useEffect(() => {
     if (typeof window === 'undefined' || !navigator.geolocation) return;
 
     if (hasValidGps && watchLocation) {
       watchIdRef.current = navigator.geolocation.watchPosition(
         (position) => {
-          const loc = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          };
+          const newLat = position.coords.latitude;
+          const newLng = position.coords.longitude;
+          const now = Date.now();
+
+          // Throttle location updates: ignore microscopic jitter (< 2m and < 800ms) to prevent UI stutter
+          if (lastProcessedPosRef.current) {
+            const timeDiff = now - lastProcessedPosRef.current.time;
+            const distMoved = calculateDistanceInMeters(
+              { lat: newLat, lng: newLng },
+              { lat: lastProcessedPosRef.current.lat, lng: lastProcessedPosRef.current.lng }
+            );
+            if (distMoved < 2 && timeDiff < 800) {
+              return;
+            }
+          }
+
+          lastProcessedPosRef.current = { lat: newLat, lng: newLng, time: now };
+          const loc = { lat: newLat, lng: newLng };
+          lastValidLocationRef.current = loc;
+
           setCurrentLocation(loc);
           travelDistanceService.recordPosition(position);
           setGpsAccuracy(position.coords.accuracy);
@@ -1351,8 +1363,11 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             setGpsErrorMsg('Eclipse GPS cannot be used without location access. Please enable location access to continue.');
           } else {
             // Transient timeout or temporary satellite obstruction while tracking:
-            // Keep current location coordinates active rather than abruptly locking the user out
+            // Keep last valid location coordinates active rather than abruptly locking user out
             console.warn('Transient watchPosition signal obstruction:', error.message);
+            if (lastValidLocationRef.current && !currentLocation) {
+              setCurrentLocation(lastValidLocationRef.current);
+            }
           }
           setGpsAccuracy(null);
         },
@@ -1714,55 +1729,125 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const triggerReroute = async (stopsList: (Pandal | Event)[]) => {
-    if (stopsList.length === 0) {
+    if (!stopsList || stopsList.length === 0) {
       setActiveRoute(null);
       return;
     }
 
-    // Origin is currentLocation
-    // Destination is the last item
-    // Intermediate waypoints are stops except the last
+    const currentRequestId = ++routeRequestIdRef.current;
+    setIsCalculatingRoute(true);
+    setRoutingError(null);
+
     const destItem = stopsList[stopsList.length - 1];
+    const destLoc = extractLocation(destItem);
+    if (!destLoc) {
+      setRoutingError('Invalid destination location for route.');
+      setIsCalculatingRoute(false);
+      return;
+    }
+
     const waypointsList = stopsList.slice(0, -1).map(s => ({
       name: s.name,
-      location: s.location,
+      location: extractLocation(s) || { lat: 22.5726, lng: 88.3639 },
       isPandalOrEvent: true,
       itemId: s.id,
     }));
 
+    const originLoc = extractLocation(currentLocation) || lastValidLocationRef.current;
+    if (!originLoc) {
+      setRoutingError('GPS location not acquired yet. Please wait for GPS signal.');
+      setIsCalculatingRoute(false);
+      return;
+    }
+
     try {
       const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
       const calculatedRoute = await routingService.calculateRoute(
-        currentLocation,
-        destItem.location,
+        originLoc,
+        destLoc,
         waypointsList,
         3,
         osrmProfile
       );
-      setActiveRoute(calculatedRoute);
-      setCurrentStepIndex(0);
-    } catch (err) {
+      if (currentRequestId === routeRequestIdRef.current) {
+        setActiveRoute(calculatedRoute);
+        setCurrentStepIndex(0);
+      }
+    } catch (err: any) {
       console.error('Failed to trigger road route calculation:', err);
+    } finally {
+      if (currentRequestId === routeRequestIdRef.current) {
+        setIsCalculatingRoute(false);
+      }
     }
   };
 
   // Direct simple routing to a place/event
   const calculateRouteToItem = async (item: Pandal | Event | any) => {
+    if (!item) return;
+    const destLoc = extractLocation(item);
+    if (!destLoc) {
+      console.warn('Cannot calculate route: destination location is invalid.');
+      setRoutingError('Cannot calculate route: destination location is invalid.');
+      setIsCalculatingRoute(false);
+      return;
+    }
+
+    const currentRequestId = ++routeRequestIdRef.current;
+    setIsCalculatingRoute(true);
+    setRoutingError(null);
     setRouteStops([item]);
+    setSelectedItem(item);
+
+    const originLoc = extractLocation(currentLocation) || lastValidLocationRef.current;
+    if (!originLoc) {
+      setRoutingError('Waiting for GPS position to calculate route.');
+      setIsCalculatingRoute(false);
+      return;
+    }
+
     try {
       const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
       const calculatedRoute = await routingService.calculateRoute(
-        currentLocation,
-        item.location,
+        originLoc,
+        destLoc,
         [],
         3,
         osrmProfile
       );
-      setActiveRoute(calculatedRoute);
-      setCurrentStepIndex(0);
-      setActiveTab('home');
-    } catch (e) {
-      console.error('Failed to calculate direct route:', e);
+
+      if (currentRequestId === routeRequestIdRef.current) {
+        setActiveRoute(calculatedRoute);
+        setCurrentStepIndex(0);
+        setIsNavigating(true);
+        setActiveTab('home');
+      }
+    } catch (e: any) {
+      if (currentRequestId === routeRequestIdRef.current) {
+        console.warn('Failed to calculate direct route, using guaranteed direct fallback:', e);
+        const fallback = (routingService as any).generateFallbackRoute?.(originLoc, destLoc, [], routePreference === 'DRIVING' ? 'driving' : 'foot') || {
+          id: `direct-route-${Date.now()}`,
+          name: `Direct Route to ${item.name || 'Destination'}`,
+          origin: originLoc,
+          destination: destLoc,
+          waypoints: [],
+          geometry: [originLoc, destLoc],
+          distance: calculateDistanceInMeters(originLoc, destLoc),
+          duration: Math.round(calculateDistanceInMeters(originLoc, destLoc) / 1.3),
+          instructions: [
+            { text: `Head towards ${item.name || 'destination'}`, distance: calculateDistanceInMeters(originLoc, destLoc), duration: 60 },
+            { text: `Arrive at ${item.name || 'destination'}`, distance: 0, duration: 0 },
+          ],
+        };
+        setActiveRoute(fallback);
+        setCurrentStepIndex(0);
+        setIsNavigating(true);
+        setActiveTab('home');
+      }
+    } finally {
+      if (currentRequestId === routeRequestIdRef.current) {
+        setIsCalculatingRoute(false);
+      }
     }
   };
 
@@ -1779,29 +1864,44 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setPujaRouteSession(session);
 
     const firstStop = stops[0];
+    const destLoc = extractLocation(firstStop);
+    if (!destLoc) return;
+
     const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
-    const originLoc = currentLocation || firstStop.location;
+    const originLoc = extractLocation(currentLocation) || lastValidLocationRef.current || destLoc;
 
     setRouteStops([firstStop as any]);
     setSelectedItem(firstStop as any);
     setCurrentStepIndex(0);
 
+    const currentRequestId = ++routeRequestIdRef.current;
+    setIsCalculatingRoute(true);
+    setRoutingError(null);
+
     try {
       const calculatedRoute = await routingService.calculateRoute(
         originLoc,
-        firstStop.location,
+        destLoc,
         [],
         3,
         osrmProfile
       );
-      setActiveRoute(calculatedRoute);
-      setIsNavigating(true);
-      setActiveTab('home');
+      if (currentRequestId === routeRequestIdRef.current) {
+        setActiveRoute(calculatedRoute);
+        setIsNavigating(true);
+        setActiveTab('home');
+      }
     } catch (err) {
       console.error('Failed to calculate route for first puja stop, using direct fallback:', err);
-      await calculateRouteToItem(firstStop);
-      setIsNavigating(true);
-      setActiveTab('home');
+      if (currentRequestId === routeRequestIdRef.current) {
+        await calculateRouteToItem(firstStop);
+        setIsNavigating(true);
+        setActiveTab('home');
+      }
+    } finally {
+      if (currentRequestId === routeRequestIdRef.current) {
+        setIsCalculatingRoute(false);
+      }
     }
   };
 
@@ -1842,8 +1942,11 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // 2. Automatically start navigation to the next pandal
     const nextStop = stops[nextIndex];
+    const destLoc = extractLocation(nextStop);
+    if (!destLoc) return;
+
     const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
-    const originLoc = currentLocation || currentStop.location;
+    const originLoc = extractLocation(currentLocation) || lastValidLocationRef.current || extractLocation(currentStop) || destLoc;
 
     setPujaRouteSession({
       isActive: true,
@@ -1856,20 +1959,31 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setSelectedItem(nextStop as any);
     setCurrentStepIndex(0);
 
+    const currentRequestId = ++routeRequestIdRef.current;
+    setIsCalculatingRoute(true);
+
     try {
       const calculatedRoute = await routingService.calculateRoute(
         originLoc,
-        nextStop.location,
+        destLoc,
         [],
         3,
         osrmProfile
       );
-      setActiveRoute(calculatedRoute);
-      setIsNavigating(true);
+      if (currentRequestId === routeRequestIdRef.current) {
+        setActiveRoute(calculatedRoute);
+        setIsNavigating(true);
+      }
     } catch (err) {
       console.error('Failed to calculate route to next puja stop, using direct fallback:', err);
-      await calculateRouteToItem(nextStop);
-      setIsNavigating(true);
+      if (currentRequestId === routeRequestIdRef.current) {
+        await calculateRouteToItem(nextStop);
+        setIsNavigating(true);
+      }
+    } finally {
+      if (currentRequestId === routeRequestIdRef.current) {
+        setIsCalculatingRoute(false);
+      }
     }
   };
 
@@ -1890,8 +2004,19 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
     setPujaRouteSession(null);
     setIsNavigating(false);
+    setActiveRoute(null);
     setSelectedItem(null);
   };
+
+  const stopNavigation = useCallback(() => {
+    setIsNavigating(false);
+    setActiveRoute(null);
+    setCurrentStepIndex(0);
+    setSelectedItem(null);
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  }, []);
 
   // Start walking navigation from a verified Metro entrance/exit gate to the pandal
   const startGateWalkingNavigation = (
@@ -2026,15 +2151,36 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setRerouteSuggestion(null);
   };
 
-  // Off-route simulated reroute
+  // Off-route reroute calculation
   const triggerOffRouteReroute = async () => {
-    if (!activeRoute) return;
-    setIsAiLoading(true);
-    // Simulate minor calculation delay and push a beautiful notification alert
-    setTimeout(async () => {
-      await triggerReroute(routeStops);
-      setIsAiLoading(false);
-    }, 1500);
+    if (!activeRoute || !activeRoute.destination) return;
+    const originLoc = extractLocation(currentLocation) || lastValidLocationRef.current;
+    if (!originLoc) return;
+
+    const currentRequestId = ++routeRequestIdRef.current;
+    setIsCalculatingRoute(true);
+    setRoutingError(null);
+
+    try {
+      const osrmProfile = routePreference === 'DRIVING' ? 'driving' : 'foot';
+      const recalculated = await routingService.calculateRoute(
+        originLoc,
+        activeRoute.destination,
+        activeRoute.waypoints || [],
+        false,
+        osrmProfile
+      );
+      if (currentRequestId === routeRequestIdRef.current) {
+        setActiveRoute(recalculated);
+        setCurrentStepIndex(0);
+      }
+    } catch (err: any) {
+      console.warn('Reroute calculation failed:', err);
+    } finally {
+      if (currentRequestId === routeRequestIdRef.current) {
+        setIsCalculatingRoute(false);
+      }
+    }
   };
 
   // Ask Eclipse AI secure server-side proxy
@@ -3044,6 +3190,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         activeRoute,
         setActiveRoute,
+        isCalculatingRoute,
+        routingError,
+        clearRoutingError,
         routeStops,
         setRouteStops,
         addStop,
@@ -3059,6 +3208,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         isNavigating,
         setIsNavigating,
+        stopNavigation,
         currentStepIndex,
         setCurrentStepIndex,
         triggerOffRouteReroute,

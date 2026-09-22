@@ -22,6 +22,7 @@ import { RouteAlternativesBar } from '../navigation/RouteAlternativesBar';
 import { crowdIntelligenceService } from '../../services/intelligence/crowdIntelligenceService';
 import { trafficIntelligenceService } from '../../services/intelligence/trafficIntelligenceService';
 import { clusterMarkers } from '../../utils/markerCluster';
+import { extractLocation } from '../../services/routing/routingService';
 
 export const GoogleMapView: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -32,6 +33,7 @@ export const GoogleMapView: React.FC = () => {
   const markersRef = useRef<google.maps.Marker[]>([]);
   const routePolylineRef = useRef<google.maps.Polyline | null>(null);
   const altPolylinesRef = useRef<google.maps.Polyline[]>([]);
+  const lastFittedRouteIdRef = useRef<string | null>(null);
   const gpsMarkerRef = useRef<google.maps.Marker | null>(null);
   const gpsAccuracyCircleRef = useRef<google.maps.Circle | null>(null);
   const streetViewPanoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
@@ -199,6 +201,8 @@ export const GoogleMapView: React.FC = () => {
       const mapOptions: google.maps.MapOptions = {
         center: initialCenter,
         zoom: 14,
+        minZoom: 3,
+        maxZoom: 21,
         mapTypeId: initialMapTypeId,
         mapId: mapId,
         tilt: mapStyle === '3d' ? 55 : 0,
@@ -767,13 +771,16 @@ export const GoogleMapView: React.FC = () => {
 
     routePolylineRef.current = polyline;
 
-    // Smooth camera boundary fit
-    map.fitBounds(bounds, {
-      top: 100,
-      bottom: 100,
-      left: 60,
-      right: 60,
-    });
+    // Smooth camera boundary fit only when a new route is loaded
+    if (activeRoute && activeRoute.id !== lastFittedRouteIdRef.current) {
+      lastFittedRouteIdRef.current = activeRoute.id;
+      map.fitBounds(bounds, {
+        top: 100,
+        bottom: 100,
+        left: 60,
+        right: 60,
+      });
+    }
 
   }, [activeRoute, selectAlternativeRoute, googleLoaded]);
 
@@ -907,15 +914,18 @@ export const GoogleMapView: React.FC = () => {
     const map = mapInstanceRef.current;
     if (!map || !selectedItem) return;
 
-    map.panTo({ lat: selectedItem.location.lat, lng: selectedItem.location.lng });
+    const loc = extractLocation(selectedItem);
+    if (!loc) return;
+
+    map.panTo({ lat: loc.lat, lng: loc.lng });
     map.setZoom(16);
 
     // Sync Street View Panorama center if open
     const panorama = streetViewPanoramaRef.current;
     if (panorama && showStreetView) {
-      panorama.setPosition({ lat: selectedItem.location.lat, lng: selectedItem.location.lng });
+      panorama.setPosition({ lat: loc.lat, lng: loc.lng });
     }
-  }, [selectedItem]);
+  }, [selectedItem, showStreetView]);
 
   // Turn-by-Turn GPS HUD Tracking with immersive tilt perspective rotation
   useEffect(() => {
@@ -1056,48 +1066,61 @@ export const GoogleMapView: React.FC = () => {
       )}
 
       {/* 3. Layer / Map Settings Controller HUD */}
-      <div className="absolute top-36 left-4 z-10 flex flex-col space-y-2 max-w-[170px]">
-        <GlassPanel className="p-2 flex flex-col space-y-2 border border-neutral-800/80 shadow-2xl">
-          {/* Traffic Switcher */}
-          <div className="flex flex-col space-y-1 pt-1">
-            <button
-              onClick={() => setShowTraffic(!showTraffic)}
-              className={`w-full text-center py-1 text-[8px] font-bold rounded-lg uppercase tracking-wider ${
-                showTraffic ? 'bg-indigo-900/40 border border-indigo-700/60 text-indigo-300' : 'bg-neutral-950 text-neutral-500'
-              }`}
-            >
-              Traffic Overlay: {showTraffic ? 'ON' : 'OFF'}
-            </button>
-          </div>
+      {!isNavigating && (
+        <div className="absolute top-20 sm:top-24 left-3 sm:left-4 z-10 flex flex-col space-y-2 max-w-[150px] sm:max-w-[170px]">
+          <GlassPanel className="p-2 flex flex-col space-y-2 border border-neutral-800/80 shadow-2xl">
+            {/* Traffic Switcher */}
+            <div className="flex flex-col space-y-1 pt-1">
+              <button
+                onClick={() => setShowTraffic(!showTraffic)}
+                className={`w-full text-center py-1 text-[8px] font-bold rounded-lg uppercase tracking-wider ${
+                  showTraffic ? 'bg-indigo-900/40 border border-indigo-700/60 text-indigo-300' : 'bg-neutral-950 text-neutral-500'
+                }`}
+              >
+                Traffic Overlay: {showTraffic ? 'ON' : 'OFF'}
+              </button>
+            </div>
 
-          {/* Street View Toggle Button */}
-          <div className="flex flex-col space-y-1 border-t border-neutral-800/40 pt-2">
-            <button
-              id="btn-toggle-streetview"
-              onClick={() => setShowStreetView(!showStreetView)}
-              className={`w-full flex items-center justify-center space-x-1 py-1 text-[8px] font-bold rounded-lg uppercase tracking-wider ${
-                showStreetView ? 'bg-rose-900/40 border border-rose-700/60 text-rose-300' : 'bg-neutral-950 text-neutral-400'
-              }`}
-            >
-              <Camera size={9} />
-              <span>Street View: {showStreetView ? 'OPEN' : 'CLOSE'}</span>
-            </button>
-          </div>
-        </GlassPanel>
-      </div>
+            {/* Street View Toggle Button */}
+            <div className="flex flex-col space-y-1 border-t border-neutral-800/40 pt-2">
+              <button
+                id="btn-toggle-streetview"
+                onClick={() => setShowStreetView(!showStreetView)}
+                className={`w-full flex items-center justify-center space-x-1 py-1 text-[8px] font-bold rounded-lg uppercase tracking-wider ${
+                  showStreetView ? 'bg-rose-900/40 border border-rose-700/60 text-rose-300' : 'bg-neutral-950 text-neutral-400'
+                }`}
+              >
+                <Camera size={9} />
+                <span>Street View: {showStreetView ? 'OPEN' : 'CLOSE'}</span>
+              </button>
+            </div>
+          </GlassPanel>
+        </div>
+      )}
 
       {/* 4. Google Maps Default Camera Controls */}
-      <div className="absolute top-24 right-4 z-10 flex flex-col space-y-2">
+      <div
+        id="google-camera-controls"
+        className={`absolute z-10 flex flex-col space-y-2 transition-all duration-300 right-3 sm:right-4 ${
+          isNavigating ? 'bottom-48' : 'top-20 sm:top-24'
+        }`}
+      >
         <button
-          onClick={() => mapInstanceRef.current?.setZoom((mapInstanceRef.current.getZoom() || 14) + 1)}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors"
+          onClick={() => {
+            const cur = mapInstanceRef.current?.getZoom() || 14;
+            mapInstanceRef.current?.setZoom(Math.min(21, cur + 1));
+          }}
+          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors touch-manipulation cursor-pointer"
           title="Zoom In"
         >
           +
         </button>
         <button
-          onClick={() => mapInstanceRef.current?.setZoom((mapInstanceRef.current.getZoom() || 14) - 1)}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors"
+          onClick={() => {
+            const cur = mapInstanceRef.current?.getZoom() || 14;
+            mapInstanceRef.current?.setZoom(Math.max(3, cur - 1));
+          }}
+          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors touch-manipulation cursor-pointer"
           title="Zoom Out"
         >
           -
@@ -1111,7 +1134,7 @@ export const GoogleMapView: React.FC = () => {
               mapInstanceRef.current.setZoom(16);
             }
           }}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl transition-colors"
+          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl transition-colors touch-manipulation cursor-pointer"
           title="Center on Current GPS Location"
         >
           <Locate size={15} />
@@ -1124,7 +1147,7 @@ export const GoogleMapView: React.FC = () => {
               mapInstanceRef.current.setHeading(0);
             }
           }}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl transition-colors text-xs font-bold font-mono tracking-wider"
+          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl transition-colors text-xs font-bold font-mono tracking-wider touch-manipulation cursor-pointer"
           title="Reset Camera to Face True North"
         >
           N
@@ -1134,7 +1157,7 @@ export const GoogleMapView: React.FC = () => {
         {isNavigating && (
           <button
             onClick={() => setLockToHeading(!lockToHeading)}
-            className={`w-10 h-10 flex flex-col items-center justify-center backdrop-blur-md border rounded-xl shadow-xl transition-all duration-300 ${
+            className={`w-10 h-10 flex flex-col items-center justify-center backdrop-blur-md border rounded-xl shadow-xl transition-all duration-300 touch-manipulation cursor-pointer ${
               lockToHeading
                 ? 'bg-indigo-600/90 border-indigo-500 text-white'
                 : 'bg-neutral-900/80 border-neutral-800 text-neutral-400 hover:text-neutral-200'
@@ -1151,7 +1174,7 @@ export const GoogleMapView: React.FC = () => {
 
       {/* 5. Navigation Active Dashboard HUD */}
       {isNavigating && activeRoute && (
-        <div className="absolute top-24 left-4 right-4 z-10 max-w-md mx-auto pointer-events-auto space-y-2">
+        <div className="absolute top-20 sm:top-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto space-y-2">
           <LiveNavigationHUD />
           {activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
             <RouteAlternativesBar />
@@ -1161,14 +1184,14 @@ export const GoogleMapView: React.FC = () => {
 
       {/* Route Preview Alternatives (when route is calculated but before active navigation is started) */}
       {!isNavigating && activeRoute && activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
-        <div className="absolute top-24 left-4 right-4 z-10 max-w-md mx-auto pointer-events-auto">
+        <div className="absolute top-20 sm:top-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto">
           <RouteAlternativesBar />
         </div>
       )}
 
       {/* Pandal Coverage Badge (Requirement 8) */}
-      {isPandalVisible && intelligencePandals.length > 0 && searchResults.length === 0 && (
-        <div className="absolute top-20 left-4 z-10">
+      {!isNavigating && isPandalVisible && intelligencePandals.length > 0 && searchResults.length === 0 && (
+        <div className="absolute top-20 sm:top-24 left-3 sm:left-4 z-10">
           <PandalCoverageBadge
             pandals={intelligencePandals}
             isLoading={isPandalLoading}
@@ -1177,8 +1200,8 @@ export const GoogleMapView: React.FC = () => {
       )}
 
       {/* Pandal Empty State Banner (Requirement 10) */}
-      {isPandalVisible && clusteredItems.length === 0 && !isPandalLoading && searchResults.length === 0 && (
-        <div className="absolute top-20 left-4 z-10">
+      {!isNavigating && isPandalVisible && clusteredItems.length === 0 && !isPandalLoading && searchResults.length === 0 && (
+        <div className="absolute top-20 sm:top-24 left-3 sm:left-4 z-10">
           <PandalEmptyStateBanner
             onRecenterKolkata={() => {
               if (mapInstanceRef.current) {
@@ -1192,7 +1215,7 @@ export const GoogleMapView: React.FC = () => {
 
       {/* 6. Selected Item Drawer HUD */}
       {selectedItem && !isNavigating && (
-        <div className="absolute bottom-24 left-4 right-4 z-10 max-w-md mx-auto">
+        <div className="absolute bottom-20 sm:bottom-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto">
           {Boolean((selectedItem as any).line || (selectedItem as any).nearbyPandalIds) ? (
             <MetroIntelligenceCard
               metroStation={selectedItem as any}

@@ -21,6 +21,7 @@ import { RouteAlternativesBar } from '../navigation/RouteAlternativesBar';
 import { crowdIntelligenceService } from '../../services/intelligence/crowdIntelligenceService';
 import { trafficIntelligenceService } from '../../services/intelligence/trafficIntelligenceService';
 import { clusterMarkers } from '../../utils/markerCluster';
+import { extractLocation } from '../../services/routing/routingService';
 import L from 'leaflet';
 
 export const LeafletMapView: React.FC = () => {
@@ -28,6 +29,8 @@ export const LeafletMapView: React.FC = () => {
   const mapInstanceRef = useRef<L.Map | null>(null);
   const [isMapReady, setIsMapReady] = useState<boolean>(false);
   const activeTilesRef = useRef<L.Layer[]>([]);
+  const lastFittedRouteIdRef = useRef<string | null>(null);
+  const lastNavFollowPosRef = useRef<{ lat: number; lng: number } | null>(null);
   const markersGroupRef = useRef<L.FeatureGroup | null>(null);
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const gpsMarkerRef = useRef<L.Marker | null>(null);
@@ -138,6 +141,8 @@ export const LeafletMapView: React.FC = () => {
     const map = L.map(containerRef.current, {
       center: initialCenter,
       zoom: 14,
+      minZoom: 3,
+      maxZoom: 21,
       zoomControl: false,
     });
 
@@ -255,28 +260,38 @@ export const LeafletMapView: React.FC = () => {
     if (mapStyle === 'standard') {
       const standardLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 19,
+        minZoom: 3,
+        maxNativeZoom: 19,
+        maxZoom: 21,
         className: 'map-tiles-dark'
       });
       layersToAdd.push(standardLayer);
     } else if (mapStyle === 'satellite') {
       const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
-        maxZoom: 19
+        minZoom: 3,
+        maxNativeZoom: 19,
+        maxZoom: 21
       });
       layersToAdd.push(satelliteLayer);
     } else if (mapStyle === 'hybrid') {
       const baseLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
-        maxZoom: 19
+        minZoom: 3,
+        maxNativeZoom: 19,
+        maxZoom: 21
       });
       const transportationLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri',
-        maxZoom: 19
+        minZoom: 3,
+        maxNativeZoom: 19,
+        maxZoom: 21
       });
       const labelLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-        maxZoom: 19,
+        minZoom: 3,
+        maxNativeZoom: 19,
+        maxZoom: 21,
         subdomains: 'abcd'
       });
       layersToAdd.push(baseLayer, transportationLayer, labelLayer);
@@ -284,7 +299,9 @@ export const LeafletMapView: React.FC = () => {
       // Leaflet is 2D only — true 3D is not supported by this provider. Do NOT fake a 3D view.
       const standardLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 19,
+        minZoom: 3,
+        maxNativeZoom: 19,
+        maxZoom: 21,
         className: 'map-tiles-dark'
       });
       layersToAdd.push(standardLayer);
@@ -991,11 +1008,14 @@ export const LeafletMapView: React.FC = () => {
     const routeGroup = L.featureGroup(layers).addTo(map);
     routePolylineRef.current = routeGroup as any;
 
-    // Fly bounds to fit whole route comfortably
-    map.flyToBounds(routeGroup.getBounds(), {
-      padding: [40, 40],
-      maxZoom: 16,
-    });
+    // Fit bounds whenever a new route is set
+    if (activeRoute && activeRoute.id !== lastFittedRouteIdRef.current) {
+      lastFittedRouteIdRef.current = activeRoute.id;
+      map.fitBounds(routeGroup.getBounds(), {
+        padding: [50, 50],
+        maxZoom: 17,
+      });
+    }
 
   }, [activeRoute, selectAlternativeRoute]);
 
@@ -1003,7 +1023,10 @@ export const LeafletMapView: React.FC = () => {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !selectedItem) return;
-    map.setView([selectedItem.location.lat, selectedItem.location.lng], 16);
+    const loc = extractLocation(selectedItem);
+    if (loc) {
+      map.setView([loc.lat, loc.lng], 16);
+    }
   }, [selectedItem]);
 
   // Navigate instructions tracker
@@ -1014,10 +1037,28 @@ export const LeafletMapView: React.FC = () => {
 
       const map = mapInstanceRef.current;
       if (map && currentLocation) {
-        map.setView([currentLocation.lat, currentLocation.lng], 18);
+        // Smoothly follow user movement during navigation without jerky setView on micro-jitter
+        let shouldPan = false;
+        if (!lastNavFollowPosRef.current) {
+          shouldPan = true;
+        } else {
+          const dist = Math.hypot(
+            (currentLocation.lat - lastNavFollowPosRef.current.lat) * 111000,
+            (currentLocation.lng - lastNavFollowPosRef.current.lng) * 111000
+          );
+          if (dist >= 3) {
+            shouldPan = true;
+          }
+        }
+
+        if (shouldPan) {
+          lastNavFollowPosRef.current = { lat: currentLocation.lat, lng: currentLocation.lng };
+          map.panTo([currentLocation.lat, currentLocation.lng], { animate: true, duration: 0.6 });
+        }
       }
     } else {
       setActiveInstruction(null);
+      lastNavFollowPosRef.current = null;
     }
   }, [isNavigating, activeRoute, currentStepIndex, currentLocation]);
 
@@ -1054,33 +1095,44 @@ export const LeafletMapView: React.FC = () => {
       <div ref={containerRef} className="w-full h-full" />
 
       {/* Floating Camera Controls HUD */}
-      <div className="absolute top-24 right-4 z-10 flex flex-col space-y-2">
+      <div
+        id="leaflet-camera-controls"
+        className={`absolute right-3 sm:right-4 z-10 flex flex-col space-y-2 transition-all duration-300 ${
+          isNavigating ? 'bottom-48' : 'top-20 sm:top-24'
+        }`}
+      >
         {/* Zoom In */}
         <button
+          id="btn-zoom-in"
           onClick={() => mapInstanceRef.current?.zoomIn()}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors"
+          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors touch-manipulation cursor-pointer"
           title="Zoom In"
+          aria-label="Zoom In"
         >
           +
         </button>
         {/* Zoom Out */}
         <button
+          id="btn-zoom-out"
           onClick={() => mapInstanceRef.current?.zoomOut()}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors"
+          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors touch-manipulation cursor-pointer"
           title="Zoom Out"
+          aria-label="Zoom Out"
         >
           -
         </button>
 
         {/* Locate Me */}
         <button
+          id="btn-locate-me-map"
           onClick={() => {
             if (mapInstanceRef.current && currentLocation) {
               mapInstanceRef.current.setView([currentLocation.lat, currentLocation.lng], 16);
             }
           }}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl transition-colors"
+          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl transition-colors touch-manipulation cursor-pointer"
           title="Center on Current GPS Location"
+          aria-label="Center on Current GPS Location"
         >
           <Locate size={15} />
         </button>
@@ -1088,7 +1140,7 @@ export const LeafletMapView: React.FC = () => {
 
       {/* GPS Status Indicator Overlay */}
       {gpsStatus === 'denied' && (
-        <div className="absolute top-20 left-4 right-4 z-10 bg-rose-950/80 backdrop-blur-xs border border-rose-800/60 p-3 rounded-xl flex items-center justify-between text-rose-200">
+        <div className="absolute top-20 sm:top-24 left-3 right-3 sm:left-4 sm:right-4 z-20 bg-rose-950/80 backdrop-blur-xs border border-rose-800/60 p-3 rounded-xl flex items-center justify-between text-rose-200">
           <p className="text-xs font-semibold">Location Denied. Operating in Kolkata Sandbox mode.</p>
           <button onClick={() => containerRef.current?.click()} className="text-[10px] bg-rose-900/60 hover:bg-rose-900 px-2 py-1 rounded-md uppercase font-bold tracking-wider">Dismiss</button>
         </div>
@@ -1096,7 +1148,7 @@ export const LeafletMapView: React.FC = () => {
 
       {/* Navigation Active Dashboard HUD */}
       {isNavigating && activeRoute && (
-        <div className="absolute top-24 left-4 right-4 z-10 max-w-md mx-auto pointer-events-auto space-y-2">
+        <div className="absolute top-20 sm:top-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto space-y-2">
           <LiveNavigationHUD />
           {activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
             <RouteAlternativesBar />
@@ -1106,14 +1158,14 @@ export const LeafletMapView: React.FC = () => {
 
       {/* Route Preview Alternatives (when route is calculated but before active navigation is started) */}
       {!isNavigating && activeRoute && activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
-        <div className="absolute top-24 left-4 right-4 z-10 max-w-md mx-auto pointer-events-auto">
+        <div className="absolute top-20 sm:top-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto">
           <RouteAlternativesBar />
         </div>
       )}
 
       {/* Pandal Coverage Badge (Requirement 8) */}
-      {isPandalVisible && intelligencePandals.length > 0 && searchResults.length === 0 && (
-        <div className="absolute top-20 left-4 z-10">
+      {!isNavigating && isPandalVisible && intelligencePandals.length > 0 && searchResults.length === 0 && (
+        <div className="absolute top-20 sm:top-24 left-3 sm:left-4 z-10">
           <PandalCoverageBadge
             pandals={intelligencePandals}
             isLoading={isPandalLoading}
@@ -1122,8 +1174,8 @@ export const LeafletMapView: React.FC = () => {
       )}
 
       {/* Pandal Empty State Banner (Requirement 10) */}
-      {isPandalVisible && clusteredItems.length === 0 && !isPandalLoading && searchResults.length === 0 && (
-        <div className="absolute top-20 left-4 z-10">
+      {!isNavigating && isPandalVisible && clusteredItems.length === 0 && !isPandalLoading && searchResults.length === 0 && (
+        <div className="absolute top-20 sm:top-24 left-3 sm:left-4 z-10">
           <PandalEmptyStateBanner
             onRecenterKolkata={() => {
               mapInstanceRef.current?.setView([22.5697, 88.3639], 14);
@@ -1134,7 +1186,7 @@ export const LeafletMapView: React.FC = () => {
 
       {/* Selected Item Drawer HUD */}
       {selectedItem && !isNavigating && (
-        <div className="absolute bottom-24 left-4 right-4 z-10 max-w-md mx-auto">
+        <div className="absolute bottom-20 sm:bottom-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto">
           {Boolean((selectedItem as any).line || (selectedItem as any).nearbyPandalIds) ? (
             <MetroIntelligenceCard
               metroStation={selectedItem as any}

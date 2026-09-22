@@ -101,6 +101,7 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
   const {
     isNavigating,
     setIsNavigating,
+    stopNavigation,
     activeRoute,
     currentStepIndex,
     setCurrentStepIndex,
@@ -230,6 +231,38 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     }, 10000);
     return () => clearInterval(timer);
   }, []);
+
+  // Auto-advance turn-by-turn steps as user moves along the route geometry
+  useEffect(() => {
+    if (!currentLocation || !activeRoute || !instructions || instructions.length <= 1) return;
+    if (safeStepIndex >= instructions.length - 1) return;
+
+    const geom = activeRoute.geometry;
+    if (geom && geom.length > 0) {
+      let minDistance = Infinity;
+      let closestPointIndex = 0;
+      for (let i = 0; i < geom.length; i++) {
+        const d = getHaversineDistanceMeters(currentLocation, geom[i]);
+        if (d < minDistance) {
+          minDistance = d;
+          closestPointIndex = i;
+        }
+      }
+
+      // If user is reasonably close to route (< 50m), correlate progress
+      if (minDistance < 50) {
+        const fractionAlongRoute = closestPointIndex / Math.max(1, geom.length - 1);
+        const targetStepIndex = Math.min(
+          instructions.length - 1,
+          Math.floor(fractionAlongRoute * instructions.length)
+        );
+
+        if (targetStepIndex > safeStepIndex) {
+          setCurrentStepIndex(targetStepIndex);
+        }
+      }
+    }
+  }, [currentLocation, activeRoute, instructions, safeStepIndex, setCurrentStepIndex]);
 
   // Auto-advance when intermediate pandal stop is reached in a Puja Route
   useEffect(() => {
@@ -369,8 +402,7 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
       if (isPujaRoute) {
         endPujaRoute();
       } else {
-        setIsNavigating(false);
-        setSelectedItem(null);
+        stopNavigation();
       }
     }
   };
@@ -393,8 +425,7 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     if (onStop) {
       onStop();
     } else {
-      setIsNavigating(false);
-      setSelectedItem(null);
+      stopNavigation();
     }
   };
 
@@ -547,7 +578,7 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
               type="button"
               id="btn-mode-walking"
               onClick={() => handleModeChange('walking')}
-              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide transition-all ${
+              className={`flex items-center space-x-1 px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide transition-all touch-manipulation cursor-pointer ${
                 travelMode === 'walking'
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-sm'
                   : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 border border-transparent'
@@ -555,13 +586,13 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
               title="Switch to Walking navigation"
             >
               <Footprints size={11} className={travelMode === 'walking' ? 'text-emerald-400' : 'text-neutral-400'} />
-              <span>Walk</span>
+              <span className="hidden xs:inline">Walk</span>
             </button>
             <button
               type="button"
               id="btn-mode-driving"
               onClick={() => handleModeChange('driving')}
-              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide transition-all ${
+              className={`flex items-center space-x-1 px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide transition-all touch-manipulation cursor-pointer ${
                 travelMode === 'driving'
                   ? 'bg-sky-500/20 text-sky-300 border border-sky-500/50 shadow-sm'
                   : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 border border-transparent'
@@ -569,7 +600,7 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
               title="Switch to Driving navigation"
             >
               <Car size={11} className={travelMode === 'driving' ? 'text-sky-400' : 'text-neutral-400'} />
-              <span>Drive</span>
+              <span className="hidden xs:inline">Drive</span>
             </button>
           </div>
 
@@ -578,7 +609,7 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
             type="button"
             id="btn-nav-mute-toggle"
             onClick={() => setIsMuted((prev) => !prev)}
-            className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide border transition-all cursor-pointer ${
+            className={`flex items-center space-x-1 px-1.5 sm:px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide border transition-all cursor-pointer touch-manipulation ${
               isMuted
                 ? 'bg-neutral-900/90 text-neutral-400 border-neutral-800 hover:text-neutral-200 hover:bg-neutral-800/60'
                 : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50 shadow-sm hover:bg-indigo-500/30'
@@ -589,12 +620,12 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
             {isMuted ? (
               <>
                 <VolumeX size={12} className="text-neutral-400" />
-                <span>Muted</span>
+                <span className="hidden xs:inline">Muted</span>
               </>
             ) : (
               <>
                 <Volume2 size={12} className="text-indigo-400" />
-                <span>Voice</span>
+                <span className="hidden xs:inline">Voice</span>
               </>
             )}
           </button>
@@ -604,12 +635,12 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
             type="button"
             id="btn-nav-hud-collapse"
             onClick={() => setIsCollapsed(true)}
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide border border-neutral-800 bg-neutral-900/90 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 transition-all cursor-pointer"
+            className="flex items-center space-x-1 px-1.5 sm:px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide border border-neutral-800 bg-neutral-900/90 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 transition-all cursor-pointer touch-manipulation"
             title="Collapse Navigation HUD (or swipe down)"
             aria-label="Collapse Navigation HUD"
           >
             <ChevronDown size={12} />
-            <span className="hidden xs:inline">Collapse</span>
+            <span className="hidden sm:inline">Collapse</span>
           </button>
         </div>
       </div>
@@ -782,11 +813,11 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
           </div>
 
           {/* Navigation Controls */}
-          <div className="flex items-center justify-between border-t border-neutral-800/40 mt-4 pt-3">
+          <div className="flex items-center justify-between gap-1.5 border-t border-neutral-800/40 mt-3 sm:mt-4 pt-2.5 sm:pt-3 flex-wrap sm:flex-nowrap">
             <button
               id="btn-nav-step-forward"
               onClick={handleStepForward}
-              className="text-[11px] bg-indigo-600 hover:bg-indigo-500 font-bold tracking-wider text-white px-3 py-1.5 rounded-lg uppercase flex items-center space-x-1 transition-colors cursor-pointer"
+              className="text-[10px] sm:text-[11px] bg-indigo-600 hover:bg-indigo-500 font-bold tracking-wider text-white px-2.5 sm:px-3 py-1.5 rounded-lg uppercase flex items-center space-x-1 transition-colors cursor-pointer touch-manipulation shrink-0"
             >
               <span>Step Forward</span>
             </button>
@@ -795,7 +826,7 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
               <button
                 id="btn-nav-advance-stop"
                 onClick={() => advancePujaRouteToNextStop()}
-                className="text-[11px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold tracking-wider px-2.5 py-1.5 rounded-lg uppercase flex items-center space-x-1 transition-colors cursor-pointer"
+                className="text-[10px] sm:text-[11px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold tracking-wider px-2 sm:px-2.5 py-1.5 rounded-lg uppercase flex items-center space-x-1 transition-colors cursor-pointer touch-manipulation shrink-0"
                 title="Complete this stop and proceed to next pandal"
               >
                 <span>Next Stop ➜</span>
@@ -805,14 +836,14 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
             <button
               id="btn-nav-trigger-offroute"
               onClick={handleReroute}
-              className="text-[11px] hover:bg-neutral-800 text-neutral-400 font-bold tracking-wider px-3 py-1.5 rounded-lg uppercase border border-neutral-800 transition-colors cursor-pointer"
+              className="text-[10px] sm:text-[11px] hover:bg-neutral-800 text-neutral-400 font-bold tracking-wider px-2.5 sm:px-3 py-1.5 rounded-lg uppercase border border-neutral-800 transition-colors cursor-pointer touch-manipulation shrink-0"
             >
               Reroute
             </button>
             <button
               id="btn-nav-stop"
               onClick={handleStop}
-              className="text-[11px] bg-rose-950 hover:bg-rose-900 font-bold tracking-wider text-rose-200 px-3 py-1.5 rounded-lg uppercase transition-colors cursor-pointer"
+              className="text-[10px] sm:text-[11px] bg-rose-950 hover:bg-rose-900 font-bold tracking-wider text-rose-200 px-2.5 sm:px-3 py-1.5 rounded-lg uppercase transition-colors cursor-pointer touch-manipulation shrink-0"
             >
               Stop
             </button>
