@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppState } from '../../hooks/AppStateProvider';
-import { MapPin, Sliders, Navigation, Users, Eye, Sparkles, RefreshCw, Plus, Check } from 'lucide-react';
+import { MapPin, Sliders, Navigation, Users, Eye, Sparkles, RefreshCw, Plus, Check, ChevronUp, ChevronDown } from 'lucide-react';
 import { Pandal } from '../../types';
 
 export const DiscoveryHUD: React.FC = () => {
@@ -36,6 +36,27 @@ export const DiscoveryHUD: React.FC = () => {
     description: '',
     crowdLevel: 'LOW' as 'LOW' | 'MODERATE' | 'HEAVY' | 'EXTREME',
   });
+
+  // Mobile-responsive compact vs expanded state for Pandal Explorer 2.0
+  const [isExpanded, setIsExpanded] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('eclipse_pandal_explorer_expanded');
+      if (saved !== null) return saved === 'true';
+      // Default expanded on larger screens, compact bar on mobile devices to preserve map space
+      return window.innerWidth >= 768;
+    }
+    return false;
+  });
+
+  const toggleExpanded = () => {
+    setIsExpanded((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('eclipse_pandal_explorer_expanded', String(next));
+      }
+      return next;
+    });
+  };
 
   const isVisible = activeTab === 'home';
 
@@ -122,171 +143,281 @@ export const DiscoveryHUD: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* 2. Floating Dashboard Controls */}
-      <AnimatePresence>
+      {/* 2. Floating Dashboard Controls: Collapsible Pandal Explorer 2.0 */}
+      <AnimatePresence mode="wait">
         {isVisible && (
-          <motion.div
-            key="discovery-hud-dashboard"
-            initial={{ opacity: 0, y: 20, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.98 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute bottom-20 left-4 right-4 pointer-events-auto md:w-96 md:bottom-24"
-          >
-            <div className="bg-neutral-950/90 border border-neutral-900 rounded-2xl shadow-2xl overflow-hidden p-4 space-y-4 backdrop-blur-md">
-              
-              {/* Header & Status Indicator */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <span className="relative flex h-2 w-2">
-                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isDiscovering ? 'bg-indigo-400' : 'bg-emerald-400'} opacity-75`}></span>
-                    <span className={`relative inline-flex rounded-full h-2 w-2 ${isDiscovering ? 'bg-indigo-500' : 'bg-emerald-500'}`}></span>
-                  </span>
-                  <p className="text-xs font-bold text-neutral-100 uppercase tracking-wide">
-                    {isDiscovering ? 'Searching Pandals...' : `${pandals.length} Pandals Discovered`}
-                  </p>
-                </div>
+          isExpanded ? (
+            /* Expanded Pandal Explorer 2.0 Panel */
+            <motion.div
+              key="discovery-hud-expanded"
+              initial={{ opacity: 0, y: 16, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="absolute bottom-20 left-3 right-3 sm:left-4 sm:right-4 pointer-events-auto md:w-96 md:bottom-24 z-20"
+            >
+              <div className="bg-neutral-950/95 border border-neutral-850 rounded-2xl shadow-2xl overflow-hidden p-3.5 sm:p-4 space-y-3.5 backdrop-blur-md max-h-[calc(100vh-165px)] flex flex-col">
                 
-                <div className="flex items-center space-x-1">
-                  <button
-                    id="btn-submit-pandal"
-                    onClick={() => setShowSubmitModal(true)}
-                    className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-neutral-900 transition-colors"
-                    title="Report Custom Pandal"
-                  >
-                    <Plus size={15} />
-                  </button>
-                  <button
-                    id="btn-refresh-discovery"
-                    onClick={triggerDiscovery}
-                    disabled={isDiscovering}
-                    className="p-1.5 rounded-lg text-neutral-400 hover:text-indigo-400 hover:bg-neutral-900 transition-all disabled:opacity-50"
-                    title="Refresh nearby search"
-                  >
-                    <RefreshCw size={14} className={isDiscovering ? 'animate-spin' : ''} />
-                  </button>
-                </div>
-              </div>
+                {/* Header & Status Indicator + Show/Hide Toggle */}
+                <div className="flex items-center justify-between border-b border-neutral-900/90 pb-2.5 shrink-0">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <span className="relative flex h-2 w-2 shrink-0">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isDiscovering ? 'bg-indigo-400' : 'bg-emerald-400'} opacity-75`}></span>
+                      <span className={`relative inline-flex rounded-full h-2 w-2 ${isDiscovering ? 'bg-indigo-500' : 'bg-emerald-500'}`}></span>
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-neutral-100 uppercase tracking-wide truncate">
+                        {isDiscovering ? 'Searching Pandals...' : `${pandals.length} Pandals Discovered`}
+                      </p>
+                      <span className="text-[9px] text-neutral-500 font-mono block truncate">Pandal Explorer 2.0</span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-1 shrink-0">
+                    <button
+                      type="button"
+                      id="btn-submit-pandal"
+                      onClick={() => setShowSubmitModal(true)}
+                      className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-neutral-900 transition-colors"
+                      title="Report Custom Pandal"
+                      aria-label="Report Custom Pandal"
+                    >
+                      <Plus size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      id="btn-refresh-discovery"
+                      onClick={triggerDiscovery}
+                      disabled={isDiscovering}
+                      className="p-1.5 rounded-lg text-neutral-400 hover:text-indigo-400 hover:bg-neutral-900 transition-all disabled:opacity-50"
+                      title="Refresh nearby search"
+                      aria-label="Refresh nearby search"
+                    >
+                      <RefreshCw size={14} className={isDiscovering ? 'animate-spin' : ''} />
+                    </button>
 
-              {/* Discovery Settings Panel */}
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {/* Radius Control */}
-                <div className="space-y-1">
-                  <label className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Search Radius</label>
-                  <select
-                    id="select-discovery-radius"
-                    value={discoveryRadius}
-                    onChange={(e) => setDiscoveryRadius(Number(e.target.value))}
-                    className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-2 py-1.5 text-neutral-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value={1}>1 km (Within walking)</option>
-                    <option value={2}>2 km (Close drive)</option>
-                    <option value={5}>5 km (Standard area)</option>
-                    <option value={10}>10 km (Wider city)</option>
-                  </select>
-                </div>
-
-                {/* Sorting control */}
-                <div className="space-y-1">
-                  <label className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Sort Method</label>
-                  <select
-                    id="select-discovery-sort"
-                    value={discoverySort}
-                    onChange={(e) => setDiscoverySort(e.target.value as any)}
-                    className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-2 py-1.5 text-neutral-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="recommended">⭐ Recommended</option>
-                    <option value="nearest">📍 Nearest</option>
-                    <option value="least_crowded">👥 Least Crowded</option>
-                    <option value="fastest">🚗 Fastest Travel</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* GPS Status Notification */}
-              {(gpsStatus === 'denied' || gpsStatus === 'error') && (
-                <div className="bg-amber-950/40 border border-amber-800/60 rounded-xl px-2.5 py-1.5 text-[11px] text-amber-200/90 flex items-start gap-1.5">
-                  <span className="text-amber-400 font-bold shrink-0">⚠️</span>
-                  <span>
-                    {gpsErrorMsg || 'GPS location is unavailable. Results are relative to current map center.'}
-                  </span>
-                </div>
-              )}
-
-              {/* Inline Slider / Top 3 Discovered Highlights */}
-              {topPandals.length > 0 && (
-                <div className="space-y-2 border-t border-neutral-900 pt-3">
-                  <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Closest Discovered Pandals</p>
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-                    {topPandals.map((pandal) => {
-                      const distKm = pandal.distance ? (pandal.distance / 1000).toFixed(2) : '0';
-                      // Driving duration approximation
-                      const durationMins = pandal.distance ? Math.ceil((pandal.distance / 8.33) / 60) : 0;
-                      
-                      return (
-                        <div
-                          key={pandal.id}
-                          id={`nearby-pandal-hud-item-${pandal.id}`}
-                          className="flex items-center justify-between p-2 rounded-xl bg-neutral-900/60 hover:bg-neutral-900 transition-colors border border-neutral-900/40"
-                        >
-                          <div
-                            className="flex-1 cursor-pointer min-w-0"
-                            onClick={() => setSelectedItem(pandal)}
-                          >
-                            <div className="flex items-center space-x-1.5 flex-wrap">
-                              <p className="text-xs font-semibold text-neutral-200 truncate">{pandal.name}</p>
-                              {visitedIds.includes(pandal.id) && (
-                                <span className="text-[8px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1 py-0.5 rounded uppercase font-bold flex items-center gap-0.5">
-                                  VISITED
-                                </span>
-                              )}
-                              {!pandal.verified && (
-                                <span className="text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1 py-0.5 rounded uppercase font-bold">Unverified</span>
-                              )}
-                            </div>
-                            <p className="text-[10px] text-neutral-400 mt-0.5">
-                              {pandal.estimatedTravelTime ? `${distKm} km • ${pandal.estimatedTravelTime}` : `${distKm} km • ${durationMins} mins travel`}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center space-x-1.5">
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                              pandal.crowdLevel === 'LOW' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                              pandal.crowdLevel === 'MODERATE' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                              pandal.crowdLevel === 'HIGH' || pandal.crowdLevel === 'HEAVY' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
-                              pandal.crowdLevel === 'EXTREME' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse' :
-                              'bg-neutral-800 text-neutral-400 border-neutral-700'
-                            }`}>
-                              {pandal.crowdLevel && pandal.crowdLevel !== 'UNAVAILABLE' ? pandal.crowdLevel : 'Crowd unavailable'}
-                            </span>
-
-                            <button
-                              id={`btn-hud-route-${pandal.id}`}
-                              onClick={() => calculateRouteToItem(pandal)}
-                              className="p-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
-                              title="Navigate"
-                            >
-                              <Navigation size={12} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {/* Clear Hide Toggle Button */}
+                    <button
+                      type="button"
+                      id="btn-toggle-pandal-explorer-hide"
+                      onClick={toggleExpanded}
+                      className="flex items-center space-x-1 px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 active:bg-neutral-750 text-neutral-300 hover:text-white border border-neutral-800 rounded-xl text-xs font-bold uppercase tracking-wider transition-all active:scale-95 cursor-pointer touch-manipulation ml-0.5"
+                      title="Hide Pandal Explorer (Expand Map)"
+                      aria-label="Hide Pandal Explorer"
+                    >
+                      <span>Hide</span>
+                      <ChevronDown size={14} className="stroke-[2.5]" />
+                    </button>
                   </div>
                 </div>
-              )}
 
-              {/* Explore Button */}
-              <button
-                id="btn-hud-explore-mode"
-                onClick={() => setActiveTab('explore')}
-                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5"
+                {/* Scrollable Body for small screens */}
+                <div className="space-y-3.5 overflow-y-auto custom-scrollbar pr-0.5 overscroll-contain">
+                  {/* Discovery Settings Panel */}
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {/* Radius Control */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Search Radius</label>
+                      <select
+                        id="select-discovery-radius"
+                        value={discoveryRadius}
+                        onChange={(e) => setDiscoveryRadius(Number(e.target.value))}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-2 py-1.5 text-neutral-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value={1}>1 km (Within walking)</option>
+                        <option value={2}>2 km (Close drive)</option>
+                        <option value={5}>5 km (Standard area)</option>
+                        <option value={10}>10 km (Wider city)</option>
+                      </select>
+                    </div>
+
+                    {/* Sorting control */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Sort Method</label>
+                      <select
+                        id="select-discovery-sort"
+                        value={discoverySort}
+                        onChange={(e) => setDiscoverySort(e.target.value as any)}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-2 py-1.5 text-neutral-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="recommended">⭐ Recommended</option>
+                        <option value="nearest">📍 Nearest</option>
+                        <option value="least_crowded">👥 Least Crowded</option>
+                        <option value="fastest">🚗 Fastest Travel</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* GPS Status Notification */}
+                  {(gpsStatus === 'denied' || gpsStatus === 'error') && (
+                    <div className="bg-amber-950/40 border border-amber-800/60 rounded-xl px-2.5 py-1.5 text-[11px] text-amber-200/90 flex items-start gap-1.5">
+                      <span className="text-amber-400 font-bold shrink-0">⚠️</span>
+                      <span>
+                        {gpsErrorMsg || 'GPS location is unavailable. Results are relative to current map center.'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Inline Slider / Top 10 Closest Discovered Pandals */}
+                  {topPandals.length > 0 && (
+                    <div className="space-y-2 border-t border-neutral-900 pt-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Closest Discovered Pandals</p>
+                        <span className="text-[9px] text-neutral-500 font-mono">{topPandals.length} shown</span>
+                      </div>
+                      <div className="space-y-1.5 max-h-36 sm:max-h-40 overflow-y-auto custom-scrollbar overscroll-contain">
+                        {topPandals.map((pandal) => {
+                          const distKm = pandal.distance ? (pandal.distance / 1000).toFixed(2) : '0';
+                          // Driving duration approximation
+                          const durationMins = pandal.distance ? Math.ceil((pandal.distance / 8.33) / 60) : 0;
+                          
+                          return (
+                            <div
+                              key={pandal.id}
+                              id={`nearby-pandal-hud-item-${pandal.id}`}
+                              className="flex items-center justify-between p-2 rounded-xl bg-neutral-900/60 hover:bg-neutral-900 transition-colors border border-neutral-900/40"
+                            >
+                              <div
+                                className="flex-1 cursor-pointer min-w-0"
+                                onClick={() => setSelectedItem(pandal)}
+                              >
+                                <div className="flex items-center space-x-1.5 flex-wrap">
+                                  <p className="text-xs font-semibold text-neutral-200 truncate">{pandal.name}</p>
+                                  {visitedIds.includes(pandal.id) && (
+                                    <span className="text-[8px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1 py-0.5 rounded uppercase font-bold flex items-center gap-0.5">
+                                      VISITED
+                                    </span>
+                                  )}
+                                  {!pandal.verified && (
+                                    <span className="text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1 py-0.5 rounded uppercase font-bold">Unverified</span>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-neutral-400 mt-0.5">
+                                  {pandal.estimatedTravelTime ? `${distKm} km • ${pandal.estimatedTravelTime}` : `${distKm} km • ${durationMins} mins travel`}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center space-x-1.5 shrink-0">
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                  pandal.crowdLevel === 'LOW' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                                  pandal.crowdLevel === 'MODERATE' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                                  pandal.crowdLevel === 'HIGH' || pandal.crowdLevel === 'HEAVY' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                                  pandal.crowdLevel === 'EXTREME' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse' :
+                                  'bg-neutral-800 text-neutral-400 border-neutral-700'
+                                }`}>
+                                  {pandal.crowdLevel && pandal.crowdLevel !== 'UNAVAILABLE' ? pandal.crowdLevel : 'Crowd unavailable'}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  id={`btn-hud-route-${pandal.id}`}
+                                  onClick={() => calculateRouteToItem(pandal)}
+                                  className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white transition-colors cursor-pointer"
+                                  title="Navigate"
+                                  aria-label={`Navigate to ${pandal.name}`}
+                                >
+                                  <Navigation size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Explore Button */}
+                  <button
+                    type="button"
+                    id="btn-hud-explore-mode"
+                    onClick={() => setActiveTab('explore')}
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-xs rounded-xl uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 shadow-lg shadow-indigo-600/20 cursor-pointer shrink-0"
+                  >
+                    <Sparkles size={13} />
+                    <span>Open Pandal Explorer 2.0</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            /* Collapsed Compact Bar (Max Map Space for Mobile) */
+            <motion.div
+              key="discovery-hud-collapsed"
+              initial={{ opacity: 0, y: 14, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="absolute bottom-20 left-3 right-3 sm:left-4 sm:right-4 pointer-events-auto md:w-96 md:bottom-24 z-20"
+            >
+              <div
+                id="pandal-explorer-collapsed-bar"
+                onClick={toggleExpanded}
+                className="group bg-neutral-950/92 hover:bg-neutral-950 border border-neutral-850 hover:border-neutral-700/80 rounded-2xl shadow-2xl px-3.5 py-2.5 backdrop-blur-md flex items-center justify-between gap-2.5 transition-all cursor-pointer active:scale-[0.99] touch-manipulation"
+                role="button"
+                aria-expanded={false}
+                aria-label="Expand Pandal Explorer 2.0"
               >
-                <Sparkles size={13} />
-                <span>Open Pandal Explorer 2.0</span>
-              </button>
-            </div>
-          </motion.div>
+                {/* Status & Nearest info */}
+                <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                  <span className="relative flex h-2.5 w-2.5 shrink-0">
+                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isDiscovering ? 'bg-indigo-400' : 'bg-emerald-400'} opacity-75`}></span>
+                    <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isDiscovering ? 'bg-indigo-500' : 'bg-emerald-500'}`}></span>
+                  </span>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs font-bold text-neutral-100 tracking-wide uppercase truncate">
+                        Pandal Explorer 2.0
+                      </span>
+                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 shrink-0">
+                        {pandals.length}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-neutral-400 truncate mt-0.5">
+                      {topPandals.length > 0 && topPandals[0].distance !== undefined
+                        ? `Nearest: ${topPandals[0].name} (${(topPandals[0].distance / 1000).toFixed(1)} km)`
+                        : isDiscovering
+                        ? 'Scanning nearby pandals...'
+                        : `${pandals.length} pandals discovered`}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Actions: Refresh + Show toggle button */}
+                <div className="flex items-center space-x-1.5 shrink-0">
+                  <button
+                    type="button"
+                    id="btn-refresh-discovery-collapsed"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      triggerDiscovery();
+                    }}
+                    disabled={isDiscovering}
+                    className="p-2 rounded-xl text-neutral-400 hover:text-indigo-400 hover:bg-neutral-900 border border-transparent hover:border-neutral-800 transition-all disabled:opacity-50 cursor-pointer"
+                    title="Refresh nearby search"
+                    aria-label="Refresh pandal search"
+                  >
+                    <RefreshCw size={13} className={isDiscovering ? 'animate-spin' : ''} />
+                  </button>
+
+                  <button
+                    type="button"
+                    id="btn-toggle-pandal-explorer-show"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleExpanded();
+                    }}
+                    className="flex items-center space-x-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-indigo-600/30 transition-all active:scale-95 cursor-pointer touch-manipulation"
+                    title="Show Pandal Explorer 2.0"
+                    aria-label="Show Pandal Explorer"
+                  >
+                    <span>Show</span>
+                    <ChevronUp size={14} className="stroke-[2.5]" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )
         )}
       </AnimatePresence>
 
