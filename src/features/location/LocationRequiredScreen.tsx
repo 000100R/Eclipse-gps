@@ -12,6 +12,7 @@ import {
   Users,
   CheckCircle2,
   Lock,
+  Settings,
 } from 'lucide-react';
 
 export const LocationRequiredScreen: React.FC = () => {
@@ -28,6 +29,14 @@ export const LocationRequiredScreen: React.FC = () => {
   const isError = gpsStatus === 'error';
   // Permission is granted or requesting, but no valid GPS position fix yet
   const isWaitingForPosition = (permissionState === 'granted' || isRequesting || isError) && !isDenied;
+
+  const openAppSettings = () => {
+    try {
+      window.location.href = 'intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;package=com.eclipsegps.app;end';
+    } catch (err) {
+      console.warn('Unable to trigger settings intent:', err);
+    }
+  };
 
   return (
     <div
@@ -137,16 +146,20 @@ export const LocationRequiredScreen: React.FC = () => {
         {isDenied && (
           <div
             id="location-denied-guidance"
-            className="p-4 rounded-2xl bg-rose-950/40 border border-rose-800/60 text-xs text-rose-200 text-left space-y-2"
+            className="p-4 rounded-2xl bg-rose-950/40 border border-rose-800/60 text-xs text-rose-200 text-left space-y-2.5"
           >
             <div className="flex items-center gap-1.5 font-bold text-rose-300 text-sm">
               <Lock className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>Location permission is blocked</span>
+              <span>Location permission is blocked or denied</span>
             </div>
+            <p className="text-[11px] text-rose-200/90 leading-relaxed">
+              Eclipse GPS requires foreground location to calculate pandal distances and guide your journey.
+            </p>
             <ol className="list-decimal list-inside text-[11px] text-rose-200/90 space-y-1 pl-1 leading-relaxed">
-              <li>Click the lock or site settings icon in your browser address bar.</li>
-              <li>Toggle <strong className="text-white">Location</strong> permission to <strong className="text-white">Allow</strong>.</li>
-              <li>Tap <strong className="text-white">ENABLE LOCATION</strong> below to resume.</li>
+              <li>Tap <strong className="text-white">OPEN APP SETTINGS</strong> below (or device Settings → Apps → Eclipse GPS).</li>
+              <li>Tap <strong className="text-white">Permissions → Location</strong>.</li>
+              <li>Select <strong className="text-white">Allow only while using the app</strong> (Precise or Approximate).</li>
+              <li>Return to Eclipse GPS and tap <strong className="text-white">TRY AGAIN</strong>.</li>
             </ol>
           </div>
         )}
@@ -193,8 +206,39 @@ export const LocationRequiredScreen: React.FC = () => {
 
         {/* Action Controls */}
         <div className="pt-2 space-y-2.5">
-          {/* If waiting for location (permission granted or errored/retrying), provide RETRY button */}
-          {isWaitingForPosition && !isRequesting ? (
+          {isDenied ? (
+            <>
+              <button
+                type="button"
+                id="btn-open-app-settings"
+                onClick={openAppSettings}
+                className="w-full py-3.5 px-5 rounded-2xl bg-neutral-850 hover:bg-neutral-800 text-white font-black text-xs tracking-wider uppercase border border-neutral-700 shadow-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+              >
+                <Settings className="w-4 h-4 text-neutral-300" />
+                <span>OPEN APP SETTINGS</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-retry-denied-location"
+                onClick={retryLocation}
+                disabled={isRequesting}
+                className="w-full py-3.5 px-5 rounded-2xl bg-primary hover:bg-primary/90 disabled:opacity-60 text-neutral-950 font-black text-sm tracking-wider uppercase shadow-xl shadow-primary/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+              >
+                {isRequesting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-neutral-950" />
+                    <span>Checking Permission...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCw className="w-4 h-4 text-neutral-950" />
+                    <span>TRY AGAIN</span>
+                  </>
+                )}
+              </button>
+            </>
+          ) : isWaitingForPosition && !isRequesting ? (
             <button
               type="button"
               id="btn-retry-location"
@@ -226,8 +270,8 @@ export const LocationRequiredScreen: React.FC = () => {
             </button>
           )}
 
-          {/* Secondary RETRY option if waiting or denied or error */}
-          {(isDenied || isError) && (
+          {/* Secondary RETRY option if waiting or error (not denied, which has its own buttons above) */}
+          {!isDenied && (isWaitingForPosition || isError) && !isRequesting && (
             <button
               type="button"
               id="btn-secondary-retry"

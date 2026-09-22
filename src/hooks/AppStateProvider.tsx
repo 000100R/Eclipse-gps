@@ -1104,7 +1104,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     ]);
   }, []);
 
-  // Request location from browser/device
+  const isRequestingLocationRef = useRef<boolean>(false);
+
+  // Request location from browser/device with fallback for Android 12+ Approximate location & indoor delays
   const requestLocation = useCallback(() => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
       setHasValidGps(false);
@@ -1114,55 +1116,87 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return;
     }
 
+    if (isRequestingLocationRef.current) {
+      return;
+    }
+    isRequestingLocationRef.current = true;
+
     setGpsStatus('requesting');
     setGpsErrorMsg(null);
 
+    const onLocationSuccess = (pos: GeolocationPosition) => {
+      const loc: Location = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+      };
+      setPermissionState('granted');
+      setCurrentLocation(loc);
+      setHasValidGps(true);
+      setGpsStatus('tracking');
+      setGpsAccuracy(pos.coords.accuracy);
+      setSpeed(pos.coords.speed || 0);
+      setHeading(pos.coords.heading || 0);
+      setGpsErrorMsg(null);
+      travelDistanceService.recordPosition(pos);
+      setDiscoveryCenter(loc);
+      lastDiscoveryCenterRef.current = loc;
+      isRequestingLocationRef.current = false;
+    };
+
+    // Attempt 1: High accuracy (Precise GPS fix on Android)
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const loc: Location = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        };
-        setPermissionState('granted');
-        setCurrentLocation(loc);
-        setHasValidGps(true);
-        setGpsStatus('tracking');
-        setGpsAccuracy(pos.coords.accuracy);
-        setSpeed(pos.coords.speed || 0);
-        setHeading(pos.coords.heading || 0);
-        setGpsErrorMsg(null);
-        travelDistanceService.recordPosition(pos);
-        setDiscoveryCenter(loc);
-        lastDiscoveryCenterRef.current = loc;
-      },
+      onLocationSuccess,
       (err) => {
-        console.warn('GPS location acquisition error:', err);
-        setHasValidGps(false);
-        setCurrentLocation(null);
+        console.warn('High-accuracy GPS location acquisition error:', err);
+        // If user explicitly denied permission, stop immediately
         if (err.code === 1) {
-          // PERMISSION_DENIED
+          isRequestingLocationRef.current = false;
+          setHasValidGps(false);
+          setCurrentLocation(null);
           setPermissionState('denied');
           setGpsStatus('denied');
           setGpsErrorMsg('Location permission was denied. Eclipse GPS requires your real location to navigate.');
-        } else if (err.code === 2) {
-          // POSITION_UNAVAILABLE
-          setPermissionState('granted');
-          setGpsStatus('error');
-          setGpsErrorMsg('Waiting for your location... GPS position unavailable. Please ensure location/GPS services are enabled on your device.');
-        } else if (err.code === 3) {
-          // TIMEOUT
-          setPermissionState('granted');
-          setGpsStatus('error');
-          setGpsErrorMsg('Waiting for your location... GPS request timed out.');
-        } else {
-          setGpsStatus('error');
-          setGpsErrorMsg(err.message || 'Unable to retrieve your real-time GPS location.');
+          return;
         }
+
+        // On Android 12+, if user chose "Approximate" (coarse location only),
+        // or if high-accuracy satellite fix times out (code 3) / is unavailable (code 2),
+        // fall back to standard/low accuracy to obtain position immediately.
+        navigator.geolocation.getCurrentPosition(
+          onLocationSuccess,
+          (fallbackErr) => {
+            console.warn('Fallback low-accuracy location error:', fallbackErr);
+            isRequestingLocationRef.current = false;
+            setHasValidGps(false);
+            setCurrentLocation(null);
+            if (fallbackErr.code === 1) {
+              setPermissionState('denied');
+              setGpsStatus('denied');
+              setGpsErrorMsg('Location permission was denied. Eclipse GPS requires your real location to navigate.');
+            } else if (fallbackErr.code === 2) {
+              setPermissionState('granted');
+              setGpsStatus('error');
+              setGpsErrorMsg('Waiting for your location... GPS position unavailable. Please ensure Location/GPS is turned ON in your phone settings.');
+            } else if (fallbackErr.code === 3) {
+              setPermissionState('granted');
+              setGpsStatus('error');
+              setGpsErrorMsg('Waiting for your location... GPS request timed out. Tap RETRY to acquire signal.');
+            } else {
+              setGpsStatus('error');
+              setGpsErrorMsg(fallbackErr.message || 'Unable to retrieve your real-time GPS location.');
+            }
+          },
+          {
+            enableHighAccuracy: false,
+            timeout: 12000,
+            maximumAge: 60000,
+          }
+        );
       },
       {
         enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0,
+        timeout: 9000,
+        maximumAge: 10000,
       }
     );
   }, []);
@@ -1195,7 +1229,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               setHasValidGps(false);
               setCurrentLocation(null);
               setGpsStatus('denied');
-              setGpsErrorMsg('Location access is blocked. Please allow location access in your browser settings.');
+              setGpsErrorMsg('Location access is blocked. Please allow location access in your device settings.');
             } else if (status.state === 'prompt') {
               setHasValidGps(false);
               setCurrentLocation(null);
@@ -1215,7 +1249,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             setHasValidGps(false);
             setCurrentLocation(null);
             setGpsStatus('denied');
-            setGpsErrorMsg('Location access was denied. Please allow location access in your browser settings.');
+            setGpsErrorMsg('Location access was denied. Please allow location access in your device settings.');
           } else {
             // 'prompt': Show Location Required screen with Enable Location button
             setHasValidGps(false);
@@ -1239,6 +1273,32 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     };
   }, [requestLocation]);
+
+  // When app returns to foreground (e.g. user returns from device Settings after granting permission)
+  useEffect(() => {
+    const handleResume = () => {
+      if (document.visibilityState === 'visible' && (!hasValidGps || gpsStatus !== 'tracking')) {
+        if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+          navigator.permissions
+            .query({ name: 'geolocation' as PermissionName })
+            .then((status) => {
+              if (status.state === 'granted') {
+                setPermissionState('granted');
+                requestLocation();
+              }
+            })
+            .catch(() => {});
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleResume);
+    window.addEventListener('focus', handleResume);
+    return () => {
+      document.removeEventListener('visibilitychange', handleResume);
+      window.removeEventListener('focus', handleResume);
+    };
+  }, [hasValidGps, gpsStatus, requestLocation]);
 
   // Coordinate significant movement and automatic discovery trigger
   useEffect(() => {
@@ -1289,19 +1349,17 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             setCurrentLocation(null);
             setGpsStatus('denied');
             setGpsErrorMsg('Eclipse GPS cannot be used without location access. Please enable location access to continue.');
-          } else if (error.code === 2 || error.code === 3) {
-            // Disabled or unavailable
-            setHasValidGps(false);
-            setCurrentLocation(null);
-            setGpsStatus('error');
-            setGpsErrorMsg('Waiting for your location... GPS signal lost or location services disabled on device.');
+          } else {
+            // Transient timeout or temporary satellite obstruction while tracking:
+            // Keep current location coordinates active rather than abruptly locking the user out
+            console.warn('Transient watchPosition signal obstruction:', error.message);
           }
           setGpsAccuracy(null);
         },
         {
           enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 0,
+          timeout: 20000,
+          maximumAge: 10000,
         }
       );
     } else {
