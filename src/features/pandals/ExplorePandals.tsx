@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import { CrowdBadge } from '../../components/ui/CrowdBadge';
@@ -8,10 +8,12 @@ import { getPandalCrowdMetrics } from '../../utils/crowdUtils';
 import { crowdIntelligenceService } from '../../services/intelligence/crowdIntelligenceService';
 import { Star, Check, Navigation, AlertTriangle, MessageSquare, HelpCircle, Users } from 'lucide-react';
 import { CrowdLevel } from '../../types';
+import { calculateHaversineDistanceMeters } from '../../utils/pandalDeduplication';
 
 export const ExplorePandals: React.FC = () => {
   const {
     pandals,
+    currentLocation,
     calculateRouteToItem,
     isSaved,
     saveLocation,
@@ -31,12 +33,38 @@ export const ExplorePandals: React.FC = () => {
   const [reportText, setReportText] = useState('');
   const [reportStatusMsg, setReportStatusMsg] = useState<{ success?: boolean; text?: string } | null>(null);
 
-  // Filters calculation
-  const filteredPandals = pandals.filter(p => {
-    const matchesZone = filterZone === 'ALL' || p.zone.toUpperCase() === filterZone;
-    const matchesCrowd = filterCrowd === 'ALL' || p.crowdLevel === filterCrowd;
-    return matchesZone && matchesCrowd;
-  });
+  const formatDistance = (meters?: number) => {
+    if (meters === undefined || meters === null || isNaN(meters)) return null;
+    if (meters < 1000) return `${Math.round(meters)} m`;
+    return `${(meters / 1000).toFixed(1)} km`;
+  };
+
+  // Filters calculation sorted strictly nearest -> farthest
+  const filteredPandals = useMemo(() => {
+    let list = pandals.filter(p => {
+      const matchesZone = filterZone === 'ALL' || (p.zone && p.zone.toUpperCase() === filterZone) || (p.area && p.area.toUpperCase().includes(filterZone));
+      const matchesCrowd = filterCrowd === 'ALL' || p.crowdLevel === filterCrowd;
+      return matchesZone && matchesCrowd;
+    });
+
+    if (currentLocation) {
+      list = list.map(p => {
+        const d = Math.round(calculateHaversineDistanceMeters(currentLocation, p.location));
+        return {
+          ...p,
+          distance: d,
+          estimatedTravelTime:
+            p.estimatedTravelTime ||
+            (d < 1200
+              ? `${Math.max(1, Math.round(d / 75))} min walk`
+              : `${Math.max(3, Math.round((d / 1000) * 3.5 + 2))} min drive`),
+        };
+      });
+    }
+
+    list.sort((a, b) => (a.distance ?? 999999) - (b.distance ?? 999999));
+    return list;
+  }, [pandals, filterZone, filterCrowd, currentLocation]);
 
   const handleToggleFav = (pandal: any) => {
     if (isSaved(pandal.id)) {
@@ -145,6 +173,11 @@ export const ExplorePandals: React.FC = () => {
                   <div className="min-w-0 pr-2">
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">{pandal.zone} Kolkata</span>
+                      {pandal.distance !== undefined && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-indigo-500/15 text-indigo-400 border border-indigo-500/25">
+                          📍 {formatDistance(pandal.distance)} {pandal.estimatedTravelTime ? `• ${pandal.estimatedTravelTime}` : ''}
+                        </span>
+                      )}
                       <CrowdBadge level={crowdItem.crowdLevel} status={crowdItem.source} showStatus={true} />
                       {isVisited && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">

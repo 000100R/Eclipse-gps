@@ -2,6 +2,7 @@ import { Event, Pandal } from '../../types';
 import { demoPandals } from '../../data/demoPandals';
 import { demoEvents } from '../../data/demoEvents';
 import { crowdIntelligenceService } from '../intelligence/crowdIntelligenceService';
+import { pandalDiscoveryService } from '../discovery/pandalDiscoveryService';
 
 export class EventsService {
   private favoritesKey = 'eclipse_gps_favorites';
@@ -10,21 +11,23 @@ export class EventsService {
   getPandals(): Pandal[] {
     const favs = this.getFavorites();
     const visited = this.getVisited();
+    const candidates = pandalDiscoveryService.getLocalCandidates();
+    const sourceList = candidates && candidates.length > 0 ? candidates : (demoPandals as any[]);
 
-    return demoPandals.map(p => {
-      // Crowd level must NEVER hallucinate or use static demo values.
-      // Evaluated strictly via crowdIntelligenceService from live presence/geofence data.
-      const crowdItem = crowdIntelligenceService.getCrowdForPandal(p.id, p);
+    return sourceList.map((p) => {
+      // Crowd level evaluated strictly via crowdIntelligenceService from live presence/geofence data.
+      const crowdItem = crowdIntelligenceService.getCrowdForPandal(p.id, p as any);
       const isUnavailable = crowdItem.crowdLevel === 'UNAVAILABLE';
 
       return {
         ...p,
+        zone: p.zone || p.area || 'Kolkata',
         crowdLevel: crowdItem.crowdLevel,
         queueTimeMinutes: isUnavailable ? 0 : (crowdItem.queueWaitMinutes ?? 0),
         queueEstimate: isUnavailable ? 'Unavailable' : `${crowdItem.queueWaitMinutes ?? 5} mins`,
         favouriteStatus: favs.includes(p.id),
         visitedStatus: visited.includes(p.id),
-      };
+      } as Pandal;
     });
   }
 

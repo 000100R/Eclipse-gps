@@ -275,6 +275,24 @@ export function isDuplicatePandal(
     return { isDuplicate: true, matchReason: 'COORDINATE_PROXIMITY' };
   }
 
+  // Raw cleaned alphanumeric comparison (strips punctuation and spaces)
+  const rawCleanExisting = (existing.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const rawCleanCandidate = (candidate.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (rawCleanExisting.length >= 4 && rawCleanCandidate.length >= 4) {
+    if (rawCleanExisting === rawCleanCandidate && distance < 2000) {
+      return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };
+    }
+
+    // Strip generic festive keywords for core name comparison
+    const stripFestive = (s: string) =>
+      s.replace(/(durgapuja|durgopujo|durgotsav|durgotsab|pandal|puja|pujo|club|sangha|samiti|samity|association|committee|sarbojanin|sarbajanin)/g, '');
+    const core1 = stripFestive(rawCleanExisting);
+    const core2 = stripFestive(rawCleanCandidate);
+    if (core1.length >= 4 && core2.length >= 4 && core1 === core2 && distance < 1800) {
+      return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };
+    }
+  }
+
   // Name Normalization
   const normExisting = normalizePandalName(existing.name);
   const normCandidate = normalizePandalName(candidate.name);
@@ -287,8 +305,8 @@ export function isDuplicatePandal(
     }
   }
 
-  // 3. NAME & ADDRESS SIMILARITY (Within reasonable geographic neighborhood < 500 meters)
-  if (distance < 500) {
+  // 3. NAME & ADDRESS SIMILARITY (Within reasonable geographic neighborhood)
+  if (distance < 1500) {
     // Exact or substring compact name match (e.g. "naktalaudayan" === "naktalaudayan")
     if (normExisting.compact.length >= 4 && normCandidate.compact.length >= 4) {
       if (
@@ -299,16 +317,19 @@ export function isDuplicatePandal(
         return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };
       }
     }
+  }
 
-    // Token set intersection
+  if (distance < 1200) {
+    // Token set intersection: 2 or more distinct tokens match
     const sharedTokens = normExisting.tokens.filter((t) => normCandidate.tokens.includes(t));
-
-    // If 2 or more distinct tokens match (e.g. ['khelat', 'ghosh'], ['singhi', 'park'], ['chaltabagan', 'lohabatti'])
     if (sharedTokens.length >= 2) {
       return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };
     }
+  }
 
+  if (distance < 1000) {
     // If 1 key token matches AND address localities match
+    const sharedTokens = normExisting.tokens.filter((t) => normCandidate.tokens.includes(t));
     if (sharedTokens.length >= 1) {
       const addressMatch = checkAddressLocalityMatch(
         existing.address,
@@ -321,8 +342,8 @@ export function isDuplicatePandal(
       }
     }
 
-    // Levenshtein similarity on normalized string >= 0.78 within 350 meters
-    if (distance < 350 && normExisting.normalized.length >= 5 && normCandidate.normalized.length >= 5) {
+    // Levenshtein similarity on normalized string >= 0.78 within 600 meters
+    if (distance < 600 && normExisting.normalized.length >= 5 && normCandidate.normalized.length >= 5) {
       const similarity = stringSimilarityRatio(normExisting.normalized, normCandidate.normalized);
       if (similarity >= 0.78) {
         return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };

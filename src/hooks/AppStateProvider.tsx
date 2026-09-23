@@ -509,10 +509,12 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, []);
 
+  const DEFAULT_KOLKATA_CENTER: Location = { lat: 22.5726, lng: 88.3639 };
+
   // Pandal Discovery 2.0 State
   const [discoveryRadius, setDiscoveryRadius] = useState<number>(5);
   const [discoverySort, setDiscoverySort] = useState<'recommended' | 'nearest' | 'fastest' | 'least_crowded'>('nearest');
-  const [discoveryCenter, setDiscoveryCenter] = useState<Location | null>(null);
+  const [discoveryCenter, setDiscoveryCenter] = useState<Location | null>(DEFAULT_KOLKATA_CENTER);
   const [mapCenter, setMapCenter] = useState<Location | null>(null);
   const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
   const [userPandals, setUserPandals] = useState<Pandal[]>(() => {
@@ -527,7 +529,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Core Nearby Pandal Discovery Engine (delegates to centralized pandalDiscoveryService)
   const discoverNearbyPandals = async (center: Location | null, radiusKm: number, sortBy: string) => {
-    if (!center || !hasValidGps) return;
+    if (!center) return;
     if (isDiscoveringRef.current) return;
 
     const now = Date.now();
@@ -562,58 +564,47 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const userPandalsInRadius = userPandals.filter(up => {
         const dist = calculateDistanceInMeters(center, up.location);
         return dist <= effectiveRadiusMeters;
-      }).map(up => ({
-        ...up,
-        distance: calculateDistanceInMeters(center, up.location),
-        favouriteStatus: savedLocations.some(sl => sl.itemId === up.id),
-        visitedStatus: visitedIds.includes(up.id),
-      }));
+      }).map(up => {
+        const directDist = Math.round(calculateDistanceInMeters(center, up.location));
+        const travelTime =
+          directDist < 1200
+            ? `${Math.max(1, Math.round(directDist / 75))} min walk`
+            : `${Math.max(3, Math.round((directDist / 1000) * 3.5 + 2))} min drive`;
+        return {
+          ...up,
+          distance: directDist,
+          estimatedTravelTime: travelTime,
+          favouriteStatus: savedLocations.some(sl => sl.itemId === up.id),
+          visitedStatus: visitedIds.includes(up.id),
+        };
+      });
 
-      const hydratedPandals = result.pandals.map(p => ({
-        ...p,
-        distance: p.distance ?? calculateDistanceInMeters(center, p.location),
-        favouriteStatus: savedLocations.some(sl => sl.itemId === p.id),
-        visitedStatus: visitedIds.includes(p.id),
-      }));
+      const hydratedPandals = result.pandals.map(p => {
+        const directDist = typeof p.distance === 'number' ? Math.round(p.distance) : Math.round(calculateDistanceInMeters(center, p.location));
+        let travelTime = p.estimatedTravelTime;
+        if (!travelTime) {
+          if (directDist < 1200) {
+            const walkMins = Math.max(1, Math.round(directDist / 75));
+            travelTime = `${walkMins} min walk`;
+          } else {
+            const driveMins = Math.max(3, Math.round((directDist / 1000) * 3.5 + 2));
+            travelTime = `${driveMins} min drive`;
+          }
+        }
+        return {
+          ...p,
+          distance: directDist,
+          estimatedTravelTime: travelTime,
+          favouriteStatus: savedLocations.some(sl => sl.itemId === p.id),
+          visitedStatus: visitedIds.includes(p.id),
+        };
+      });
 
       const merged = [...hydratedPandals, ...(userPandalsInRadius as any[])];
       if (sortBy === 'nearest') {
-        // 2. First find the nearest candidates using geographic distance
         merged.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
-
-        // 3. Take closest 10 candidates
-        const closestCandidates = merged.slice(0, 10);
-        const remainingCandidates = merged.slice(10);
-
-        // 4. Instant walking distance & time calculation (0ms latency, eliminates 10 concurrent network calls)
-        const routedCandidates = closestCandidates.map((candidate) => {
-          const directDist = candidate.distance ?? calculateDistanceInMeters(center, candidate.location);
-          const walkingMeters = Math.round(directDist * 1.25);
-          const walkingMinutes = Math.max(1, Math.round(walkingMeters / 78));
-          return {
-            ...candidate,
-            distance: walkingMeters,
-            estimatedTravelTime: `${walkingMinutes} min walk`,
-          };
-        });
-
-        // 5. Sort candidates by calculated walking distance
-        routedCandidates.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
-        const finalPandals = [...routedCandidates, ...remainingCandidates];
-        setPandals(prev => {
-          if (prev.length === finalPandals.length && prev.every((p, i) => p.id === finalPandals[i].id && p.distance === finalPandals[i].distance)) {
-            return prev;
-          }
-          return finalPandals;
-        });
-      } else {
-        setPandals(prev => {
-          if (prev.length === merged.length && prev.every((p, i) => p.id === merged[i].id && p.distance === merged[i].distance)) {
-            return prev;
-          }
-          return merged;
-        });
       }
+      setPandals(merged);
     } catch (e) {
       console.error('Error during nearby pandal discovery:', e);
     } finally {
@@ -1354,9 +1345,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Trigger discovery on discoveryCenter, discoveryRadius, or discoverySort changes
   useEffect(() => {
-    if (!discoveryCenter || !hasValidGps) return;
+    if (!discoveryCenter) return;
     discoverNearbyPandals(discoveryCenter, discoveryRadius, discoverySort);
-  }, [discoveryCenter, discoveryRadius, discoverySort, hasValidGps]);
+  }, [discoveryCenter, discoveryRadius, discoverySort]);
 
   // Continuous Geolocation Tracking with throttling and stationary noise rejection
   const lastProcessedPosRef = useRef<{ lat: number; lng: number; time: number } | null>(null);

@@ -87,7 +87,7 @@ export const DiscoveryHUD: React.FC = () => {
       const crowdScore: Record<string, number> = { LOW: 1, MODERATE: 2, HIGH: 3, HEAVY: 3, EXTREME: 4 };
       list.sort((a, b) => (crowdScore[a.crowdLevel || 'MODERATE'] ?? 2) - (crowdScore[b.crowdLevel || 'MODERATE'] ?? 2));
     }
-    return list.slice(0, 20);
+    return list;
   }, [pandals, navSearchQuery, navSortMethod]);
 
   // Automatically open replacement prompt if user taps a pandal marker on the map during active navigation
@@ -163,10 +163,22 @@ export const DiscoveryHUD: React.FC = () => {
     });
   };
 
-  // Get Top 10 closest pandals
-  const topPandals = [...pandals]
-    .filter(p => p.zone !== 'EVENTS')
-    .slice(0, 10);
+  // Discovered pandals sorted by live GPS distance
+  const livePandals = useMemo(() => {
+    const list = [...pandals].filter(p => p.zone !== 'EVENTS');
+    if (discoverySort === 'nearest' && currentLocation) {
+      return list
+        .map(p => {
+          const liveDist = Math.round(getDistance(currentLocation, p.location));
+          return { ...p, distance: liveDist };
+        })
+        .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+    }
+    if (discoverySort === 'nearest') {
+      return list.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+    }
+    return list;
+  }, [pandals, currentLocation, discoverySort]);
 
   return (
     <div className="fixed inset-0 pointer-events-none z-30">
@@ -290,8 +302,8 @@ export const DiscoveryHUD: React.FC = () => {
                         onChange={(e) => setDiscoverySort(e.target.value as any)}
                         className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-2 py-1.5 text-neutral-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       >
+                        <option value="nearest">📍 Nearest First</option>
                         <option value="recommended">⭐ Recommended</option>
-                        <option value="nearest">📍 Nearest</option>
                         <option value="least_crowded">👥 Least Crowded</option>
                         <option value="fastest">🚗 Fastest Travel</option>
                       </select>
@@ -308,18 +320,25 @@ export const DiscoveryHUD: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Inline Slider / Top 10 Closest Discovered Pandals */}
-                  {topPandals.length > 0 && (
+                  {/* Inline List / All Discovered Pandals */}
+                  {livePandals.length > 0 && (
                     <div className="space-y-2 border-t border-neutral-900 pt-3">
                       <div className="flex items-center justify-between">
-                        <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Closest Discovered Pandals</p>
-                        <span className="text-[9px] text-neutral-500 font-mono">{topPandals.length} shown</span>
+                        <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Discovered Durga Puja Pandals</p>
+                        <span className="text-[9px] text-indigo-400 font-mono font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">{livePandals.length} discovered</span>
                       </div>
-                      <div className="space-y-1.5 max-h-36 sm:max-h-40 overflow-y-auto custom-scrollbar overscroll-contain">
-                        {topPandals.map((pandal) => {
-                          const distKm = pandal.distance ? (pandal.distance / 1000).toFixed(2) : '0';
-                          // Driving duration approximation
+                      <div className="space-y-1.5 max-h-48 sm:max-h-56 overflow-y-auto custom-scrollbar overscroll-contain">
+                        {livePandals.map((pandal) => {
+                          const distFormatted = pandal.distance !== undefined
+                            ? pandal.distance < 1000
+                              ? `${pandal.distance} m`
+                              : `${(pandal.distance / 1000).toFixed(1)} km`
+                            : 'Distance calculating...';
+
                           const durationMins = pandal.distance ? Math.ceil((pandal.distance / 8.33) / 60) : 0;
+                          const travelInfo = pandal.estimatedTravelTime
+                            ? `${distFormatted} • ${pandal.estimatedTravelTime}`
+                            : `${distFormatted} • ${durationMins} mins travel`;
                           
                           return (
                             <div
@@ -343,7 +362,7 @@ export const DiscoveryHUD: React.FC = () => {
                                   )}
                                 </div>
                                 <p className="text-[10px] text-neutral-400 mt-0.5">
-                                  {pandal.estimatedTravelTime ? `${distKm} km • ${pandal.estimatedTravelTime}` : `${distKm} km • ${durationMins} mins travel`}
+                                  {travelInfo}
                                 </p>
                               </div>
 
@@ -420,15 +439,15 @@ export const DiscoveryHUD: React.FC = () => {
                         Pandal Explorer 2.0
                       </span>
                       <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 shrink-0">
-                        {pandals.length}
+                        {livePandals.length}
                       </span>
                     </div>
                     <p className="text-[10px] text-neutral-400 truncate mt-0.5">
-                      {topPandals.length > 0 && topPandals[0].distance !== undefined
-                        ? `Nearest: ${topPandals[0].name} (${(topPandals[0].distance / 1000).toFixed(1)} km)`
+                      {livePandals.length > 0 && livePandals[0].distance !== undefined
+                        ? `Nearest: ${livePandals[0].name} (${livePandals[0].distance < 1000 ? `${livePandals[0].distance} m` : `${(livePandals[0].distance / 1000).toFixed(1)} km`})`
                         : isDiscovering
                         ? 'Scanning nearby pandals...'
-                        : `${pandals.length} pandals discovered`}
+                        : `${livePandals.length} pandals discovered`}
                     </p>
                   </div>
                 </div>
@@ -606,8 +625,8 @@ export const DiscoveryHUD: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-[10px] text-neutral-400 truncate mt-0.5">
-                      {topPandals.length > 0 && topPandals[0].distance !== undefined
-                        ? `Nearby: ${topPandals[0].name} (${(topPandals[0].distance / 1000).toFixed(1)} km)`
+                      {livePandals.length > 0 && livePandals[0].distance !== undefined
+                        ? `Nearby: ${livePandals[0].name} (${livePandals[0].distance < 1000 ? `${livePandals[0].distance} m` : `${(livePandals[0].distance / 1000).toFixed(1)} km`})`
                         : 'Tap to browse pandals & switch'}
                     </p>
                   </div>

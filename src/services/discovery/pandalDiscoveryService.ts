@@ -294,12 +294,30 @@ export class PandalDiscoveryService {
       accessibility: true,
     }));
 
-    this.cachedLocalCandidates = [
+    const rawCandidates: DiscoveredPandal[] = [
       ...curatedEclipsePandals.map((p) => ({ ...p, category: p.category || 'PANDAL' })),
       ...googleEarthCandidates.map((p) => ({ ...p, category: p.category || 'PANDAL' })),
       ...agamoniCandidates,
       ...bonediCandidates,
     ];
+
+    const deduplicatedCandidates: DiscoveredPandal[] = [];
+    for (const cand of rawCandidates) {
+      const valid = validateAndNormalizeCoordinates(cand.latitude, cand.longitude, cand.name);
+      if (!valid) continue;
+      cand.latitude = valid.lat;
+      cand.longitude = valid.lng;
+      cand.location = { lat: valid.lat, lng: valid.lng };
+
+      const existingIdx = deduplicatedCandidates.findIndex((p) => isDuplicatePandal(p, cand).isDuplicate);
+      if (existingIdx === -1) {
+        deduplicatedCandidates.push(cand);
+      } else {
+        deduplicatedCandidates[existingIdx] = mergeDuplicatePandals(deduplicatedCandidates[existingIdx], cand);
+      }
+    }
+
+    this.cachedLocalCandidates = deduplicatedCandidates;
     return this.cachedLocalCandidates;
   }
 
@@ -430,16 +448,14 @@ export class PandalDiscoveryService {
     // - If 20 or more are found, keep the current radius.
     // - Continue sorting by real GPS distance.
     // - Keep the existing 531-pandals database and deduplication.
-    const isSub5KmCustom = params.radius !== undefined && params.radius < 5000;
-    const radiusSteps: readonly number[] = isSub5KmCustom
-      ? [params.radius!]
-      : SMART_RADIUS_STEPS;
-
-    let finalRadius = radiusSteps[0];
+    // If radius is explicitly specified by user (e.g. 1km, 2km, 5km, 10km),
+    // search within that exact configured radius without premature truncation.
+    // If unspecified, use progressive smart radius expansion: 5 km -> 7 km -> 10 km.
+    const hasCustomRadius = typeof params.radius === 'number' && params.radius > 0;
+    let finalRadius = hasCustomRadius ? Math.min(params.radius!, MAX_RADIUS_METERS) : SMART_RADIUS_STEPS[0];
     let discoveredPandals: DiscoveredPandal[] = [];
 
-    for (const radius of radiusSteps) {
-      finalRadius = Math.min(radius, MAX_RADIUS_METERS);
+    if (hasCustomRadius) {
       discoveredPandals = this.mergeAndDeduplicate(
         [],
         effectiveCenter,
@@ -462,12 +478,73 @@ export class PandalDiscoveryService {
           }
         }
       }
+    } else {
+      for (const radius of SMART_RADIUS_STEPS) {
+        finalRadius = Math.min(radius, MAX_RADIUS_METERS);
+        discoveredPandals = this.mergeAndDeduplicate(
+          [],
+          effectiveCenter,
+          finalRadius,
+          rawQuery
+        );
 
-      // If 20 or more unique pandals are found, keep the current radius
-      if (discoveredPandals.length >= MIN_UNIQUE_PANDALS) {
-        break;
+        // Perform external multi-pass Google Places discovery when external search is not skipped
+        if (!params.skipExternalSearch) {
+          const passResults = await this.runMultiPassDiscovery(effectiveCenter, finalRadius, rawQuery);
+          if (passResults && passResults.length > 0) {
+            discoveredPandals = this.mergeAndDeduplicate(
+              passResults,
+              effectiveCenter,
+              finalRadius,
+              rawQuery
+            );
+            if (!sourcesUsed.includes('GOOGLE_PLACES')) {
+              sourcesUsed.push('GOOGLE_PLACES');
+            }
+          }
+        }
+
+        // If 20 or more unique pandals are found, keep the current radius
+        if (discoveredPandals.length >= MIN_UNIQUE_PANDALS) {
+          break;
+        }
       }
-      // If fewer than 20, the loop will expand to 7 km, then 10 km (never exceeding 10 km)
+    }
+
+    // Adaptive Coverage Fallback: If 0 pandals are found within radius
+    // (e.g. testing with remote GPS or outside Kolkata metropolitan boundary),
+    // calculate true distances for all local candidates relative to user GPS and return them sorted nearest-first!
+    if (discoveredPandals.length === 0) {
+      const allLocal = this.getLocalCandidates();
+      const allWithDist = allLocal
+        .map((candidate) => {
+          const validCoords =
+            validateAndNormalizeCoordinates(candidate.latitude, candidate.longitude, candidate.name) ||
+            candidate.location;
+          const dist = this.calculateDistanceInMeters(effectiveCenter, validCoords);
+          return this.enrichPandalWithMetrics(
+            {
+              ...candidate,
+              latitude: validCoords.lat,
+              longitude: validCoords.lng,
+              location: validCoords,
+              distance: Math.round(dist),
+            },
+            effectiveCenter
+          );
+        })
+        .filter((p) => !isNaN(p.distance ?? NaN));
+
+      const fallbackDeduped: DiscoveredPandal[] = [];
+      allWithDist.forEach((c) => {
+        const existingIdx = fallbackDeduped.findIndex((p) => isDuplicatePandal(p, c).isDuplicate);
+        if (existingIdx === -1) {
+          fallbackDeduped.push(c);
+        } else {
+          fallbackDeduped[existingIdx] = mergeDuplicatePandals(fallbackDeduped[existingIdx], c);
+        }
+      });
+      discoveredPandals = fallbackDeduped;
     }
 
     // 4. Sort results according to sortBy preference (default: nearest)
