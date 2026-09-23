@@ -15,7 +15,7 @@ export const MapView: React.FC = () => {
     return val.replace(/^["']|["']$/g, '').trim();
   };
   const apiKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
-  const mapId = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_MAP_ID);
+  const mapId = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_MAP_ID) || 'DEMO_MAP_ID';
 
   const isValidKey = apiKey.startsWith('AIzaSy') && apiKey.length > 20;
   const isGoogleActive = mapProvider === 'google' && isValidKey;

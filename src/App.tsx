@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppStateProvider, useAppState } from './hooks/AppStateProvider';
 import { MapView } from './features/map/MapView';
 import { LocationButton } from './features/map/LocationButton';
@@ -22,6 +22,14 @@ import { GlassPanel } from './components/ui/GlassPanel';
 import { AlertTriangle, ShieldCheck, HelpCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
+
+  useEffect(() => {
+    const handleQuota = () => setQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', handleQuota);
+    return () => window.removeEventListener('gmp-quota-exceeded', handleQuota);
+  }, []);
+
   const {
     hasValidGps,
     currentLocation,
@@ -44,6 +52,23 @@ const AppContent: React.FC = () => {
 
   return (
     <div id="eclipse-gps-workspace" className="relative w-screen h-screen bg-neutral-950 text-neutral-200 overflow-hidden select-none font-sans">
+      {/* Google Maps Platform Quota Exceeded Notification Banner */}
+      {quotaExceeded && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm pointer-events-auto">
+          <span>
+            Google Maps Platform quota reached. If you are the app owner, visit{' '}
+            <a
+              href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-semibold text-amber-950 hover:text-amber-800"
+            >
+              maps developer site
+            </a>{' '}
+            for instructions to update your account.
+          </span>
+        </div>
+      )}
       
       {/* 1. Core Map View Deck (Absolute Background Layer) */}
       <MapView />

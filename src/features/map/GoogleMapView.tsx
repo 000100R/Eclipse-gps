@@ -139,7 +139,7 @@ export const GoogleMapView: React.FC = () => {
   };
 
   const apiKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
-  const mapId = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_MAP_ID);
+  const mapId = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_MAP_ID) || 'DEMO_MAP_ID';
 
   // Load Google Maps Script
   useEffect(() => {
@@ -215,6 +215,7 @@ export const GoogleMapView: React.FC = () => {
         ...mapOptions,
         // Force vector rendering features for buildings to support genuine 3D perspectives
         renderingType: 'VECTOR' as any,
+        internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'] as any,
       });
 
       mapInstanceRef.current = map;
