@@ -18,6 +18,8 @@ import {
   VolumeX,
   ChevronDown,
   ChevronUp,
+  XCircle,
+  X,
 } from 'lucide-react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { GlassPanel } from '../../components/ui/GlassPanel';
@@ -363,7 +365,20 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
 
   // Collapsible HUD State & Touch Gestures
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
   const touchStartYRef = useRef<number | null>(null);
+
+  const requestEndNavigation = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    setShowEndConfirm(true);
+  };
+
+  const confirmEndNavigation = () => {
+    setShowEndConfirm(false);
+    handleStop();
+  };
 
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartYRef.current = e.touches[0].clientY;
@@ -432,112 +447,180 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
   // 1. Collapsed HUD View (Minimalist & Non-Intrusive, Map fully usable)
   if (isCollapsed) {
     return (
-      <GlassPanel
-        id="nav-hud-collapsed"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (!target.closest('button')) {
-            setIsCollapsed(false);
-          }
-        }}
-        className={`px-3.5 py-2 border-l-4 shadow-xl animate-fade-in transition-all duration-200 cursor-pointer ${
-          hasArrived
-            ? 'border-l-emerald-500 bg-neutral-950/95'
-            : 'border-l-indigo-500 bg-neutral-950/90'
-        }`}
-        role="region"
-        aria-label="Navigation HUD Collapsed"
-      >
-        {/* Subtle top indicator for gesture expansion */}
-        <div className="w-8 h-1 bg-neutral-700/70 rounded-full mx-auto mb-1.5" />
+      <>
+        <GlassPanel
+          id="nav-hud-collapsed"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onClick={(e) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest('button')) {
+              setIsCollapsed(false);
+            }
+          }}
+          className={`px-3.5 py-2 border-l-4 shadow-xl animate-fade-in transition-all duration-200 cursor-pointer ${
+            hasArrived
+              ? 'border-l-emerald-500 bg-neutral-950/95'
+              : 'border-l-indigo-500 bg-neutral-950/90'
+          }`}
+          role="region"
+          aria-label="Navigation HUD Collapsed"
+        >
+          {/* Subtle top indicator for gesture expansion */}
+          <div className="w-8 h-1 bg-neutral-700/70 rounded-full mx-auto mb-1.5" />
 
-        <div className="flex items-center justify-between space-x-3">
-          {/* Left: Maneuver Icon */}
-          <div className="flex items-center space-x-2.5 min-w-0 flex-1">
-            <div
-              className={`p-1.5 rounded-lg shrink-0 ${
-                hasArrived
-                  ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/60'
-                  : 'bg-indigo-950/80 text-indigo-400 border border-indigo-800/60'
-              }`}
-            >
-              {hasArrived ? (
-                <CheckCircle2 size={16} className="stroke-[2.5]" />
-              ) : (
-                <CurrentIcon size={16} className="stroke-[2.5]" />
-              )}
-            </div>
-
-            {/* Middle: Maneuver Details, Distance to Maneuver, and ETA */}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center space-x-2">
-                <span className="text-xs font-black text-neutral-100 tracking-tight shrink-0">
-                  {hasArrived
-                    ? 'Arrived'
-                    : currentInstruction.distance > 0
-                    ? `In ${formatDistance(currentInstruction.distance)}`
-                    : 'Now'}
-                </span>
-                <span className="text-[11px] font-medium text-neutral-300 truncate">
-                  {hasArrived ? destinationName : currentInstruction.text}
-                </span>
+          <div className="flex items-center justify-between space-x-2">
+            {/* Left: Maneuver Icon */}
+            <div className="flex items-center space-x-2 min-w-0 flex-1">
+              <div
+                className={`p-1.5 rounded-lg shrink-0 ${
+                  hasArrived
+                    ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/60'
+                    : 'bg-indigo-950/80 text-indigo-400 border border-indigo-800/60'
+                }`}
+              >
+                {hasArrived ? (
+                  <CheckCircle2 size={16} className="stroke-[2.5]" />
+                ) : (
+                  <CurrentIcon size={16} className="stroke-[2.5]" />
+                )}
               </div>
 
-              {/* ETA & Distance */}
-              <div className="flex items-center space-x-2 text-[10px] text-neutral-400 mt-0.5">
-                <div className="flex items-center space-x-1 text-indigo-300 font-semibold">
-                  <Clock size={11} className="text-indigo-400 shrink-0" />
-                  <span id="nav-hud-collapsed-eta">
-                    {etaClockText || `ETA ${formatDuration(remainingDurationSeconds)}`}
+              {/* Middle: Maneuver Details, Distance to Maneuver, and ETA */}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center space-x-1.5">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span className="text-xs font-black text-neutral-100 tracking-tight shrink-0">
+                    {hasArrived
+                      ? 'Arrived'
+                      : currentInstruction.distance > 0
+                      ? `In ${formatDistance(currentInstruction.distance)}`
+                      : 'Now'}
+                  </span>
+                  <span className="text-[11px] font-medium text-neutral-300 truncate">
+                    {hasArrived ? destinationName : currentInstruction.text}
                   </span>
                 </div>
-                <span className="w-1 h-1 bg-neutral-700 rounded-full" />
-                <span className="text-neutral-400">
-                  {formatDistance(remainingDistanceMeters)} left
-                </span>
+
+                {/* ETA & Distance */}
+                <div className="flex items-center space-x-2 text-[10px] text-neutral-400 mt-0.5">
+                  <div className="flex items-center space-x-1 text-indigo-300 font-semibold">
+                    <Clock size={11} className="text-indigo-400 shrink-0" />
+                    <span id="nav-hud-collapsed-eta">
+                      {etaClockText || `ETA ${formatDuration(remainingDurationSeconds)}`}
+                    </span>
+                  </div>
+                  <span className="w-1 h-1 bg-neutral-700 rounded-full" />
+                  <span className="text-neutral-400">
+                    {formatDistance(remainingDistanceMeters)} left
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: End Navigation Button, Quick Mute Toggle & Expand Button */}
+            <div className="flex items-center space-x-1.5 shrink-0">
+              <button
+                type="button"
+                id="btn-nav-end-collapsed"
+                onClick={(e) => requestEndNavigation(e)}
+                className="flex items-center space-x-1 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-extrabold text-xs uppercase tracking-wider transition-all shadow-lg shadow-rose-600/40 cursor-pointer touch-manipulation min-h-[40px]"
+                title="End Navigation"
+                aria-label="End Navigation"
+              >
+                <XCircle size={14} className="shrink-0" />
+                <span>End</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-nav-mute-toggle-collapsed"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsMuted((prev) => !prev);
+                }}
+                className={`p-1.5 rounded-lg border text-xs transition-colors cursor-pointer ${
+                  isMuted
+                    ? 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-neutral-200'
+                    : 'bg-indigo-950/60 text-indigo-300 border-indigo-800/60 hover:bg-indigo-900/60'
+                }`}
+                title={isMuted ? 'Unmute voice' : 'Mute voice'}
+                aria-label={isMuted ? 'Unmute voice' : 'Mute voice'}
+              >
+                {isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+              </button>
+
+              <button
+                type="button"
+                id="btn-nav-hud-expand"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsCollapsed(false);
+                }}
+                className="flex items-center space-x-1 px-2 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] tracking-wide transition-all shadow-md cursor-pointer"
+                title="Expand Navigation HUD"
+                aria-label="Expand Navigation HUD"
+              >
+                <ChevronUp size={14} />
+                <span className="hidden xs:inline">Expand</span>
+              </button>
+            </div>
+          </div>
+        </GlassPanel>
+
+        {/* Safety Confirmation Dialog when collapsed */}
+        {showEndConfirm && (
+          <div
+            id="end-navigation-confirm-overlay"
+            className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 pointer-events-auto"
+            onClick={() => setShowEndConfirm(false)}
+          >
+            <div
+              className="w-full max-w-xs bg-neutral-950 border border-neutral-800 rounded-2xl p-4 shadow-2xl space-y-3.5 animate-in fade-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="end-nav-title-collapsed"
+            >
+              <div className="flex items-center space-x-2.5 text-rose-400">
+                <div className="p-2 rounded-xl bg-rose-950/80 border border-rose-800/80 shrink-0">
+                  <XCircle size={20} className="text-rose-400" />
+                </div>
+                <div className="min-w-0">
+                  <h3 id="end-nav-title-collapsed" className="text-sm font-bold text-white">End Navigation?</h3>
+                  <p className="text-[11px] text-neutral-400 truncate">Stop routing to {destinationName}?</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-neutral-300 leading-relaxed">
+                Active turn-by-turn guidance will stop and you will return to the normal map and Pandal Explorer.
+              </p>
+
+              <div className="flex items-center space-x-2 pt-1">
+                <button
+                  id="btn-cancel-end-nav-collapsed"
+                  type="button"
+                  onClick={() => setShowEndConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 font-bold text-xs border border-neutral-800 transition-colors cursor-pointer touch-manipulation"
+                >
+                  Cancel
+                </button>
+                <button
+                  id="btn-confirm-end-nav-collapsed"
+                  type="button"
+                  onClick={confirmEndNavigation}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold text-xs shadow-lg shadow-rose-600/30 transition-all cursor-pointer touch-manipulation"
+                >
+                  End
+                </button>
               </div>
             </div>
           </div>
-
-          {/* Right: Quick Mute Toggle & Clear Expand Button */}
-          <div className="flex items-center space-x-1.5 shrink-0">
-            <button
-              type="button"
-              id="btn-nav-mute-toggle-collapsed"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsMuted((prev) => !prev);
-              }}
-              className={`p-1.5 rounded-lg border text-xs transition-colors cursor-pointer ${
-                isMuted
-                  ? 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-neutral-200'
-                  : 'bg-indigo-950/60 text-indigo-300 border-indigo-800/60 hover:bg-indigo-900/60'
-              }`}
-              title={isMuted ? 'Unmute voice' : 'Mute voice'}
-              aria-label={isMuted ? 'Unmute voice' : 'Mute voice'}
-            >
-              {isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-            </button>
-
-            <button
-              type="button"
-              id="btn-nav-hud-expand"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsCollapsed(false);
-              }}
-              className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] tracking-wide transition-all shadow-md cursor-pointer"
-              title="Expand Navigation HUD"
-              aria-label="Expand Navigation HUD"
-            >
-              <ChevronUp size={14} />
-              <span>Expand</span>
-            </button>
-          </div>
-        </div>
-      </GlassPanel>
+        )}
+      </>
     );
   }
 
@@ -557,16 +640,41 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
         title="Swipe down or tap to collapse HUD"
       />
 
-      {/* Top Header: Destination, Travel Mode, Voice Mute & Collapse Button */}
-      <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-neutral-800/60">
-        <div className="flex items-center space-x-1.5 min-w-0 flex-1 mr-2">
-          <MapPin size={13} className={hasArrived ? 'text-emerald-400 shrink-0' : 'text-indigo-400 shrink-0'} />
-          <span className="text-xs font-bold text-neutral-200 truncate">
-            {destinationName}
+      {/* Top Header: Navigation Active State, Destination, End Nav Button, Travel Mode, Voice Mute & Collapse Button */}
+      <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-neutral-800/60 flex-wrap gap-2">
+        <div className="flex items-center space-x-2 min-w-0 flex-1 mr-1">
+          {/* Active Navigation Live Pulse Indicator */}
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
           </span>
+          <div className="min-w-0">
+            <div className="flex items-center space-x-1.5">
+              <span className="text-[9px] font-extrabold text-emerald-400 uppercase tracking-widest bg-emerald-950/80 border border-emerald-800/60 px-1.5 py-0.2 rounded">
+                LIVE NAVIGATION
+              </span>
+            </div>
+            <div className="flex items-center space-x-1 text-xs font-bold text-neutral-100 truncate mt-0.5">
+              <MapPin size={12} className={hasArrived ? 'text-emerald-400 shrink-0' : 'text-indigo-400 shrink-0'} />
+              <span className="truncate">{destinationName}</span>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center space-x-1.5 shrink-0">
+          {/* Prominent End Navigation Header Button */}
+          <button
+            type="button"
+            id="btn-nav-end-header"
+            onClick={(e) => requestEndNavigation(e)}
+            className="flex items-center space-x-1 px-3.5 sm:px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-extrabold text-xs uppercase tracking-wider shadow-lg shadow-rose-600/40 transition-all cursor-pointer touch-manipulation shrink-0 min-h-[42px]"
+            title="End Navigation and Return to Map"
+            aria-label="End Navigation"
+          >
+            <XCircle size={15} className="shrink-0" />
+            <span>End Nav</span>
+          </button>
+
           {/* Travel Mode Switch: Walking / Driving */}
           <div
             id="nav-travel-mode-switch"
@@ -841,14 +949,66 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
               Reroute
             </button>
             <button
-              id="btn-nav-stop"
-              onClick={handleStop}
-              className="text-[10px] sm:text-[11px] bg-rose-950 hover:bg-rose-900 font-bold tracking-wider text-rose-200 px-2.5 sm:px-3 py-1.5 rounded-lg uppercase transition-colors cursor-pointer touch-manipulation shrink-0"
+              id="btn-nav-end-bottom"
+              onClick={(e) => requestEndNavigation(e)}
+              className="text-xs bg-rose-600 hover:bg-rose-500 active:bg-rose-700 font-extrabold tracking-wider text-white px-3.5 sm:px-4 py-2 rounded-xl uppercase shadow-lg shadow-rose-600/30 transition-all cursor-pointer touch-manipulation shrink-0 flex items-center space-x-1 min-h-[40px]"
+              title="End Navigation and return to map"
             >
-              Stop
+              <XCircle size={14} className="shrink-0" />
+              <span>End Navigation</span>
             </button>
           </div>
         </>
+      )}
+
+      {/* End Navigation Safety Confirmation Dialog (Expanded HUD) */}
+      {showEndConfirm && (
+        <div
+          id="end-navigation-confirm-overlay"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 pointer-events-auto"
+          onClick={() => setShowEndConfirm(false)}
+        >
+          <div
+            className="w-full max-w-xs bg-neutral-950 border border-neutral-800 rounded-2xl p-4 shadow-2xl space-y-3.5 animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="end-nav-title-expanded"
+          >
+            <div className="flex items-center space-x-2.5 text-rose-400">
+              <div className="p-2 rounded-xl bg-rose-950/80 border border-rose-800/80 shrink-0">
+                <XCircle size={22} className="text-rose-400" />
+              </div>
+              <div className="min-w-0">
+                <h3 id="end-nav-title-expanded" className="text-sm font-bold text-white">End Navigation?</h3>
+                <p className="text-[11px] text-neutral-400 truncate">Stop routing to {destinationName}?</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-300 leading-relaxed">
+              Active turn-by-turn guidance will stop and you will return to the normal map and Pandal Explorer.
+            </p>
+
+            <div className="flex items-center space-x-2 pt-1">
+              <button
+                id="btn-cancel-end-nav"
+                type="button"
+                onClick={() => setShowEndConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 font-bold text-xs border border-neutral-800 transition-colors cursor-pointer touch-manipulation"
+              >
+                Cancel
+              </button>
+              <button
+                id="btn-confirm-end-nav"
+                type="button"
+                onClick={confirmEndNavigation}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold text-xs shadow-lg shadow-rose-600/30 transition-all cursor-pointer touch-manipulation"
+              >
+                End
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </GlassPanel>
   );

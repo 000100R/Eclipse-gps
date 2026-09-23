@@ -1322,20 +1322,42 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (typeof window === 'undefined' || !navigator.geolocation) return;
 
     if (hasValidGps && watchLocation) {
+      // 1. Clear any prior watcher to strictly prevent duplicate watchers
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+
       watchIdRef.current = navigator.geolocation.watchPosition(
         (position) => {
           const newLat = position.coords.latitude;
           const newLng = position.coords.longitude;
+          const accuracy = position.coords.accuracy;
+          const speedVal = position.coords.speed || 0;
+          const headingVal = position.coords.heading || 0;
           const now = Date.now();
 
-          // Throttle location updates: ignore microscopic jitter (< 2m and < 800ms) to prevent UI stutter
+          // Reject unreasonable accuracy spikes (e.g. coarse tower triangulations > 1500m when we already have a fix)
+          if (accuracy > 1500 && lastValidLocationRef.current) {
+            return;
+          }
+
+          // Throttle location updates and filter micro-jitter to prevent UI stutter & unnecessary re-renders
           if (lastProcessedPosRef.current) {
             const timeDiff = now - lastProcessedPosRef.current.time;
             const distMoved = calculateDistanceInMeters(
               { lat: newLat, lng: newLng },
               { lat: lastProcessedPosRef.current.lat, lng: lastProcessedPosRef.current.lng }
             );
-            if (distMoved < 2 && timeDiff < 800) {
+
+            // Stationary noise rejection: if user moved less than 1.5 meters and it's been under 3 seconds,
+            // ignore sensor noise to prevent map stutter and re-render loops
+            if (distMoved < 1.5 && timeDiff < 3000) {
+              return;
+            }
+
+            // Minimum update interval of 400ms to preserve battery and 60fps fluidity
+            if (timeDiff < 400) {
               return;
             }
           }
@@ -1346,35 +1368,37 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
           setCurrentLocation(loc);
           travelDistanceService.recordPosition(position);
-          setGpsAccuracy(position.coords.accuracy);
-          setSpeed(position.coords.speed || 0);
-          setHeading(position.coords.heading || 0);
+          setGpsAccuracy(accuracy);
+          setSpeed(speedVal);
+          setHeading(headingVal);
           setGpsErrorMsg(null);
           setGpsStatus('tracking');
         },
         (error) => {
           console.warn('Geolocation Watch Position error:', error);
           if (error.code === 1) {
-            // Revoked during session
+            // Permission explicitly revoked during session
             setPermissionState('denied');
             setHasValidGps(false);
             setCurrentLocation(null);
             setGpsStatus('denied');
             setGpsErrorMsg('Eclipse GPS cannot be used without location access. Please enable location access to continue.');
           } else {
-            // Transient timeout or temporary satellite obstruction while tracking:
-            // Keep last valid location coordinates active rather than abruptly locking user out
+            // Transient timeout (code 3) or temporary satellite obstruction (code 2):
+            // Keep last valid location coordinates active rather than freezing or abruptly locking user out
             console.warn('Transient watchPosition signal obstruction:', error.message);
-            if (lastValidLocationRef.current && !currentLocation) {
+            if (lastValidLocationRef.current) {
               setCurrentLocation(lastValidLocationRef.current);
             }
+            // Keep tracking status active so UI does not unmount or freeze
+            setGpsStatus('tracking');
           }
           setGpsAccuracy(null);
         },
         {
           enableHighAccuracy: true,
-          timeout: 20000,
-          maximumAge: 10000,
+          timeout: 15000,
+          maximumAge: 5000,
         }
       );
     } else {
@@ -1574,7 +1598,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const recenterMap = () => {
     if (mapRef && currentLocation) {
-      mapRef.setView([currentLocation.lat, currentLocation.lng], 15);
+      mapRef.setView([currentLocation.lat, currentLocation.lng], 16);
+    } else if (!hasValidGps || !currentLocation) {
+      requestLocation();
     }
   };
 
@@ -1821,6 +1847,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setCurrentStepIndex(0);
         setIsNavigating(true);
         setActiveTab('home');
+        setSelectedItem(null);
       }
     } catch (e: any) {
       if (currentRequestId === routeRequestIdRef.current) {
@@ -1843,6 +1870,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setCurrentStepIndex(0);
         setIsNavigating(true);
         setActiveTab('home');
+        setSelectedItem(null);
       }
     } finally {
       if (currentRequestId === routeRequestIdRef.current) {
@@ -1890,6 +1918,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setActiveRoute(calculatedRoute);
         setIsNavigating(true);
         setActiveTab('home');
+        setSelectedItem(null);
       }
     } catch (err) {
       console.error('Failed to calculate route for first puja stop, using direct fallback:', err);

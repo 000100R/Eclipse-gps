@@ -11,6 +11,8 @@ import { ExplorePandals } from './features/pandals/ExplorePandals';
 import { DiscoveryHUD } from './features/pandals/DiscoveryHUD';
 import { ExploreEvents } from './features/events/ExploreEvents';
 import { RoutePlanner } from './features/navigation/RoutePlanner';
+import { LiveNavigationHUD } from './features/navigation/LiveNavigationHUD';
+import { RouteAlternativesBar } from './features/navigation/RouteAlternativesBar';
 import { SavedItems } from './features/saved/SavedItems';
 import { VisitedPandalsView } from './features/visited/VisitedPandalsView';
 import { MyPujaJourney } from './features/journey/MyPujaJourney';
@@ -31,10 +33,12 @@ const AppContent: React.FC = () => {
     rerouteSuggestion,
     setRerouteSuggestion,
     acceptSmartReroute,
+    isNavigating,
+    activeRoute,
   } = useAppState();
 
   // If valid GPS position is not acquired or permission is not granted, enforce full-screen Location Required state
-  if (!hasValidGps || !currentLocation || gpsStatus !== 'tracking') {
+  if (!hasValidGps || !currentLocation || gpsStatus === 'prompt' || gpsStatus === 'requesting' || gpsStatus === 'denied') {
     return <LocationRequiredScreen />;
   }
 
@@ -47,8 +51,33 @@ const AppContent: React.FC = () => {
       {/* 2. Floating GPS Coordinates & Watch Controllers */}
       <LocationButton />
 
-      {/* 3. Top Mounted Search Decks and Alert Notifications */}
-      <TopBar />
+      {/* 3. Top Mounted Search Decks and Alert Notifications (Active when NOT navigating) */}
+      {!isNavigating && <TopBar />}
+
+      {/* 4. ACTIVE NAVIGATION SYSTEM: Fixed at top level, high z-index, safe-area inset aware */}
+      {isNavigating && activeRoute && (
+        <div
+          id="active-navigation-deck"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.65rem)' }}
+          className="fixed left-3 right-3 sm:left-4 sm:right-4 z-40 max-w-lg mx-auto pointer-events-auto space-y-2"
+        >
+          <LiveNavigationHUD />
+          {activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
+            <RouteAlternativesBar />
+          )}
+        </div>
+      )}
+
+      {/* Route Preview Alternatives (when route is calculated but before active navigation is started) */}
+      {!isNavigating && activeRoute && activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
+        <div
+          id="preview-route-alternatives"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 4.5rem)' }}
+          className="fixed left-3 right-3 sm:left-4 sm:right-4 z-40 max-w-lg mx-auto pointer-events-auto"
+        >
+          <RouteAlternativesBar />
+        </div>
+      )}
 
       {/* Route Calculation Progress Indicator */}
       {isCalculatingRoute && (

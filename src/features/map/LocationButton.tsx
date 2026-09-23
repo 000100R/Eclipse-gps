@@ -1,65 +1,139 @@
 import React from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
-import { Locate, Compass } from 'lucide-react';
+import { Locate, Compass, Plus, Minus, Navigation } from 'lucide-react';
 
 export const LocationButton: React.FC = () => {
   const {
     gpsStatus,
     gpsAccuracy,
+    currentLocation,
     recenterMap,
     watchLocation,
     setWatchLocation,
     activeTab,
     isNavigating,
     selectedItem,
+    mapRef,
+    mapProvider,
   } = useAppState();
 
-  // Hide when in secondary tabs or inspecting a card so controls do not overlap
-  if (activeTab !== 'home' || selectedItem) {
+  // Hide in secondary full-page tabs (routes, explore, events, saved, visited, journey, group)
+  if (activeTab !== 'home') {
     return null;
   }
 
-  // Positioning:
-  // When navigating: bottom-20 right-3 sm:right-4 z-20
-  // When on home map: bottom-36 right-3 sm:right-4 md:bottom-24 md:right-4 z-20 (above Pandal Explorer 2.0 bar)
-  const bottomPosClass = isNavigating ? 'bottom-20' : 'bottom-36 md:bottom-24';
+  // Dynamic positioning that prevents any overlap on Android APK and mobile browsers:
+  // - When navigating: sits safely above the turn instructions and alternatives HUD
+  // - When inspecting a card: sits above the pandal detail drawer
+  // - Default: sits comfortably above the bottom navigation and explorer deck
+  const bottomPosClass = isNavigating
+    ? 'bottom-48 sm:bottom-44'
+    : selectedItem
+    ? 'bottom-[20rem] sm:bottom-[18rem]'
+    : 'bottom-36 sm:bottom-32 md:bottom-28';
+
+  const handleZoomIn = () => {
+    if (mapRef?.zoomIn) {
+      mapRef.zoomIn();
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (mapRef?.zoomOut) {
+      mapRef.zoomOut();
+    }
+  };
+
+  const handleResetNorth = () => {
+    if (mapRef?.resetHeading) {
+      mapRef.resetHeading();
+    }
+  };
 
   return (
     <div
       id="gps-floating-dock"
-      className={`fixed ${bottomPosClass} right-3 sm:right-4 z-20 flex flex-col space-y-2 pointer-events-auto transition-all duration-300`}
+      className={`fixed ${bottomPosClass} right-3 sm:right-4 z-20 flex flex-col items-center space-y-1.5 pointer-events-auto transition-all duration-300 select-none`}
     >
-      {/* Accuracy Bubble (if active and reasonable) */}
+      {/* Accuracy Bubble (when GPS tracking is active and accuracy estimate is valid) */}
       {gpsAccuracy && gpsStatus === 'tracking' && (
-        <div className="bg-neutral-900/90 text-[10px] font-bold text-neutral-400 px-2.5 py-1 rounded-full border border-neutral-800 shadow-lg text-center backdrop-blur-xs whitespace-nowrap self-end">
-          Acc: {gpsAccuracy.toFixed(0)}m
+        <div
+          id="gps-accuracy-chip"
+          className="bg-neutral-950/90 text-[10px] font-mono font-bold text-neutral-400 px-2 py-0.5 rounded-full border border-neutral-800/90 shadow-xl text-center backdrop-blur-md whitespace-nowrap mb-0.5"
+          title={`GPS Horizontal Accuracy: ~${Math.round(gpsAccuracy)}m`}
+        >
+          Acc: {Math.round(gpsAccuracy)}m
         </div>
       )}
 
-      {/* Toggle Watch GPS Active state */}
+      {/* Zoom Controls Container */}
+      <div className="flex flex-col bg-neutral-900/90 backdrop-blur-md border border-neutral-800/90 rounded-2xl shadow-2xl overflow-hidden divide-y divide-neutral-800/80">
+        {/* Zoom In */}
+        <button
+          type="button"
+          id="btn-zoom-in"
+          onClick={handleZoomIn}
+          className="w-11 h-11 flex items-center justify-center text-neutral-300 hover:text-white hover:bg-neutral-800/60 active:bg-neutral-800 transition-colors touch-manipulation cursor-pointer"
+          title="Zoom In (+)"
+          aria-label="Zoom In"
+        >
+          <Plus size={18} />
+        </button>
+
+        {/* Zoom Out */}
+        <button
+          type="button"
+          id="btn-zoom-out"
+          onClick={handleZoomOut}
+          className="w-11 h-11 flex items-center justify-center text-neutral-300 hover:text-white hover:bg-neutral-800/60 active:bg-neutral-800 transition-colors touch-manipulation cursor-pointer"
+          title="Zoom Out (-)"
+          aria-label="Zoom Out"
+        >
+          <Minus size={18} />
+        </button>
+      </div>
+
+      {/* Current-Location / Recenter Button */}
       <button
+        type="button"
+        id="btn-recenter-gps"
+        onClick={recenterMap}
+        className="w-11 h-11 flex items-center justify-center bg-neutral-900/90 backdrop-blur-md border border-neutral-800/90 rounded-2xl text-neutral-300 hover:text-white active:scale-95 shadow-2xl transition-all touch-manipulation cursor-pointer group"
+        title="Center Map on Real GPS Location"
+        aria-label="Center Map on Real GPS Location"
+      >
+        <Locate
+          size={18}
+          className="text-neutral-400 group-hover:text-indigo-400 transition-colors"
+        />
+      </button>
+
+      {/* Reset North / Rotation Heading (Available on Google Maps Vector view or orientation mode) */}
+      <button
+        type="button"
+        id="btn-reset-north"
+        onClick={handleResetNorth}
+        className="w-11 h-11 flex items-center justify-center bg-neutral-900/90 backdrop-blur-md border border-neutral-800/90 rounded-2xl text-neutral-300 hover:text-white active:scale-95 shadow-2xl transition-all touch-manipulation cursor-pointer group font-mono text-xs font-black"
+        title="Reset Camera to Face True North"
+        aria-label="Reset Camera to Face True North"
+      >
+        <span className="text-red-400 group-hover:text-red-300 font-bold">N</span>
+      </button>
+
+      {/* Toggle Continuous GPS Tracking */}
+      <button
+        type="button"
         id="btn-toggle-gps-watch"
         onClick={() => setWatchLocation(!watchLocation)}
-        className={`w-11 h-11 flex items-center justify-center rounded-xl border shadow-xl transition-all duration-300 touch-manipulation cursor-pointer ${
+        className={`w-11 h-11 flex items-center justify-center rounded-2xl border shadow-2xl transition-all touch-manipulation cursor-pointer active:scale-95 ${
           watchLocation
-            ? 'bg-indigo-600 border-indigo-500 text-white hover:bg-indigo-500'
-            : 'bg-neutral-900/80 border-neutral-800 text-neutral-400 hover:text-neutral-100 backdrop-blur-md'
+            ? 'bg-indigo-600 border-indigo-500 text-white shadow-indigo-600/30'
+            : 'bg-neutral-900/90 border-neutral-800/90 text-neutral-400 hover:text-neutral-200 backdrop-blur-md'
         }`}
-        title="Toggle Continuous GPS Tracking"
+        title={watchLocation ? 'Continuous GPS Tracking: Active' : 'Continuous GPS Tracking: Paused'}
         aria-label="Toggle Continuous GPS Tracking"
       >
         <Compass size={18} className={watchLocation ? 'animate-spin' : ''} />
-      </button>
-
-      {/* Recenter Map Target */}
-      <button
-        id="btn-recenter-gps"
-        onClick={recenterMap}
-        className="w-11 h-11 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-400 hover:text-neutral-100 shadow-xl transition-all duration-300 touch-manipulation cursor-pointer"
-        title="Recenter Map to Me"
-        aria-label="Recenter Map to Me"
-      >
-        <Locate size={18} />
       </button>
     </div>
   );

@@ -187,6 +187,15 @@ export const LeafletMapView: React.FC = () => {
       fitBounds: (bounds: [[number, number], [number, number]], options?: any) => {
         map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, ...options });
       },
+      zoomIn: () => {
+        map.zoomIn();
+      },
+      zoomOut: () => {
+        map.zoomOut();
+      },
+      resetHeading: () => {
+        // Leaflet 2D is North-aligned
+      },
     });
 
     // Feature group to hold active catalog markers
@@ -279,20 +288,23 @@ export const LeafletMapView: React.FC = () => {
         attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
         minZoom: 3,
         maxNativeZoom: 19,
-        maxZoom: 21
+        maxZoom: 21,
+        zIndex: 1,
       });
       const transportationLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri',
         minZoom: 3,
         maxNativeZoom: 19,
-        maxZoom: 21
+        maxZoom: 21,
+        zIndex: 2,
       });
       const labelLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
         minZoom: 3,
         maxNativeZoom: 19,
         maxZoom: 21,
-        subdomains: 'abcd'
+        subdomains: 'abcd',
+        zIndex: 3,
       });
       layersToAdd.push(baseLayer, transportationLayer, labelLayer);
     } else {
@@ -320,17 +332,26 @@ export const LeafletMapView: React.FC = () => {
     }
   }, [mapStyle, isMapReady]);
 
-  // Update User GPS Marker and Accuracy Circle
+  // Update User GPS Marker and Accuracy Circle (in-place updates to avoid flicker and re-renders)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !currentLocation) return;
 
-    // 1. Accuracy Circle
+    const latLng: [number, number] = [currentLocation.lat, currentLocation.lng];
+
+    // 1. Accuracy Circle (update in-place)
     if (gpsAccuracyCircleRef.current) {
-      map.removeLayer(gpsAccuracyCircleRef.current);
-    }
-    if (gpsAccuracy && gpsAccuracy < 1500) {
-      const circle = L.circle([currentLocation.lat, currentLocation.lng], {
+      gpsAccuracyCircleRef.current.setLatLng(latLng);
+      if (gpsAccuracy && gpsAccuracy < 1500) {
+        gpsAccuracyCircleRef.current.setRadius(gpsAccuracy);
+        if (!map.hasLayer(gpsAccuracyCircleRef.current)) {
+          gpsAccuracyCircleRef.current.addTo(map);
+        }
+      } else if (map.hasLayer(gpsAccuracyCircleRef.current)) {
+        map.removeLayer(gpsAccuracyCircleRef.current);
+      }
+    } else if (gpsAccuracy && gpsAccuracy < 1500) {
+      const circle = L.circle(latLng, {
         radius: gpsAccuracy,
         color: '#3b82f6',
         fillColor: '#3b82f6',
@@ -340,31 +361,33 @@ export const LeafletMapView: React.FC = () => {
       gpsAccuracyCircleRef.current = circle;
     }
 
-    // 2. Pulse GPS marker
+    // 2. Pulse GPS marker (update in-place using hardware-accelerated transforms)
     if (gpsMarkerRef.current) {
-      map.removeLayer(gpsMarkerRef.current);
+      gpsMarkerRef.current.setLatLng(latLng);
+      if (!map.hasLayer(gpsMarkerRef.current)) {
+        gpsMarkerRef.current.addTo(map);
+      }
+    } else {
+      const gpsHtml = `
+        <div class="relative flex items-center justify-center w-6 h-6">
+          <div class="absolute w-5 h-5 bg-blue-500/30 rounded-full animate-ping"></div>
+          <div class="absolute w-3.5 h-3.5 bg-blue-500 border-2 border-white rounded-full shadow-lg shadow-blue-500/50"></div>
+        </div>
+      `;
+
+      const gpsIcon = L.divIcon({
+        html: gpsHtml,
+        className: '',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+
+      const marker = L.marker(latLng, {
+        icon: gpsIcon,
+        zIndexOffset: 1000,
+      }).addTo(map);
+      gpsMarkerRef.current = marker;
     }
-
-    const gpsHtml = `
-      <div class="relative flex items-center justify-center w-6 h-6">
-        <div class="absolute w-5 h-5 bg-blue-500/30 rounded-full animate-ping"></div>
-        <div class="absolute w-3.5 h-3.5 bg-blue-500 border-2 border-white rounded-full shadow-lg shadow-blue-500/50"></div>
-      </div>
-    `;
-
-    const gpsIcon = L.divIcon({
-      html: gpsHtml,
-      className: '',
-      iconSize: [24, 24],
-      iconAnchor: [12, 12],
-    });
-
-    const marker = L.marker([currentLocation.lat, currentLocation.lng], {
-      icon: gpsIcon,
-      zIndexOffset: 1000,
-    }).addTo(map);
-    gpsMarkerRef.current = marker;
-
   }, [currentLocation, gpsAccuracy]);
 
   // Update Markers for Catalog items
@@ -1094,78 +1117,9 @@ export const LeafletMapView: React.FC = () => {
     <div className="absolute inset-0 w-full h-full z-0">
       <div ref={containerRef} className="w-full h-full" />
 
-      {/* Floating Camera Controls HUD */}
-      <div
-        id="leaflet-camera-controls"
-        className={`absolute right-3 sm:right-4 z-10 flex flex-col space-y-2 transition-all duration-300 ${
-          isNavigating ? 'bottom-48' : 'top-20 sm:top-24'
-        }`}
-      >
-        {/* Zoom In */}
-        <button
-          id="btn-zoom-in"
-          onClick={() => mapInstanceRef.current?.zoomIn()}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors touch-manipulation cursor-pointer"
-          title="Zoom In"
-          aria-label="Zoom In"
-        >
-          +
-        </button>
-        {/* Zoom Out */}
-        <button
-          id="btn-zoom-out"
-          onClick={() => mapInstanceRef.current?.zoomOut()}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors touch-manipulation cursor-pointer"
-          title="Zoom Out"
-          aria-label="Zoom Out"
-        >
-          -
-        </button>
-
-        {/* Locate Me */}
-        <button
-          id="btn-locate-me-map"
-          onClick={() => {
-            if (mapInstanceRef.current && currentLocation) {
-              mapInstanceRef.current.setView([currentLocation.lat, currentLocation.lng], 16);
-            }
-          }}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl transition-colors touch-manipulation cursor-pointer"
-          title="Center on Current GPS Location"
-          aria-label="Center on Current GPS Location"
-        >
-          <Locate size={15} />
-        </button>
-      </div>
-
-      {/* GPS Status Indicator Overlay */}
-      {gpsStatus === 'denied' && (
-        <div className="absolute top-20 sm:top-24 left-3 right-3 sm:left-4 sm:right-4 z-20 bg-rose-950/80 backdrop-blur-xs border border-rose-800/60 p-3 rounded-xl flex items-center justify-between text-rose-200">
-          <p className="text-xs font-semibold">Location Denied. Operating in Kolkata Sandbox mode.</p>
-          <button onClick={() => containerRef.current?.click()} className="text-[10px] bg-rose-900/60 hover:bg-rose-900 px-2 py-1 rounded-md uppercase font-bold tracking-wider">Dismiss</button>
-        </div>
-      )}
-
-      {/* Navigation Active Dashboard HUD */}
-      {isNavigating && activeRoute && (
-        <div className="absolute top-20 sm:top-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto space-y-2">
-          <LiveNavigationHUD />
-          {activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
-            <RouteAlternativesBar />
-          )}
-        </div>
-      )}
-
-      {/* Route Preview Alternatives (when route is calculated but before active navigation is started) */}
-      {!isNavigating && activeRoute && activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
-        <div className="absolute top-20 sm:top-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto">
-          <RouteAlternativesBar />
-        </div>
-      )}
-
-      {/* Pandal Coverage Badge (Requirement 8) */}
+      {/* Pandal Coverage Badge (Requirement 8 - positioned safely below top buttons) */}
       {!isNavigating && isPandalVisible && intelligencePandals.length > 0 && searchResults.length === 0 && (
-        <div className="absolute top-20 sm:top-24 left-3 sm:left-4 z-10">
+        <div className="absolute top-36 left-3 sm:left-4 z-10">
           <PandalCoverageBadge
             pandals={intelligencePandals}
             isLoading={isPandalLoading}
@@ -1173,9 +1127,9 @@ export const LeafletMapView: React.FC = () => {
         </div>
       )}
 
-      {/* Pandal Empty State Banner (Requirement 10) */}
+      {/* Pandal Empty State Banner (Requirement 10 - positioned safely below top buttons) */}
       {!isNavigating && isPandalVisible && clusteredItems.length === 0 && !isPandalLoading && searchResults.length === 0 && (
-        <div className="absolute top-20 sm:top-24 left-3 sm:left-4 z-10">
+        <div className="absolute top-36 left-3 sm:left-4 z-10">
           <PandalEmptyStateBanner
             onRecenterKolkata={() => {
               mapInstanceRef.current?.setView([22.5697, 88.3639], 14);

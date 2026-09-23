@@ -274,7 +274,24 @@ export const GoogleMapView: React.FC = () => {
             );
             mapInstanceRef.current.fitBounds(gBounds);
           }
-        }
+        },
+        zoomIn: () => {
+          if (mapInstanceRef.current) {
+            const cur = mapInstanceRef.current.getZoom() || 14;
+            mapInstanceRef.current.setZoom(Math.min(21, cur + 1));
+          }
+        },
+        zoomOut: () => {
+          if (mapInstanceRef.current) {
+            const cur = mapInstanceRef.current.getZoom() || 14;
+            mapInstanceRef.current.setZoom(Math.max(3, cur - 1));
+          }
+        },
+        resetHeading: () => {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.setHeading(0);
+          }
+        },
       });
 
       // Bind Traffic Layer by default
@@ -305,7 +322,10 @@ export const GoogleMapView: React.FC = () => {
     }
 
     return () => {
-      // Clear references
+      // Clear event listeners and references to prevent memory leaks
+      if (mapInstanceRef.current && window.google?.maps?.event) {
+        google.maps.event.clearInstanceListeners(mapInstanceRef.current);
+      }
       setMapRef(null);
       mapInstanceRef.current = null;
     };
@@ -450,18 +470,23 @@ export const GoogleMapView: React.FC = () => {
     });
   }, [isLayerVisible('CROWD'), layerVisibility.CROWD, pandals, pandalCrowdCounts, pandalCrowdTrends, googleLoaded]);
 
-  // Sync GPS Marker & Accuracy Circle
+  // Sync GPS Marker & Accuracy Circle (in-place updates to avoid flicker and re-renders)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !currentLocation || !googleLoaded) return;
 
     const latLng = { lat: currentLocation.lat, lng: currentLocation.lng };
 
-    // 1. Accuracy Circle
+    // 1. Accuracy Circle (update in-place to avoid recreation & flickering)
     if (gpsAccuracyCircleRef.current) {
-      gpsAccuracyCircleRef.current.setMap(null);
-    }
-    if (gpsAccuracy && gpsAccuracy < 1500) {
+      gpsAccuracyCircleRef.current.setCenter(latLng);
+      if (gpsAccuracy && gpsAccuracy < 1500) {
+        gpsAccuracyCircleRef.current.setRadius(gpsAccuracy);
+        gpsAccuracyCircleRef.current.setVisible(true);
+      } else {
+        gpsAccuracyCircleRef.current.setVisible(false);
+      }
+    } else if (gpsAccuracy && gpsAccuracy < 1500) {
       gpsAccuracyCircleRef.current = new google.maps.Circle({
         strokeColor: '#3b82f6',
         strokeOpacity: 0.8,
@@ -474,24 +499,22 @@ export const GoogleMapView: React.FC = () => {
       });
     }
 
-    // 2. Pulse GPS marker
+    // 2. Pulse GPS marker (update in-place to prevent animation stutter and memory leaks)
     if (gpsMarkerRef.current) {
-      gpsMarkerRef.current.setMap(null);
+      gpsMarkerRef.current.setPosition(latLng);
+    } else {
+      const pinAnchor = new google.maps.Point(12, 12);
+      gpsMarkerRef.current = new google.maps.Marker({
+        position: latLng,
+        map,
+        zIndex: 1000,
+        icon: {
+          url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="%233b82f6" fill-opacity="0.3"/><circle cx="12" cy="12" r="4" fill="%233b82f6" stroke="white" stroke-width="2"/></svg>',
+          size: new google.maps.Size(24, 24),
+          anchor: pinAnchor,
+        }
+      });
     }
-
-    // Embed glowing custom pulse HTML
-    const pinAnchor = new google.maps.Point(12, 12);
-    gpsMarkerRef.current = new google.maps.Marker({
-      position: latLng,
-      map,
-      zIndex: 1000,
-      icon: {
-        url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="%233b82f6" fill-opacity="0.3"/><circle cx="12" cy="12" r="4" fill="%233b82f6" stroke="white" stroke-width="2"/></svg>',
-        size: new google.maps.Size(24, 24),
-        anchor: pinAnchor,
-      }
-    });
-
   }, [currentLocation, gpsAccuracy, googleLoaded]);
 
   // Sync Catalog Markers
@@ -928,6 +951,8 @@ export const GoogleMapView: React.FC = () => {
   }, [selectedItem, showStreetView]);
 
   // Turn-by-Turn GPS HUD Tracking with immersive tilt perspective rotation
+  const lastNavFollowPosRef = useRef<{ lat: number; lng: number } | null>(null);
+
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -937,16 +962,30 @@ export const GoogleMapView: React.FC = () => {
       setActiveInstruction(activeRoute.instructions[idx]);
 
       if (lockToHeading && currentLocation) {
-        // Move camera close to current location
-        map.panTo({ lat: currentLocation.lat, lng: currentLocation.lng });
+        // Smooth camera follow: only pan if user has moved >= 3 meters to eliminate camera jitter
+        let shouldPan = false;
+        if (!lastNavFollowPosRef.current) {
+          shouldPan = true;
+        } else {
+          const dist = Math.hypot(
+            (currentLocation.lat - lastNavFollowPosRef.current.lat) * 111000,
+            (currentLocation.lng - lastNavFollowPosRef.current.lng) * 111000
+          );
+          if (dist >= 3) {
+            shouldPan = true;
+          }
+        }
+
+        if (shouldPan) {
+          lastNavFollowPosRef.current = { lat: currentLocation.lat, lng: currentLocation.lng };
+          map.panTo({ lat: currentLocation.lat, lng: currentLocation.lng });
+        }
 
         if (mapStyle === '3d') {
-          map.setZoom(18);
+          if (map.getZoom() !== 18) map.setZoom(18);
           map.setTilt(55);
         } else {
-          map.setZoom(16);
-          map.setTilt(0);
-          map.setHeading(0);
+          map.setHeading(0); // Restore default north if not in 3D
         }
 
         // Rotate camera heading dynamically in 3D Mode for ultimate navigation realism!
@@ -964,12 +1003,11 @@ export const GoogleMapView: React.FC = () => {
             
             map.setHeading(headingAngle);
           }
-        } else {
-          map.setHeading(0); // Restore default north if not in 3D
         }
       }
     } else {
       setActiveInstruction(null);
+      lastNavFollowPosRef.current = null;
       if (mapStyle !== '3d') {
         map.setHeading(0); // Restore default north
       }
@@ -1065,96 +1103,39 @@ export const GoogleMapView: React.FC = () => {
         />
       )}
 
-      {/* 3. Layer / Map Settings Controller HUD */}
+      {/* 3. Layer / Map Settings Controller HUD (Cleanly stacked at top-36 to eliminate any overlap with Map Style HUD) */}
       {!isNavigating && (
-        <div className="absolute top-20 sm:top-24 left-3 sm:left-4 z-10 flex flex-col space-y-2 max-w-[150px] sm:max-w-[170px]">
-          <GlassPanel className="p-2 flex flex-col space-y-2 border border-neutral-800/80 shadow-2xl">
+        <div className="absolute top-36 left-3 sm:left-4 z-10 flex items-center space-x-2">
+          <GlassPanel className="p-1.5 flex items-center space-x-1.5 border border-neutral-800/80 shadow-2xl rounded-xl">
             {/* Traffic Switcher */}
-            <div className="flex flex-col space-y-1 pt-1">
-              <button
-                onClick={() => setShowTraffic(!showTraffic)}
-                className={`w-full text-center py-1 text-[8px] font-bold rounded-lg uppercase tracking-wider ${
-                  showTraffic ? 'bg-indigo-900/40 border border-indigo-700/60 text-indigo-300' : 'bg-neutral-950 text-neutral-500'
-                }`}
-              >
-                Traffic Overlay: {showTraffic ? 'ON' : 'OFF'}
-              </button>
-            </div>
+            <button
+              id="btn-toggle-traffic"
+              onClick={() => setShowTraffic(!showTraffic)}
+              className={`px-2.5 py-1 text-[9px] font-bold rounded-lg uppercase tracking-wider transition-colors ${
+                showTraffic ? 'bg-indigo-900/60 border border-indigo-700/60 text-indigo-200' : 'bg-neutral-950/80 text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              Traffic: {showTraffic ? 'ON' : 'OFF'}
+            </button>
 
             {/* Street View Toggle Button */}
-            <div className="flex flex-col space-y-1 border-t border-neutral-800/40 pt-2">
-              <button
-                id="btn-toggle-streetview"
-                onClick={() => setShowStreetView(!showStreetView)}
-                className={`w-full flex items-center justify-center space-x-1 py-1 text-[8px] font-bold rounded-lg uppercase tracking-wider ${
-                  showStreetView ? 'bg-rose-900/40 border border-rose-700/60 text-rose-300' : 'bg-neutral-950 text-neutral-400'
-                }`}
-              >
-                <Camera size={9} />
-                <span>Street View: {showStreetView ? 'OPEN' : 'CLOSE'}</span>
-              </button>
-            </div>
+            <button
+              id="btn-toggle-streetview"
+              onClick={() => setShowStreetView(!showStreetView)}
+              className={`flex items-center space-x-1 px-2.5 py-1 text-[9px] font-bold rounded-lg uppercase tracking-wider transition-colors ${
+                showStreetView ? 'bg-rose-900/60 border border-rose-700/60 text-rose-200' : 'bg-neutral-950/80 text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              <Camera size={10} />
+              <span>Street View</span>
+            </button>
           </GlassPanel>
         </div>
       )}
 
-      {/* 4. Google Maps Default Camera Controls */}
-      <div
-        id="google-camera-controls"
-        className={`absolute z-10 flex flex-col space-y-2 transition-all duration-300 right-3 sm:right-4 ${
-          isNavigating ? 'bottom-48' : 'top-20 sm:top-24'
-        }`}
-      >
-        <button
-          onClick={() => {
-            const cur = mapInstanceRef.current?.getZoom() || 14;
-            mapInstanceRef.current?.setZoom(Math.min(21, cur + 1));
-          }}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors touch-manipulation cursor-pointer"
-          title="Zoom In"
-        >
-          +
-        </button>
-        <button
-          onClick={() => {
-            const cur = mapInstanceRef.current?.getZoom() || 14;
-            mapInstanceRef.current?.setZoom(Math.max(3, cur - 1));
-          }}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl text-base font-bold transition-colors touch-manipulation cursor-pointer"
-          title="Zoom Out"
-        >
-          -
-        </button>
-
-        {/* Locate Me */}
-        <button
-          onClick={() => {
-            if (mapInstanceRef.current && currentLocation) {
-              mapInstanceRef.current.panTo({ lat: currentLocation.lat, lng: currentLocation.lng });
-              mapInstanceRef.current.setZoom(16);
-            }
-          }}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl transition-colors touch-manipulation cursor-pointer"
-          title="Center on Current GPS Location"
-        >
-          <Locate size={15} />
-        </button>
-
-        {/* Reset North / Compass */}
-        <button
-          onClick={() => {
-            if (mapInstanceRef.current) {
-              mapInstanceRef.current.setHeading(0);
-            }
-          }}
-          className="w-10 h-10 flex items-center justify-center bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-xl text-neutral-300 hover:text-neutral-100 shadow-xl transition-colors text-xs font-bold font-mono tracking-wider touch-manipulation cursor-pointer"
-          title="Reset Camera to Face True North"
-        >
-          N
-        </button>
-
-        {/* Heading Lock Toggle (Visible when navigating) */}
-        {isNavigating && (
+      {/* 4. Heading Lock Toggle (Visible when navigating) */}
+      {isNavigating && (
+        <div className="fixed top-24 right-3 sm:right-4 z-20">
           <button
             onClick={() => setLockToHeading(!lockToHeading)}
             className={`w-10 h-10 flex flex-col items-center justify-center backdrop-blur-md border rounded-xl shadow-xl transition-all duration-300 touch-manipulation cursor-pointer ${
@@ -1169,23 +1150,6 @@ export const GoogleMapView: React.FC = () => {
               {lockToHeading ? 'LOCK' : 'FREE'}
             </span>
           </button>
-        )}
-      </div>
-
-      {/* 5. Navigation Active Dashboard HUD */}
-      {isNavigating && activeRoute && (
-        <div className="absolute top-20 sm:top-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto space-y-2">
-          <LiveNavigationHUD />
-          {activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
-            <RouteAlternativesBar />
-          )}
-        </div>
-      )}
-
-      {/* Route Preview Alternatives (when route is calculated but before active navigation is started) */}
-      {!isNavigating && activeRoute && activeRoute.alternatives && activeRoute.alternatives.length > 0 && (
-        <div className="absolute top-20 sm:top-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto">
-          <RouteAlternativesBar />
         </div>
       )}
 
