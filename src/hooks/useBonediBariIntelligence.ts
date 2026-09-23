@@ -29,13 +29,15 @@ export function useBonediBariIntelligence(userLocation?: Location) {
 
   const debounceTimerRef = useRef<any>(null);
   const isMountedRef = useRef<boolean>(true);
+  const userLocationRef = useRef<Location | undefined>(userLocation);
 
-  // Update user location in provider
+  // Update user location in provider only if shifted significantly
   useEffect(() => {
+    userLocationRef.current = userLocation;
     if (userLocation) {
       bonediBariIntelligenceProvider.setUserLocation(userLocation);
     }
-  }, [userLocation]);
+  }, [userLocation?.lat, userLocation?.lng]);
 
   const fetchBonediBariForViewport = useCallback(async () => {
     if (!isBonediBariVisible) {
@@ -54,11 +56,16 @@ export function useBonediBariIntelligence(userLocation?: Location) {
           west: viewport.west,
         },
         viewport.zoom,
-        userLocation
+        userLocationRef.current
       );
 
       if (isMountedRef.current) {
-        setBonediBaris(results);
+        setBonediBaris(prev => {
+          if (prev.length === results.length && prev.every((b, i) => b.id === results[i].id)) {
+            return prev;
+          }
+          return results;
+        });
         setEmptyMessage(bonediBariIntelligenceProvider.getEmptyMessage());
         setLastError(undefined);
         setIsLoading(false);
@@ -77,7 +84,6 @@ export function useBonediBariIntelligence(userLocation?: Location) {
     viewport.east,
     viewport.west,
     viewport.zoom,
-    userLocation,
   ]);
 
   // Debounced viewport and visibility effect

@@ -82,7 +82,6 @@ export const LeafletMapView: React.FC = () => {
     setActiveMetroGateIntelligence,
   } = useAppState();
 
-  const [activeInstruction, setActiveInstruction] = useState<any>(null);
   const [currentZoom, setCurrentZoom] = useState<number>(14);
   const { isLayerVisible, layerVisibility } = useIntelligenceGrid();
   const {
@@ -332,6 +331,33 @@ export const LeafletMapView: React.FC = () => {
     }
   }, [mapStyle, isMapReady]);
 
+  // Marker reconciliation map
+  const leafletMarkerMapRef = useRef<Map<string, L.Marker>>(new Map());
+
+  // Listen directly to fast GPS ticks for 60fps smooth marker gliding without React re-render cascades
+  useEffect(() => {
+    const handleGpsTick = (e: Event) => {
+      const customEvent = e as CustomEvent<{ lat: number; lng: number; accuracy?: number }>;
+      const detail = customEvent.detail;
+      if (!detail || !detail.lat || !detail.lng) return;
+      const latLng: [number, number] = [detail.lat, detail.lng];
+
+      if (gpsAccuracyCircleRef.current) {
+        gpsAccuracyCircleRef.current.setLatLng(latLng);
+        if (detail.accuracy && detail.accuracy < 1500) {
+          gpsAccuracyCircleRef.current.setRadius(detail.accuracy);
+        }
+      }
+
+      if (gpsMarkerRef.current) {
+        gpsMarkerRef.current.setLatLng(latLng);
+      }
+    };
+
+    window.addEventListener('eclipse-gps-tick', handleGpsTick);
+    return () => window.removeEventListener('eclipse-gps-tick', handleGpsTick);
+  }, []);
+
   // Update User GPS Marker and Accuracy Circle (in-place updates to avoid flicker and re-renders)
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -390,16 +416,23 @@ export const LeafletMapView: React.FC = () => {
     }
   }, [currentLocation, gpsAccuracy]);
 
-  // Update Markers for Catalog items
+  // Update Markers for Catalog items with Reconciliation
   useEffect(() => {
     const map = mapInstanceRef.current;
     const markersGroup = markersGroupRef.current;
     if (!map || !markersGroup) return;
 
-    markersGroup.clearLayers();
+    const desiredKeys = new Set<string>();
 
     // Custom marker icon drawer helper
     const addMarkerToGroup = (item: any, type: 'pandal' | 'event' | 'bonedi_bari' | 'metro' | 'search') => {
+      const key = `${type}-${item.id || item.name}`;
+      desiredKeys.add(key);
+
+      if (leafletMarkerMapRef.current.has(key)) {
+        return;
+      }
+
       let pinColor = 'bg-emerald-500 shadow-emerald-500/50';
       if (type === 'metro') {
         const lineStr = ((item.line || '') + ' ' + (item.lines || []).join(' ')).toLowerCase();
@@ -451,6 +484,7 @@ export const LeafletMapView: React.FC = () => {
         setSelectedItem(item);
       });
       markersGroup.addLayer(marker);
+      leafletMarkerMapRef.current.set(key, marker);
     };
 
     // Plot search results or default catalogs respecting Intelligence Grid layer visibility
@@ -490,28 +524,34 @@ export const LeafletMapView: React.FC = () => {
       clustered.forEach(entry => {
         if (entry.isCluster) {
           const cluster = entry.cluster;
-          const clusterHtml = `
-            <div class="relative flex items-center justify-center cursor-pointer group pointer-events-auto">
-              <div class="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-extrabold flex items-center justify-center border-2 border-slate-950 shadow-xl shadow-amber-500/40 text-xs transition-transform group-hover:scale-110">
-                ${cluster.count}
+          const key = `cluster-${cluster.location.lat.toFixed(4)}-${cluster.location.lng.toFixed(4)}-${cluster.count}`;
+          desiredKeys.add(key);
+
+          if (!leafletMarkerMapRef.current.has(key)) {
+            const clusterHtml = `
+              <div class="relative flex items-center justify-center cursor-pointer group pointer-events-auto">
+                <div class="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-extrabold flex items-center justify-center border-2 border-slate-950 shadow-xl shadow-amber-500/40 text-xs transition-transform group-hover:scale-110">
+                  ${cluster.count}
+                </div>
+                <div class="absolute -top-6 bg-slate-900/90 text-[10px] font-semibold text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                  ${cluster.count} Pandals
+                </div>
               </div>
-              <div class="absolute -top-6 bg-slate-900/90 text-[10px] font-semibold text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
-                ${cluster.count} Pandals
-              </div>
-            </div>
-          `;
-          const clusterIcon = L.divIcon({
-            html: clusterHtml,
-            className: '',
-            iconSize: [32, 32],
-            iconAnchor: [16, 16],
-          });
-          const clusterMarker = L.marker([cluster.location.lat, cluster.location.lng], { icon: clusterIcon });
-          clusterMarker.on('click', () => {
-            const z = map.getZoom();
-            map.setView([cluster.location.lat, cluster.location.lng], Math.min(17, z + 2));
-          });
-          markersGroup.addLayer(clusterMarker);
+            `;
+            const clusterIcon = L.divIcon({
+              html: clusterHtml,
+              className: '',
+              iconSize: [32, 32],
+              iconAnchor: [16, 16],
+            });
+            const clusterMarker = L.marker([cluster.location.lat, cluster.location.lng], { icon: clusterIcon });
+            clusterMarker.on('click', () => {
+              const z = map.getZoom();
+              map.setView([cluster.location.lat, cluster.location.lng], Math.min(17, z + 2));
+            });
+            markersGroup.addLayer(clusterMarker);
+            leafletMarkerMapRef.current.set(key, clusterMarker);
+          }
         } else {
           addMarkerToGroup(entry.item, 'pandal');
         }
@@ -527,6 +567,14 @@ export const LeafletMapView: React.FC = () => {
       }
       if (isLayerVisible('EVENTS')) {
         events.forEach(e => addMarkerToGroup(e, 'event'));
+      }
+    }
+
+    // Reconcile: remove markers that are no longer in desired set
+    for (const [key, marker] of leafletMarkerMapRef.current.entries()) {
+      if (!desiredKeys.has(key)) {
+        markersGroup.removeLayer(marker);
+        leafletMarkerMapRef.current.delete(key);
       }
     }
 
@@ -1055,9 +1103,6 @@ export const LeafletMapView: React.FC = () => {
   // Navigate instructions tracker
   useEffect(() => {
     if (isNavigating && activeRoute && activeRoute.instructions.length > 0) {
-      const idx = Math.min(currentStepIndex, activeRoute.instructions.length - 1);
-      setActiveInstruction(activeRoute.instructions[idx]);
-
       const map = mapInstanceRef.current;
       if (map && currentLocation) {
         // Smoothly follow user movement during navigation without jerky setView on micro-jitter
@@ -1069,7 +1114,7 @@ export const LeafletMapView: React.FC = () => {
             (currentLocation.lat - lastNavFollowPosRef.current.lat) * 111000,
             (currentLocation.lng - lastNavFollowPosRef.current.lng) * 111000
           );
-          if (dist >= 3) {
+          if (dist >= 6) {
             shouldPan = true;
           }
         }
@@ -1080,7 +1125,6 @@ export const LeafletMapView: React.FC = () => {
         }
       }
     } else {
-      setActiveInstruction(null);
       lastNavFollowPosRef.current = null;
     }
   }, [isNavigating, activeRoute, currentStepIndex, currentLocation]);

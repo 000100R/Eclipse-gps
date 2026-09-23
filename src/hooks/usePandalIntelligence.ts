@@ -30,13 +30,15 @@ export function usePandalIntelligence(userLocation?: Location) {
 
   const debounceTimerRef = useRef<any>(null);
   const isMountedRef = useRef<boolean>(true);
+  const userLocationRef = useRef<Location | undefined>(userLocation);
 
-  // Update user location in provider
+  // Update user location ref and provider only if location actually shifted significantly
   useEffect(() => {
+    userLocationRef.current = userLocation;
     if (userLocation) {
       pandalIntelligenceProvider.setUserLocation(userLocation);
     }
-  }, [userLocation]);
+  }, [userLocation?.lat, userLocation?.lng]);
 
   const fetchPandalsForViewport = useCallback(async () => {
     if (!isPandalVisible) {
@@ -55,11 +57,16 @@ export function usePandalIntelligence(userLocation?: Location) {
           west: viewport.west,
         },
         viewport.zoom,
-        userLocation
+        userLocationRef.current
       );
 
       if (isMountedRef.current) {
-        setPandals(results);
+        setPandals(prev => {
+          if (prev.length === results.length && prev.every((p, i) => p.id === results[i].id)) {
+            return prev;
+          }
+          return results;
+        });
         setEmptyMessage(pandalIntelligenceProvider.getEmptyMessage());
         setLastError(undefined);
         setIsLoading(false);
@@ -71,7 +78,7 @@ export function usePandalIntelligence(userLocation?: Location) {
         setIsLoading(false);
       }
     }
-  }, [isPandalVisible, viewport.north, viewport.south, viewport.east, viewport.west, viewport.zoom, userLocation]);
+  }, [isPandalVisible, viewport.north, viewport.south, viewport.east, viewport.west, viewport.zoom]);
 
   // Viewport and visibility change effect with debounce
   useEffect(() => {

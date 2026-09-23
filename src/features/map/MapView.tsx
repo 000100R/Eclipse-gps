@@ -14,7 +14,15 @@ export const MapView: React.FC = () => {
     if (!val) return '';
     return val.replace(/^["']|["']$/g, '').trim();
   };
-  const apiKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+
+  const isCapacitorAndroid = typeof window !== 'undefined' &&
+    ((window as any).Capacitor?.getPlatform?.() === 'android' ||
+     (navigator.userAgent.includes('Android') && (window as any).Capacitor));
+  const androidKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY_ANDROID);
+  const standardKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+  const apiKey = (isCapacitorAndroid && androidKey.startsWith('AIzaSy') && androidKey.length > 20)
+    ? androidKey
+    : standardKey;
   const mapId = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_MAP_ID) || 'DEMO_MAP_ID';
 
   const isValidKey = apiKey.startsWith('AIzaSy') && apiKey.length > 20;

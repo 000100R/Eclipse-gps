@@ -6,6 +6,15 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     androidScheme: 'https',
+    allowNavigation: [
+      'maps.googleapis.com',
+      '*.googleapis.com',
+      '*.gstatic.com',
+      '*.google.com',
+      '*.openstreetmap.org',
+      '*.cartocdn.com',
+      'router.project-osrm.org',
+    ],
   },
 };
 

@@ -521,10 +521,25 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
 
   const lastDiscoveryCenterRef = useRef<Location | null>(null);
+  const isDiscoveringRef = useRef<boolean>(false);
+  const lastDiscoveredParamsRef = useRef<{ center: Location; radiusKm: number; sortBy: string; timestamp: number } | null>(null);
 
   // Core Nearby Pandal Discovery Engine (delegates to centralized pandalDiscoveryService)
   const discoverNearbyPandals = async (center: Location | null, radiusKm: number, sortBy: string) => {
     if (!center || !hasValidGps) return;
+    if (isDiscoveringRef.current) return;
+
+    const now = Date.now();
+    // Cache check: if within 250m and same radius/sort within 45s, skip redundant refetch
+    if (lastDiscoveredParamsRef.current) {
+      const prev = lastDiscoveredParamsRef.current;
+      const distFromPrev = calculateDistanceInMeters(center, prev.center);
+      if (distFromPrev < 250 && prev.radiusKm === radiusKm && prev.sortBy === sortBy && now - prev.timestamp < 45000) {
+        return;
+      }
+    }
+
+    isDiscoveringRef.current = true;
     setIsDiscovering(true);
     try {
       const radiusMeters = radiusKm * 1000;
@@ -533,6 +548,13 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         radius: radiusMeters,
         sortBy: sortBy as any,
       });
+
+      lastDiscoveredParamsRef.current = {
+        center,
+        radiusKm,
+        sortBy,
+        timestamp: now,
+      };
 
       // Include user-submitted local additions if any
       const effectiveRadiusMeters = result.searchRadius || radiusMeters;
@@ -576,13 +598,25 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         // 5. Sort candidates by calculated walking distance
         routedCandidates.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
-        setPandals([...routedCandidates, ...remainingCandidates]);
+        const finalPandals = [...routedCandidates, ...remainingCandidates];
+        setPandals(prev => {
+          if (prev.length === finalPandals.length && prev.every((p, i) => p.id === finalPandals[i].id && p.distance === finalPandals[i].distance)) {
+            return prev;
+          }
+          return finalPandals;
+        });
       } else {
-        setPandals(merged);
+        setPandals(prev => {
+          if (prev.length === merged.length && prev.every((p, i) => p.id === merged[i].id && p.distance === merged[i].distance)) {
+            return prev;
+          }
+          return merged;
+        });
       }
     } catch (e) {
       console.error('Error during nearby pandal discovery:', e);
     } finally {
+      isDiscoveringRef.current = false;
       setIsDiscovering(false);
     }
   };
@@ -1293,7 +1327,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   }, [hasValidGps, gpsStatus, requestLocation]);
 
-  // Coordinate significant movement and automatic discovery trigger
+  // Coordinate significant movement and automatic discovery trigger (250m threshold)
   useEffect(() => {
     if (!currentLocation || !hasValidGps) return;
     if (!lastDiscoveryCenterRef.current) {
@@ -1302,7 +1336,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return;
     }
     const dist = calculateDistanceInMeters(currentLocation, lastDiscoveryCenterRef.current);
-    if (dist > 50) {
+    if (dist >= 250) {
       lastDiscoveryCenterRef.current = currentLocation;
       setDiscoveryCenter(currentLocation);
     }
@@ -1314,8 +1348,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     discoverNearbyPandals(discoveryCenter, discoveryRadius, discoverySort);
   }, [discoveryCenter, discoveryRadius, discoverySort, hasValidGps]);
 
-  // Continuous Geolocation Tracking with throttling and jitter filtering
+  // Continuous Geolocation Tracking with throttling and stationary noise rejection
   const lastProcessedPosRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
+  const lastStateUpdatePosRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const lastValidLocationRef = useRef<Location | null>(null);
 
   useEffect(() => {
@@ -1337,37 +1372,49 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           const headingVal = position.coords.heading || 0;
           const now = Date.now();
 
-          // Reject unreasonable accuracy spikes (e.g. coarse tower triangulations > 1500m when we already have a fix)
+          // Reject unreasonable accuracy spikes (> 1500m when we already have a fix)
           if (accuracy > 1500 && lastValidLocationRef.current) {
             return;
           }
 
-          // Throttle location updates and filter micro-jitter to prevent UI stutter & unnecessary re-renders
-          if (lastProcessedPosRef.current) {
-            const timeDiff = now - lastProcessedPosRef.current.time;
-            const distMoved = calculateDistanceInMeters(
-              { lat: newLat, lng: newLng },
-              { lat: lastProcessedPosRef.current.lat, lng: lastProcessedPosRef.current.lng }
-            );
+          const loc = { lat: newLat, lng: newLng };
+          lastValidLocationRef.current = loc;
+          travelDistanceService.recordPosition(position);
 
-            // Stationary noise rejection: if user moved less than 1.5 meters and it's been under 3 seconds,
-            // ignore sensor noise to prevent map stutter and re-render loops
-            if (distMoved < 1.5 && timeDiff < 3000) {
+          // Fast direct dispatch for smooth 60fps marker gliding without React re-render cascades
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('eclipse-gps-tick', {
+                detail: { lat: newLat, lng: newLng, accuracy, speed: speedVal, heading: headingVal },
+              })
+            );
+          }
+
+          // Stationary noise rejection & React state update throttling
+          if (lastStateUpdatePosRef.current) {
+            const distSinceState = calculateDistanceInMeters(
+              { lat: newLat, lng: newLng },
+              { lat: lastStateUpdatePosRef.current.lat, lng: lastStateUpdatePosRef.current.lng }
+            );
+            const timeSinceState = now - lastStateUpdatePosRef.current.time;
+
+            // If user moved less than 2.5 meters, they are stationary:
+            // Do NOT re-render React application!
+            if (distSinceState < 2.5) {
               return;
             }
 
-            // Minimum update interval of 400ms to preserve battery and 60fps fluidity
-            if (timeDiff < 400) {
+            // While moving, throttle React state updates to at most once per 1500ms
+            // unless significant movement (>= 8.0 meters) has occurred
+            if (distSinceState < 8.0 && timeSinceState < 1500) {
               return;
             }
           }
 
+          lastStateUpdatePosRef.current = { lat: newLat, lng: newLng, time: now };
           lastProcessedPosRef.current = { lat: newLat, lng: newLng, time: now };
-          const loc = { lat: newLat, lng: newLng };
-          lastValidLocationRef.current = loc;
 
           setCurrentLocation(loc);
-          travelDistanceService.recordPosition(position);
           setGpsAccuracy(accuracy);
           setSpeed(speedVal);
           setHeading(headingVal);

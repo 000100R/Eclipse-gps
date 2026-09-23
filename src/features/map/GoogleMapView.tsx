@@ -87,7 +87,6 @@ export const GoogleMapView: React.FC = () => {
     setActiveMetroGateIntelligence,
   } = useAppState();
 
-  const [activeInstruction, setActiveInstruction] = useState<any>(null);
   const [currentZoom, setCurrentZoom] = useState<number>(14);
   const { isLayerVisible, layerVisibility } = useIntelligenceGrid();
   const {
@@ -138,7 +137,14 @@ export const GoogleMapView: React.FC = () => {
     return val.replace(/^["']|["']$/g, '').trim();
   };
 
-  const apiKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+  const isCapacitorAndroid = typeof window !== 'undefined' &&
+    ((window as any).Capacitor?.getPlatform?.() === 'android' ||
+     (navigator.userAgent.includes('Android') && (window as any).Capacitor));
+  const androidKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY_ANDROID);
+  const standardKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+  const apiKey = (isCapacitorAndroid && androidKey.startsWith('AIzaSy') && androidKey.length > 20)
+    ? androidKey
+    : standardKey;
   const mapId = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_MAP_ID) || 'DEMO_MAP_ID';
 
   // Load Google Maps Script
@@ -228,7 +234,8 @@ export const GoogleMapView: React.FC = () => {
         }
         const bounds = map.getBounds();
         const zoom = map.getZoom() || 14;
-        setCurrentZoom(zoom);
+        const roundedZoom = Math.floor(zoom);
+        setCurrentZoom(prev => (prev === roundedZoom ? prev : roundedZoom));
         if (bounds) {
           const ne = bounds.getNorthEast();
           const sw = bounds.getSouthWest();
@@ -471,7 +478,40 @@ export const GoogleMapView: React.FC = () => {
     });
   }, [isLayerVisible('CROWD'), layerVisibility.CROWD, pandals, pandalCrowdCounts, pandalCrowdTrends, googleLoaded]);
 
-  // Sync GPS Marker & Accuracy Circle (in-place updates to avoid flicker and re-renders)
+  // Marker reconciliation map
+  const markerMapRef = useRef<Map<string, google.maps.Marker>>(new Map());
+  const lastNavHeadingRef = useRef<number>(0);
+
+  // Sync GPS Marker & Accuracy Circle (in-place updates + direct event listener to avoid re-renders)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !googleLoaded) return;
+
+    const handleGpsTick = (e: Event) => {
+      const customEvent = e as CustomEvent<{ lat: number; lng: number; accuracy?: number }>;
+      const detail = customEvent.detail;
+      if (!detail || !detail.lat || !detail.lng) return;
+      const latLng = { lat: detail.lat, lng: detail.lng };
+
+      if (gpsAccuracyCircleRef.current) {
+        gpsAccuracyCircleRef.current.setCenter(latLng);
+        if (detail.accuracy && detail.accuracy < 1500) {
+          gpsAccuracyCircleRef.current.setRadius(detail.accuracy);
+          gpsAccuracyCircleRef.current.setVisible(true);
+        } else {
+          gpsAccuracyCircleRef.current.setVisible(false);
+        }
+      }
+
+      if (gpsMarkerRef.current) {
+        gpsMarkerRef.current.setPosition(latLng);
+      }
+    };
+
+    window.addEventListener('eclipse-gps-tick', handleGpsTick);
+    return () => window.removeEventListener('eclipse-gps-tick', handleGpsTick);
+  }, [googleLoaded]);
+
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !currentLocation || !googleLoaded) return;
@@ -518,44 +558,51 @@ export const GoogleMapView: React.FC = () => {
     }
   }, [currentLocation, gpsAccuracy, googleLoaded]);
 
-  // Sync Catalog Markers
+  // Sync Catalog Markers with Reconciliation (Preserves existing markers, eliminates marker thrashing)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !googleLoaded) return;
 
-    // Clear old markers
-    markersRef.current.forEach(m => m.setMap(null));
-    markersRef.current = [];
+    const desiredKeys = new Set<string>();
 
-    const addMarker = (item: any, type: 'pandal' | 'event' | 'bonedi_bari' | 'metro' | 'search') => {
-      let pinColorColor = '#10b981'; // Default green
+    const getPinSvg = (type: string, item: any) => {
+      let pinColorColor = '#10b981';
       if (type === 'metro') {
         const lineStr = ((item.line || '') + ' ' + (item.lines || []).join(' ')).toLowerCase();
         if (lineStr.includes('green') || lineStr.includes('east-west')) {
-          pinColorColor = '#059669'; // Green Line
+          pinColorColor = '#059669';
         } else if (lineStr.includes('purple') || lineStr.includes('joka')) {
-          pinColorColor = '#9333ea'; // Purple Line
+          pinColorColor = '#9333ea';
         } else if (lineStr.includes('yellow') || lineStr.includes('airport')) {
-          pinColorColor = '#d97706'; // Yellow Line
+          pinColorColor = '#d97706';
         } else {
-          pinColorColor = '#2563eb'; // Blue Line
+          pinColorColor = '#2563eb';
         }
       } else if (type === 'bonedi_bari') {
-        pinColorColor = '#f59e0b'; // Amber heritage color
+        pinColorColor = '#f59e0b';
       } else if (type === 'pandal') {
-        if (item.crowdLevel === 'EXTREME') pinColorColor = '#f43f5e'; // rose
-        else if (item.crowdLevel === 'HEAVY') pinColorColor = '#f97316'; // orange
-        else if (item.crowdLevel === 'MODERATE') pinColorColor = '#fbbf24'; // amber
-        else pinColorColor = '#34d399'; // green
+        if (item.crowdLevel === 'EXTREME') pinColorColor = '#f43f5e';
+        else if (item.crowdLevel === 'HEAVY') pinColorColor = '#f97316';
+        else if (item.crowdLevel === 'MODERATE') pinColorColor = '#fbbf24';
+        else pinColorColor = '#34d399';
       } else if (type === 'event') {
-        pinColorColor = '#6366f1'; // indigo
+        pinColorColor = '#6366f1';
       }
 
-      // Safe Unicode / SVG for custom map styling
-      const pinSvg = type === 'metro'
+      return type === 'metro'
         ? `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="${encodeURIComponent(pinColorColor)}" stroke="%23ffffff" stroke-width="2.5"/><text x="18" y="23" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="900" fill="%23ffffff" text-anchor="middle">M</text></svg>`
         : `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="10" fill="${encodeURIComponent(pinColorColor)}" stroke="black" stroke-width="2"/><circle cx="16" cy="16" r="4" fill="white"/></svg>`;
+    };
 
+    const addOrRetainMarker = (item: any, type: 'pandal' | 'event' | 'bonedi_bari' | 'metro' | 'search') => {
+      const key = `${type}-${item.id || item.name}`;
+      desiredKeys.add(key);
+
+      if (markerMapRef.current.has(key)) {
+        return;
+      }
+
+      const pinSvg = getPinSvg(type, item);
       const marker = new google.maps.Marker({
         position: { lat: item.location.lat, lng: item.location.lng },
         map,
@@ -571,7 +618,7 @@ export const GoogleMapView: React.FC = () => {
         setSelectedItem(item);
       });
 
-      markersRef.current.push(marker);
+      markerMapRef.current.set(key, marker);
     };
 
     const searchPandals: any[] = [];
@@ -596,7 +643,7 @@ export const GoogleMapView: React.FC = () => {
       const markerType = isMetro
         ? 'metro'
         : ((res as any).pujaSince || (res as any).family ? 'bonedi_bari' : 'search');
-      addMarker(res, markerType as any);
+      addOrRetainMarker(res, markerType as any);
     });
 
     // Select pandals to render: search pandals if present, else AppState/Intelligence pandals when layer is visible
@@ -610,43 +657,57 @@ export const GoogleMapView: React.FC = () => {
       clustered.forEach(entry => {
         if (entry.isCluster) {
           const cluster = entry.cluster;
-          const clusterSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="%23f59e0b" stroke="%230f172a" stroke-width="2.5"/><text x="18" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="%230f172a" text-anchor="middle">${cluster.count}</text></svg>`;
-          const clusterMarker = new google.maps.Marker({
-            position: { lat: cluster.location.lat, lng: cluster.location.lng },
-            map,
-            title: `${cluster.count} Durga Puja Pandals (Click to zoom)`,
-            zIndex: 50,
-            icon: {
-              url: clusterSvg,
-              size: new google.maps.Size(36, 36),
-              anchor: new google.maps.Point(18, 18),
-            },
-          });
+          const key = `cluster-${cluster.location.lat.toFixed(4)}-${cluster.location.lng.toFixed(4)}-${cluster.count}`;
+          desiredKeys.add(key);
 
-          clusterMarker.addListener('click', () => {
-            const currentZoomLevel = map.getZoom() || 13;
-            map.setCenter({ lat: cluster.location.lat, lng: cluster.location.lng });
-            map.setZoom(Math.min(17, currentZoomLevel + 2));
-          });
+          if (!markerMapRef.current.has(key)) {
+            const clusterSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="%23f59e0b" stroke="%230f172a" stroke-width="2.5"/><text x="18" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="%230f172a" text-anchor="middle">${cluster.count}</text></svg>`;
+            const clusterMarker = new google.maps.Marker({
+              position: { lat: cluster.location.lat, lng: cluster.location.lng },
+              map,
+              title: `${cluster.count} Durga Puja Pandals (Click to zoom)`,
+              zIndex: 50,
+              icon: {
+                url: clusterSvg,
+                size: new google.maps.Size(36, 36),
+                anchor: new google.maps.Point(18, 18),
+              },
+            });
 
-          markersRef.current.push(clusterMarker);
+            clusterMarker.addListener('click', () => {
+              const currentZoomLevel = map.getZoom() || 13;
+              map.setCenter({ lat: cluster.location.lat, lng: cluster.location.lng });
+              map.setZoom(Math.min(17, currentZoomLevel + 2));
+            });
+
+            markerMapRef.current.set(key, clusterMarker);
+          }
         } else {
-          addMarker(entry.item, 'pandal');
+          addOrRetainMarker(entry.item, 'pandal');
         }
       });
     }
 
     if (searchResults.length === 0) {
       if (isBonediBariVisible) {
-        bonediBaris.forEach(b => addMarker(b, 'bonedi_bari'));
+        bonediBaris.forEach(b => addOrRetainMarker(b, 'bonedi_bari'));
       }
       if (isMetroVisible) {
-        metroStations.forEach(m => addMarker(m, 'metro'));
+        metroStations.forEach(m => addOrRetainMarker(m, 'metro'));
       }
       if (isLayerVisible('EVENTS')) {
-        events.forEach(e => addMarker(e, 'event'));
+        events.forEach(e => addOrRetainMarker(e, 'event'));
       }
     }
+
+    // Reconcile: remove markers that are no longer in desired set
+    for (const [key, marker] of markerMapRef.current.entries()) {
+      if (!desiredKeys.has(key)) {
+        marker.setMap(null);
+        markerMapRef.current.delete(key);
+      }
+    }
+    markersRef.current = Array.from(markerMapRef.current.values());
 
   }, [currentZoom, pandals, searchResults, googleLoaded, isPandalVisible, isBonediBariVisible, isMetroVisible, bonediBaris, metroStations, events, visitedIds, layerVisibility.EVENTS, layerVisibility.METRO, intelligencePandals]);
 
@@ -959,11 +1020,8 @@ export const GoogleMapView: React.FC = () => {
     if (!map) return;
 
     if (isNavigating && activeRoute && activeRoute.instructions.length > 0) {
-      const idx = Math.min(currentStepIndex, activeRoute.instructions.length - 1);
-      setActiveInstruction(activeRoute.instructions[idx]);
-
       if (lockToHeading && currentLocation) {
-        // Smooth camera follow: only pan if user has moved >= 3 meters to eliminate camera jitter
+        // Smooth camera follow: only pan if user has moved >= 6 meters to eliminate camera jitter
         let shouldPan = false;
         if (!lastNavFollowPosRef.current) {
           shouldPan = true;
@@ -972,7 +1030,7 @@ export const GoogleMapView: React.FC = () => {
             (currentLocation.lat - lastNavFollowPosRef.current.lat) * 111000,
             (currentLocation.lng - lastNavFollowPosRef.current.lng) * 111000
           );
-          if (dist >= 3) {
+          if (dist >= 6) {
             shouldPan = true;
           }
         }
@@ -1001,13 +1059,15 @@ export const GoogleMapView: React.FC = () => {
             const dx = Math.cos((currentCoord.lat * Math.PI) / 180) * (nextCoord.lng - currentCoord.lng);
             let headingAngle = (Math.atan2(dx, dy) * 180) / Math.PI;
             if (headingAngle < 0) headingAngle += 360;
-            
-            map.setHeading(headingAngle);
+
+            if (Math.abs(headingAngle - lastNavHeadingRef.current) >= 8) {
+              lastNavHeadingRef.current = headingAngle;
+              map.setHeading(headingAngle);
+            }
           }
         }
       }
     } else {
-      setActiveInstruction(null);
       lastNavFollowPosRef.current = null;
       if (mapStyle !== '3d') {
         map.setHeading(0); // Restore default north

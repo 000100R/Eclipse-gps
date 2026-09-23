@@ -30,13 +30,15 @@ export function useMetroIntelligence(userLocation?: Location) {
 
   const debounceTimerRef = useRef<any>(null);
   const isMountedRef = useRef<boolean>(true);
+  const userLocationRef = useRef<Location | undefined>(userLocation);
 
-  // Update user location in provider
+  // Update user location in provider only if shifted significantly
   useEffect(() => {
+    userLocationRef.current = userLocation;
     if (userLocation) {
       metroIntelligenceProvider.setUserLocation(userLocation);
     }
-  }, [userLocation]);
+  }, [userLocation?.lat, userLocation?.lng]);
 
   const fetchMetroForViewport = useCallback(async () => {
     if (!isMetroVisible) {
@@ -54,11 +56,16 @@ export function useMetroIntelligence(userLocation?: Location) {
           west: viewport.west,
         },
         viewport.zoom,
-        userLocation
+        userLocationRef.current
       );
 
       if (isMountedRef.current) {
-        setMetroStations(results);
+        setMetroStations(prev => {
+          if (prev.length === results.length && prev.every((m, i) => m.id === results[i].id)) {
+            return prev;
+          }
+          return results;
+        });
         setLastError(undefined);
         setIsLoading(false);
       }
@@ -75,7 +82,6 @@ export function useMetroIntelligence(userLocation?: Location) {
     viewport.east,
     viewport.west,
     viewport.zoom,
-    userLocation,
   ]);
 
   // Subscribe to line filter changes
