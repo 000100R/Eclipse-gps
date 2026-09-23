@@ -52,6 +52,7 @@ export function extractLocation(item: any): Location | null {
 export class OSRMRoutingProvider implements IRoutingProvider {
   isFallback: boolean = false;
   private routeCache = new Map<string, { route: Route; timestamp: number }>();
+  private inFlightRequests = new Map<string, Promise<Route>>();
 
   private calculateGoogleRoute(
     origin: Location,
@@ -273,76 +274,90 @@ export class OSRMRoutingProvider implements IRoutingProvider {
       return cached.route;
     }
 
-    // 1. If Google Maps Directions API is available in project/window, query it directly
-    if (typeof window !== 'undefined' && (window as any).google?.maps?.DirectionsService) {
-      try {
-        const googleRoute = await this.calculateGoogleRoute(
-          safeOrigin,
-          safeDestination,
-          validWaypoints,
-          alternatives,
-          profile
-        );
-        if (googleRoute) {
-          this.isFallback = false;
-          this.routeCache.set(cacheKey, { route: googleRoute, timestamp: Date.now() });
-          return googleRoute;
+    // Deduplicate in-flight requests for identical route queries
+    if (this.inFlightRequests.has(cacheKey)) {
+      return this.inFlightRequests.get(cacheKey)!;
+    }
+
+    const requestPromise = (async () => {
+      // 1. If Google Maps Directions API is available in project/window, query it directly
+      if (typeof window !== 'undefined' && (window as any).google?.maps?.DirectionsService) {
+        try {
+          const googleRoute = await this.calculateGoogleRoute(
+            safeOrigin,
+            safeDestination,
+            validWaypoints,
+            alternatives,
+            profile
+          );
+          if (googleRoute) {
+            this.isFallback = false;
+            this.routeCache.set(cacheKey, { route: googleRoute, timestamp: Date.now() });
+            return googleRoute;
+          }
+        } catch (gErr) {
+          console.warn('[RoutingService] Google DirectionsService unavailable or failed, falling back to OSRM:', gErr);
         }
-      } catch (gErr) {
-        console.warn('[RoutingService] Google DirectionsService unavailable or failed, falling back to OSRM:', gErr);
       }
-    }
 
-    // Semicolon-separated coordinates list: lng,lat;lng,lat...
-    const coordsList: string[] = [];
-    coordsList.push(`${safeOrigin.lng},${safeOrigin.lat}`);
-    for (const wp of validWaypoints) {
-      coordsList.push(`${wp.location.lng},${wp.location.lat}`);
-    }
-    coordsList.push(`${safeDestination.lng},${safeDestination.lat}`);
+      // Semicolon-separated coordinates list: lng,lat;lng,lat...
+      const coordsList: string[] = [];
+      coordsList.push(`${safeOrigin.lng},${safeOrigin.lat}`);
+      for (const wp of validWaypoints) {
+        coordsList.push(`${wp.location.lng},${wp.location.lat}`);
+      }
+      coordsList.push(`${safeDestination.lng},${safeDestination.lat}`);
 
-    const coordsString = coordsList.join(';');
-    const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coordsString}?overview=full&geometries=geojson&steps=true&alternatives=${altParam}`;
+      const coordsString = coordsList.join(';');
+      const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coordsString}?overview=full&geometries=geojson&steps=true&alternatives=${altParam}`;
 
-    // Use 4.5 second AbortController timeout to prevent UI freezes on slow/unreachable networks
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4500);
+      // Use 4.5 second AbortController timeout to prevent UI freezes on slow/unreachable networks
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
 
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`OSRM network request returned ${response.status}`);
+        }
+        const data = await response.json();
+
+        if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+          throw new Error('OSRM routing error: ' + (data.message || 'no route found'));
+        }
+
+        this.isFallback = false;
+        const primaryRoute = this.parseRouteFromOSRM(data.routes[0], safeOrigin, safeDestination, validWaypoints, 0);
+
+        // Parse up to 3 reasonable alternative routes if returned by OSRM
+        if (data.routes.length > 1) {
+          const altRoutes = data.routes
+            .slice(1, 4)
+            .map((r: any, idx: number) => this.parseRouteFromOSRM(r, safeOrigin, safeDestination, validWaypoints, idx + 1));
+          primaryRoute.alternatives = altRoutes;
+        }
+
+        // Save to cache
+        this.routeCache.set(cacheKey, { route: primaryRoute, timestamp: Date.now() });
+
+        return primaryRoute;
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        const isTimeout = err?.name === 'AbortError';
+        console.warn(`[RoutingService] OSRM routing ${isTimeout ? 'timed out' : 'failed'}, using guaranteed direct fallback:`, err?.message || err);
+        this.isFallback = true;
+        const fallback = this.generateFallbackRoute(safeOrigin, safeDestination, validWaypoints, osrmProfile);
+        return fallback;
+      }
+    })();
+
+    this.inFlightRequests.set(cacheKey, requestPromise);
     try {
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`OSRM network request returned ${response.status}`);
-      }
-      const data = await response.json();
-
-      if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
-        throw new Error('OSRM routing error: ' + (data.message || 'no route found'));
-      }
-
-      this.isFallback = false;
-      const primaryRoute = this.parseRouteFromOSRM(data.routes[0], safeOrigin, safeDestination, validWaypoints, 0);
-
-      // Parse up to 3 reasonable alternative routes if returned by OSRM
-      if (data.routes.length > 1) {
-        const altRoutes = data.routes
-          .slice(1, 4)
-          .map((r: any, idx: number) => this.parseRouteFromOSRM(r, safeOrigin, safeDestination, validWaypoints, idx + 1));
-        primaryRoute.alternatives = altRoutes;
-      }
-
-      // Save to cache
-      this.routeCache.set(cacheKey, { route: primaryRoute, timestamp: Date.now() });
-
-      return primaryRoute;
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      const isTimeout = err?.name === 'AbortError';
-      console.warn(`[RoutingService] OSRM routing ${isTimeout ? 'timed out' : 'failed'}, using guaranteed direct fallback:`, err?.message || err);
-      this.isFallback = true;
-      const fallback = this.generateFallbackRoute(safeOrigin, safeDestination, validWaypoints, osrmProfile);
-      return fallback;
+      return await requestPromise;
+    } finally {
+      this.inFlightRequests.delete(cacheKey);
     }
   }
 

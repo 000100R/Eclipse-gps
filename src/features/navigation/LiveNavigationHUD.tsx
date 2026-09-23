@@ -234,58 +234,6 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Auto-advance turn-by-turn steps as user moves along the route geometry
-  useEffect(() => {
-    if (!currentLocation || !activeRoute || !instructions || instructions.length <= 1) return;
-    if (safeStepIndex >= instructions.length - 1) return;
-
-    const geom = activeRoute.geometry;
-    if (geom && geom.length > 0) {
-      let minDistance = Infinity;
-      let closestPointIndex = 0;
-      for (let i = 0; i < geom.length; i++) {
-        const d = getHaversineDistanceMeters(currentLocation, geom[i]);
-        if (d < minDistance) {
-          minDistance = d;
-          closestPointIndex = i;
-        }
-      }
-
-      // If user is reasonably close to route (< 50m), correlate progress
-      if (minDistance < 50) {
-        const fractionAlongRoute = closestPointIndex / Math.max(1, geom.length - 1);
-        const targetStepIndex = Math.min(
-          instructions.length - 1,
-          Math.floor(fractionAlongRoute * instructions.length)
-        );
-
-        if (targetStepIndex > safeStepIndex) {
-          setCurrentStepIndex(targetStepIndex);
-        }
-      }
-    }
-  }, [currentLocation, activeRoute, instructions, safeStepIndex, setCurrentStepIndex]);
-
-  // Auto-advance when intermediate pandal stop is reached in a Puja Route
-  useEffect(() => {
-    if (!hasArrived) return;
-    if (!isPujaRoute || isFinalStop) return;
-
-    // Automatically start navigation to the next pandal after a brief confirmation interval
-    const timer = setTimeout(() => {
-      advancePujaRouteToNextStop();
-    }, 2500);
-
-    return () => clearTimeout(timer);
-  }, [hasArrived, isPujaRoute, isFinalStop, currentPujaStopIndex]);
-
-  // Formatted ETA clock in user's local time (e.g. "ETA 8:42 PM")
-  const etaClockText = useMemo(() => {
-    if (hasArrived || remainingDurationSeconds <= 0) return '';
-    const formattedTime = formatEtaClock(currentTimeMs, remainingDurationSeconds);
-    return formattedTime ? `ETA ${formattedTime}` : '';
-  }, [currentTimeMs, remainingDurationSeconds, hasArrived]);
-
   // Voice Navigation State (Browser / Device Speech Synthesis)
   const [isMuted, setIsMuted] = useState(false);
   const lastSpokenInstructionRef = useRef<string>('');
@@ -320,6 +268,91 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
       }
     };
   }, []);
+
+  // Turn-by-turn auto-advance and smart off-route detection
+  const consecutiveOffRouteCountRef = useRef<number>(0);
+  const lastAutoRerouteTimeRef = useRef<number>(0);
+  const isAutoReroutingRef = useRef<boolean>(false);
+
+  // Auto-advance turn-by-turn steps as user moves along route & trigger reroute on sustained deviation
+  useEffect(() => {
+    if (!currentLocation || !activeRoute || !instructions || instructions.length === 0) return;
+
+    const geom = activeRoute.geometry;
+    if (geom && geom.length > 0) {
+      let minDistance = Infinity;
+      let closestPointIndex = 0;
+      for (let i = 0; i < geom.length; i++) {
+        const d = getHaversineDistanceMeters(currentLocation, geom[i]);
+        if (d < minDistance) {
+          minDistance = d;
+          closestPointIndex = i;
+        }
+      }
+
+      // If user is reasonably close to route (< 50m), correlate progress
+      if (minDistance < 50) {
+        consecutiveOffRouteCountRef.current = 0;
+        if (safeStepIndex < instructions.length - 1) {
+          const fractionAlongRoute = closestPointIndex / Math.max(1, geom.length - 1);
+          const targetStepIndex = Math.min(
+            instructions.length - 1,
+            Math.floor(fractionAlongRoute * instructions.length)
+          );
+
+          if (targetStepIndex > safeStepIndex) {
+            setCurrentStepIndex(targetStepIndex);
+          }
+        }
+      } else if (minDistance > 65) {
+        // User is significantly off-route: check if not already arriving at destination
+        const distToDest = activeRoute.destination
+          ? getHaversineDistanceMeters(currentLocation, activeRoute.destination)
+          : Infinity;
+
+        if (distToDest > 45) {
+          consecutiveOffRouteCountRef.current += 1;
+          const now = Date.now();
+          // Require at least 3 consecutive updates (filters momentary GPS jitter) and 15s cooldown
+          if (
+            consecutiveOffRouteCountRef.current >= 3 &&
+            now - lastAutoRerouteTimeRef.current > 15000 &&
+            !isAutoReroutingRef.current
+          ) {
+            lastAutoRerouteTimeRef.current = now;
+            isAutoReroutingRef.current = true;
+            consecutiveOffRouteCountRef.current = 0;
+            if (!isMuted) {
+              speakVoiceAnnouncement('Rerouting');
+            }
+            triggerOffRouteReroute().finally(() => {
+              isAutoReroutingRef.current = false;
+            });
+          }
+        }
+      }
+    }
+  }, [currentLocation, activeRoute, instructions, safeStepIndex, setCurrentStepIndex, isMuted, triggerOffRouteReroute]);
+
+  // Auto-advance when intermediate pandal stop is reached in a Puja Route
+  useEffect(() => {
+    if (!hasArrived) return;
+    if (!isPujaRoute || isFinalStop) return;
+
+    // Automatically start navigation to the next pandal after a brief confirmation interval
+    const timer = setTimeout(() => {
+      advancePujaRouteToNextStop();
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [hasArrived, isPujaRoute, isFinalStop, currentPujaStopIndex]);
+
+  // Formatted ETA clock in user's local time (e.g. "ETA 8:42 PM")
+  const etaClockText = useMemo(() => {
+    if (hasArrived || remainingDurationSeconds <= 0) return '';
+    const formattedTime = formatEtaClock(currentTimeMs, remainingDurationSeconds);
+    return formattedTime ? `ETA ${formattedTime}` : '';
+  }, [currentTimeMs, remainingDurationSeconds, hasArrived]);
 
   // Speak navigation instruction when it changes & announce arrival on arrival state
   useEffect(() => {

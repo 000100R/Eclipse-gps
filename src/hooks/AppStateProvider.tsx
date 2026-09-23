@@ -275,6 +275,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [routingError, setRoutingError] = useState<string | null>(null);
   const clearRoutingError = useCallback(() => setRoutingError(null), []);
   const routeRequestIdRef = useRef<number>(0);
+  const isCalculatingRouteRef = useRef<boolean>(false);
   const [routeStops, setRouteStops] = useState<(Pandal | Event)[]>([]);
   const [isNavigating, setIsNavigating] = useState<boolean>(false);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
@@ -921,8 +922,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [activeGroup]);
 
   // Keep route updated if navigating to a moving group member in Lost-in-Crowd mode
+  const lastMemberRerouteTimeRef = useRef<number>(0);
   useEffect(() => {
-    if (!isNavigating || routeStops.length !== 1) return;
+    if (!isNavigating || routeStops.length !== 1 || !currentLocation) return;
     const dest = routeStops[0];
     if (!dest.id || !dest.id.startsWith('member-')) return;
     
@@ -936,8 +938,15 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const currentLat = currentLoc.lat;
     const currentLng = currentLoc.lng;
     
-    // If different from what we are currently routing to, recalculate the route!
-    if (dest.location.lat !== currentLat || dest.location.lng !== currentLng) {
+    // Only recalculate if member's position moved by >= 15m and at least 10s passed
+    const now = Date.now();
+    const moveDist = calculateDistanceInMeters(
+      { lat: dest.location.lat, lng: dest.location.lng },
+      { lat: currentLat, lng: currentLng }
+    );
+
+    if (moveDist >= 15 && now - lastMemberRerouteTimeRef.current >= 10000 && !isCalculatingRouteRef.current) {
+      lastMemberRerouteTimeRef.current = now;
       const updatedMemberItem: any = {
         ...dest,
         location: { lat: currentLat, lng: currentLng },
@@ -1062,16 +1071,16 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
 
     handleFriendLocationPublishing();
+  }, [shareLocationWithFriends, currentLocation, userId, gpsAccuracy, gpsStatus]);
 
-    // Clean up on unmount or when userId / shareLocationWithFriends changes
+  // Clean up friend location on unmount
+  useEffect(() => {
     return () => {
       if (isFirebaseConfigured() && userId) {
-        clearLiveLocation(userId).catch((err) => {
-          console.error('Failed to clean up location on unmount:', err);
-        });
+        clearLiveLocation(userId).catch(() => {});
       }
     };
-  }, [shareLocationWithFriends, currentLocation, userId, gpsAccuracy, gpsStatus]);
+  }, [userId]);
 
   // Publish live location to group if sharing is enabled
   const myMemberRecord = groupMembers.find(m => m.userId === userId);
@@ -1102,15 +1111,16 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     ).catch(err => {
       console.error('Failed to publish group location:', err);
     });
+  }, [activeGroup, groupSharingEnabled, currentLocation, userId, gpsAccuracy, gpsStatus]);
 
+  // Clean up group location on unmount or group change
+  useEffect(() => {
     return () => {
-      if (activeGroup) {
-        clearGroupLocationFb(activeGroup.id, userId).catch(err => {
-          console.error('Failed to clear group location on cleanup:', err);
-        });
+      if (activeGroup && userId) {
+        clearGroupLocationFb(activeGroup.id, userId).catch(() => {});
       }
     };
-  }, [activeGroup, groupSharingEnabled, currentLocation, userId, gpsAccuracy, gpsStatus]);
+  }, [activeGroup?.id, userId]);
 
   const watchIdRef = useRef<number | null>(null);
 
@@ -1398,15 +1408,20 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             );
             const timeSinceState = now - lastStateUpdatePosRef.current.time;
 
-            // If user moved less than 2.5 meters, they are stationary:
-            // Do NOT re-render React application!
-            if (distSinceState < 2.5) {
+            // Reject poor-accuracy jump if we already have an accurate fix
+            if (accuracy > 80 && (gpsAccuracy || 0) < 35 && distSinceState > 15) {
               return;
             }
 
-            // While moving, throttle React state updates to at most once per 1500ms
+            // If user moved less than 3.5 meters, they are stationary:
+            // Do NOT re-render React application!
+            if (distSinceState < 3.5) {
+              return;
+            }
+
+            // While moving, throttle React state updates to at most once per 1200ms
             // unless significant movement (>= 8.0 meters) has occurred
-            if (distSinceState < 8.0 && timeSinceState < 1500) {
+            if (distSinceState < 8.0 && timeSinceState < 1200) {
               return;
             }
           }
@@ -1549,15 +1564,20 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
 
     handlePresencePublishing();
+  }, [helpImproveCrowd, currentLocation, gpsAccuracy, gpsStatus, pandals, pandalGeofenceMeters]);
 
+  // Clean up crowd session on unmount
+  useEffect(() => {
     return () => {
-      if (crowdSessionIdRef.current && helpImproveCrowd && isFirebaseConfigured()) {
-        const db = getFirebaseDatabase();
-        const sessionRef = ref(db, `crowd_sessions/${crowdSessionIdRef.current}`);
-        remove(sessionRef).catch((e) => console.error('Clean up on unmount error:', e));
+      if (crowdSessionIdRef.current && isFirebaseConfigured()) {
+        try {
+          const db = getFirebaseDatabase();
+          const sessionRef = ref(db, `crowd_sessions/${crowdSessionIdRef.current}`);
+          remove(sessionRef).catch(() => {});
+        } catch (_) {}
       }
     };
-  }, [helpImproveCrowd, currentLocation, gpsAccuracy, gpsStatus, pandals, pandalGeofenceMeters]);
+  }, []);
 
   // Read and Aggregate Anonymous Crowd Presence in Real-Time
   useEffect(() => {
@@ -1857,7 +1877,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Direct simple routing to a place/event
   const calculateRouteToItem = async (item: Pandal | Event | any) => {
-    if (!item) return;
+    if (!item || isCalculatingRouteRef.current) return;
     const destLoc = extractLocation(item);
     if (!destLoc) {
       console.warn('Cannot calculate route: destination location is invalid.');
@@ -1866,6 +1886,13 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return;
     }
 
+    // Starting a new destination cleanly resets previous speech and puja route session
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setPujaRouteSession(null);
+
+    isCalculatingRouteRef.current = true;
     const currentRequestId = ++routeRequestIdRef.current;
     setIsCalculatingRoute(true);
     setRoutingError(null);
@@ -1876,6 +1903,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!originLoc) {
       setRoutingError('Waiting for GPS position to calculate route.');
       setIsCalculatingRoute(false);
+      isCalculatingRouteRef.current = false;
       return;
     }
 
@@ -1923,6 +1951,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (currentRequestId === routeRequestIdRef.current) {
         setIsCalculatingRoute(false);
       }
+      isCalculatingRouteRef.current = false;
     }
   };
 
@@ -2063,6 +2092,22 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const stopNavigation = useCallback(() => {
+    routeRequestIdRef.current++;
+    isCalculatingRouteRef.current = false;
+    setIsCalculatingRoute(false);
+    setRoutingError(null);
+    setIsNavigating(false);
+    setActiveRoute(null);
+    setPujaRouteSession(null);
+    setCurrentStepIndex(0);
+    setSelectedItem(null);
+    setActiveTab('home');
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  }, []);
+
   // End Puja Route navigation
   const endPujaRoute = () => {
     if (pujaRouteSession && pujaRouteSession.isActive) {
@@ -2078,21 +2123,8 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setVisitedRecords(visitedPandalsService.getRecords());
       }
     }
-    setPujaRouteSession(null);
-    setIsNavigating(false);
-    setActiveRoute(null);
-    setSelectedItem(null);
+    stopNavigation();
   };
-
-  const stopNavigation = useCallback(() => {
-    setIsNavigating(false);
-    setActiveRoute(null);
-    setCurrentStepIndex(0);
-    setSelectedItem(null);
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-  }, []);
 
   // Start walking navigation from a verified Metro entrance/exit gate to the pandal
   const startGateWalkingNavigation = (
@@ -2152,24 +2184,19 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Select an alternative route to make it the active navigation route
-  const selectAlternativeRoute = (selectedAltRoute: Route) => {
-    if (!activeRoute) return;
-
-    // Combine current active route and all alternatives into one pool
-    const allRoutes = [activeRoute, ...(activeRoute.alternatives || [])];
-
-    // Find the matching chosen route
-    const newActive = allRoutes.find(r => r.id === selectedAltRoute.id) || selectedAltRoute;
-    const remainingAlternatives = allRoutes.filter(r => r.id !== newActive.id);
-
-    const updatedRoute: Route = {
-      ...newActive,
-      alternatives: remainingAlternatives,
-    };
-
-    setActiveRoute(updatedRoute);
+  const selectAlternativeRoute = useCallback((selectedAltRoute: Route) => {
+    setActiveRoute((currentActiveRoute) => {
+      if (!currentActiveRoute) return null;
+      const allRoutes = [currentActiveRoute, ...(currentActiveRoute.alternatives || [])];
+      const newActive = allRoutes.find((r) => r.id === selectedAltRoute.id) || selectedAltRoute;
+      const remainingAlternatives = allRoutes.filter((r) => r.id !== newActive.id);
+      return {
+        ...newActive,
+        alternatives: remainingAlternatives,
+      };
+    });
     setCurrentStepIndex(0);
-  };
+  }, []);
 
   // TSP optimization handler
   const optimizeRoute = async () => {
@@ -2228,11 +2255,12 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Off-route reroute calculation
-  const triggerOffRouteReroute = async () => {
-    if (!activeRoute || !activeRoute.destination) return;
+  const triggerOffRouteReroute = useCallback(async () => {
+    if (!activeRoute || !activeRoute.destination || isCalculatingRouteRef.current) return;
     const originLoc = extractLocation(currentLocation) || lastValidLocationRef.current;
     if (!originLoc) return;
 
+    isCalculatingRouteRef.current = true;
     const currentRequestId = ++routeRequestIdRef.current;
     setIsCalculatingRoute(true);
     setRoutingError(null);
@@ -2256,8 +2284,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (currentRequestId === routeRequestIdRef.current) {
         setIsCalculatingRoute(false);
       }
+      isCalculatingRouteRef.current = false;
     }
-  };
+  }, [activeRoute, currentLocation, routePreference]);
 
   // Ask Eclipse AI secure server-side proxy
   const askEclipseAI = async (prompt: string) => {

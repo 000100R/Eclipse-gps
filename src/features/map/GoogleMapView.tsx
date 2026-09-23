@@ -34,6 +34,9 @@ export const GoogleMapView: React.FC = () => {
   const routePolylineRef = useRef<google.maps.Polyline | null>(null);
   const altPolylinesRef = useRef<google.maps.Polyline[]>([]);
   const lastFittedRouteIdRef = useRef<string | null>(null);
+  const lastRenderedRouteKeyRef = useRef<string | null>(null);
+  const lastNavPanTimeRef = useRef<number>(0);
+  const lastNavHeadingTimeRef = useRef<number>(0);
   const gpsMarkerRef = useRef<google.maps.Marker | null>(null);
   const gpsAccuracyCircleRef = useRef<google.maps.Circle | null>(null);
   const streetViewPanoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
@@ -800,6 +803,25 @@ export const GoogleMapView: React.FC = () => {
     const map = mapInstanceRef.current;
     if (!map || !googleLoaded) return;
 
+    if (!activeRoute || !activeRoute.geometry || activeRoute.geometry.length === 0) {
+      if (routePolylineRef.current) {
+        routePolylineRef.current.setMap(null);
+        routePolylineRef.current = null;
+      }
+      altPolylinesRef.current.forEach(p => p.setMap(null));
+      altPolylinesRef.current = [];
+      lastRenderedRouteKeyRef.current = null;
+      lastFittedRouteIdRef.current = null;
+      return;
+    }
+
+    // Skip redrawing if identical route geometry and alternatives are already on map
+    const routeKey = `${activeRoute.id}_${activeRoute.geometry.length}_${activeRoute.alternatives?.length || 0}`;
+    if (lastRenderedRouteKeyRef.current === routeKey && routePolylineRef.current) {
+      return;
+    }
+    lastRenderedRouteKeyRef.current = routeKey;
+
     if (routePolylineRef.current) {
       routePolylineRef.current.setMap(null);
       routePolylineRef.current = null;
@@ -807,8 +829,6 @@ export const GoogleMapView: React.FC = () => {
 
     altPolylinesRef.current.forEach(p => p.setMap(null));
     altPolylinesRef.current = [];
-
-    if (!activeRoute || activeRoute.geometry.length === 0) return;
 
     const bounds = new google.maps.LatLngBounds();
 
@@ -1021,7 +1041,8 @@ export const GoogleMapView: React.FC = () => {
 
     if (isNavigating && activeRoute && activeRoute.instructions.length > 0) {
       if (lockToHeading && currentLocation) {
-        // Smooth camera follow: only pan if user has moved >= 6 meters to eliminate camera jitter
+        const now = Date.now();
+        // Smooth camera follow: only pan if user moved >= 8 meters and >= 1200ms elapsed
         let shouldPan = false;
         if (!lastNavFollowPosRef.current) {
           shouldPan = true;
@@ -1030,24 +1051,25 @@ export const GoogleMapView: React.FC = () => {
             (currentLocation.lat - lastNavFollowPosRef.current.lat) * 111000,
             (currentLocation.lng - lastNavFollowPosRef.current.lng) * 111000
           );
-          if (dist >= 6) {
+          if (dist >= 8 && now - lastNavPanTimeRef.current >= 1200) {
             shouldPan = true;
           }
         }
 
         if (shouldPan) {
           lastNavFollowPosRef.current = { lat: currentLocation.lat, lng: currentLocation.lng };
+          lastNavPanTimeRef.current = now;
           map.panTo({ lat: currentLocation.lat, lng: currentLocation.lng });
         }
 
         if (mapStyle === '3d') {
-          if (map.getZoom() !== 18) map.setZoom(18);
-          map.setTilt(55);
+          if (map.getZoom && map.getZoom() < 17) map.setZoom(18);
+          if (map.getTilt && map.getTilt() !== 55) map.setTilt(55);
         } else {
-          map.setHeading(0); // Restore default north if not in 3D
+          if (map.getHeading && map.getHeading() !== 0) map.setHeading(0); // Restore default north only if not 0
         }
 
-        // Rotate camera heading dynamically in 3D Mode for ultimate navigation realism!
+        // Rotate camera heading dynamically in 3D Mode without excessive animations
         if (mapStyle === '3d' && activeRoute.geometry.length > 1) {
           const nextCoordIndex = Math.min(currentStepIndex + 1, activeRoute.geometry.length - 1);
           const currentCoord = currentLocation;
@@ -1060,8 +1082,12 @@ export const GoogleMapView: React.FC = () => {
             let headingAngle = (Math.atan2(dx, dy) * 180) / Math.PI;
             if (headingAngle < 0) headingAngle += 360;
 
-            if (Math.abs(headingAngle - lastNavHeadingRef.current) >= 8) {
+            if (
+              Math.abs(headingAngle - lastNavHeadingRef.current) >= 12 &&
+              now - lastNavHeadingTimeRef.current >= 1500
+            ) {
               lastNavHeadingRef.current = headingAngle;
+              lastNavHeadingTimeRef.current = now;
               map.setHeading(headingAngle);
             }
           }
@@ -1069,7 +1095,7 @@ export const GoogleMapView: React.FC = () => {
       }
     } else {
       lastNavFollowPosRef.current = null;
-      if (mapStyle !== '3d') {
+      if (mapStyle !== '3d' && map.getHeading && map.getHeading() !== 0) {
         map.setHeading(0); // Restore default north
       }
     }

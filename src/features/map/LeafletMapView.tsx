@@ -30,7 +30,9 @@ export const LeafletMapView: React.FC = () => {
   const [isMapReady, setIsMapReady] = useState<boolean>(false);
   const activeTilesRef = useRef<L.Layer[]>([]);
   const lastFittedRouteIdRef = useRef<string | null>(null);
+  const lastRenderedRouteKeyRef = useRef<string | null>(null);
   const lastNavFollowPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  const lastNavPanTimeRef = useRef<number>(0);
   const markersGroupRef = useRef<L.FeatureGroup | null>(null);
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const gpsMarkerRef = useRef<L.Marker | null>(null);
@@ -1000,12 +1002,27 @@ export const LeafletMapView: React.FC = () => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
+    if (!activeRoute || !activeRoute.geometry || activeRoute.geometry.length === 0) {
+      if (routePolylineRef.current) {
+        map.removeLayer(routePolylineRef.current);
+        routePolylineRef.current = null;
+      }
+      lastRenderedRouteKeyRef.current = null;
+      lastFittedRouteIdRef.current = null;
+      return;
+    }
+
+    // Skip redrawing if identical route geometry and alternatives are already on map
+    const routeKey = `${activeRoute.id}_${activeRoute.geometry.length}_${activeRoute.alternatives?.length || 0}`;
+    if (lastRenderedRouteKeyRef.current === routeKey && routePolylineRef.current) {
+      return;
+    }
+    lastRenderedRouteKeyRef.current = routeKey;
+
     if (routePolylineRef.current) {
       map.removeLayer(routePolylineRef.current);
       routePolylineRef.current = null;
     }
-
-    if (!activeRoute || activeRoute.geometry.length === 0) return;
 
     const layers: L.Layer[] = [];
 
@@ -1100,11 +1117,12 @@ export const LeafletMapView: React.FC = () => {
     }
   }, [selectedItem]);
 
-  // Navigate instructions tracker
+  // Navigate instructions tracker with smooth throttled camera following
   useEffect(() => {
     if (isNavigating && activeRoute && activeRoute.instructions.length > 0) {
       const map = mapInstanceRef.current;
       if (map && currentLocation) {
+        const now = Date.now();
         // Smoothly follow user movement during navigation without jerky setView on micro-jitter
         let shouldPan = false;
         if (!lastNavFollowPosRef.current) {
@@ -1114,13 +1132,14 @@ export const LeafletMapView: React.FC = () => {
             (currentLocation.lat - lastNavFollowPosRef.current.lat) * 111000,
             (currentLocation.lng - lastNavFollowPosRef.current.lng) * 111000
           );
-          if (dist >= 6) {
+          if (dist >= 8 && now - lastNavPanTimeRef.current >= 1200) {
             shouldPan = true;
           }
         }
 
         if (shouldPan) {
           lastNavFollowPosRef.current = { lat: currentLocation.lat, lng: currentLocation.lng };
+          lastNavPanTimeRef.current = now;
           map.panTo([currentLocation.lat, currentLocation.lng], { animate: true, duration: 0.6 });
         }
       }
