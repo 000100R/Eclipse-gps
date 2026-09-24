@@ -213,6 +213,7 @@ export const curatedMetroStations: MetroStation[] = [
       'bonedi-balaram-dey-dutta-bari',
       'bonedi-jorasanko-purna-daw',
       'bonedi-pathuriaghata-khelat-ghosh',
+      'bonedi-baishnabdas-mallick-bari',
       'bonedi-thanthania-dutta-bari',
       'bonedi-mahendra-sreemany-bari',
     ],
@@ -272,6 +273,9 @@ export const curatedMetroStations: MetroStation[] = [
     ],
     nearbyBonediBariIds: [
       'bonedi-bowbazar-chandra-bari',
+      'bonedi-purna-chandra-dhar-bari',
+      'bonedi-nilmoni-dey-bari-bowbazar',
+      'bonedi-biswanath-motilal-bari',
       'bonedi-thanthania-dutta-bari',
       'bonedi-pataldanga-basu-mallick-bari',
       'bonedi-laha-bari',
