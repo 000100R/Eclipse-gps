@@ -37,6 +37,7 @@ import {
   cancelFriendRequest,
   acceptFriendRequest,
   removeFriend,
+  blockUser,
   listenToIncomingRequests,
   listenToOutgoingRequests,
   listenToFriends,
@@ -101,6 +102,8 @@ export const GroupPanel: React.FC = () => {
   const [eclipseSearchResult, setEclipseSearchResult] = useState<SearchEclipseIdResult | null>(null);
   const [isSearchingEclipseId, setIsSearchingEclipseId] = useState(false);
   const [requestSuccessMsg, setRequestSuccessMsg] = useState<string | null>(null);
+  const [friendActionNotice, setFriendActionNotice] = useState<string | null>(null);
+  const [viewLocationFriend, setViewLocationFriend] = useState<FriendRelation | null>(null);
   const [isSendingRequest, setIsSendingRequest] = useState<Record<string, boolean>>({});
   const [isProcessingAction, setIsProcessingAction] = useState<Record<string, boolean>>({});
   
@@ -303,13 +306,64 @@ export const GroupPanel: React.FC = () => {
     }
   };
 
-  const handleRemoveFriend = async (friendId: string) => {
-    if (!window.confirm('Are you sure you want to remove this friend?')) return;
+  const formatLastActive = (lastActive: any, timestamp: any, isOnline?: boolean): string => {
+    if (isOnline) return 'Online now';
+    let millis: number | null = null;
+    if (lastActive) {
+      if (typeof lastActive === 'number') millis = lastActive;
+      else if (typeof lastActive.toMillis === 'function') millis = lastActive.toMillis();
+      else if (lastActive.seconds) millis = lastActive.seconds * 1000;
+    }
+    if (!millis && timestamp) {
+      if (typeof timestamp === 'number') millis = timestamp;
+      else if (typeof timestamp.toMillis === 'function') millis = timestamp.toMillis();
+      else if (timestamp.seconds) millis = timestamp.seconds * 1000;
+    }
+    if (!millis) return 'Recently active';
+    const diffSec = Math.floor((Date.now() - millis) / 1000);
+    if (diffSec < 60) return 'Just now';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+    return `${Math.floor(diffSec / 86400)}d ago`;
+  };
+
+  const handleViewLocation = (friend: FriendRelation) => {
+    setViewLocationFriend(friend);
+    setFriendActionNotice(`Location sync for ${friend.friendName} (${friend.friendEclipseId}): Real-time GPS synchronization and map markers will be activated in Phase 9 Part 3.`);
+    setTimeout(() => {
+      setFriendActionNotice(null);
+    }, 5000);
+  };
+
+  const handleRemoveFriend = async (friend: FriendRelation) => {
+    if (!window.confirm(`Are you sure you want to remove ${friend.friendName} from your friends list? Location access will be revoked immediately.`)) return;
+    const actionKey = `remove_${friend.friendId}`;
     try {
       setErrorMsg(null);
-      await removeFriend(userId, friendId);
+      setIsProcessingAction((prev) => ({ ...prev, [actionKey]: true }));
+      await removeFriend(userId, friend.friendId);
+      setFriendActionNotice(`${friend.friendName} has been removed from your friends list.`);
+      setTimeout(() => setFriendActionNotice(null), 3500);
     } catch (err: any) {
-      setErrorMsg('Failed to remove friend.');
+      setErrorMsg(err.message || 'Failed to remove friend.');
+    } finally {
+      setIsProcessingAction((prev) => ({ ...prev, [actionKey]: false }));
+    }
+  };
+
+  const handleBlockFriend = async (friend: FriendRelation) => {
+    if (!window.confirm(`Block ${friend.friendName}? This will remove them from your friends list, revoke all location access, and prevent future friend requests.`)) return;
+    const actionKey = `block_${friend.friendId}`;
+    try {
+      setErrorMsg(null);
+      setIsProcessingAction((prev) => ({ ...prev, [actionKey]: true }));
+      await blockUser(userId, friend.friendId, friend.friendName, friend.friendEclipseId);
+      setFriendActionNotice(`${friend.friendName} has been blocked.`);
+      setTimeout(() => setFriendActionNotice(null), 3500);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to block user.');
+    } finally {
+      setIsProcessingAction((prev) => ({ ...prev, [actionKey]: false }));
     }
   };
 
@@ -906,9 +960,25 @@ export const GroupPanel: React.FC = () => {
 
           {/* 3. My Friends Registry */}
           <GlassPanel className="p-4 space-y-3 bg-neutral-950/40 border-neutral-900">
-            <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">
-              Active Friends ({friendsList.length})
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">
+                Active Friends ({friendsList.length})
+              </span>
+              {friendsList.length > 0 && (
+                <span className="text-[9px] text-neutral-600 font-medium">
+                  {friendsList.filter(f => f.online).length} online
+                </span>
+              )}
+            </div>
+
+            {/* Friend Action Feedback Notice */}
+            {friendActionNotice && (
+              <div className="p-2.5 bg-indigo-950/40 border border-indigo-500/30 rounded-xl text-xs text-indigo-300 flex items-center space-x-2 animate-in fade-in duration-200">
+                <CheckCircle size={14} className="text-indigo-400 shrink-0" />
+                <span className="text-[11px] leading-snug">{friendActionNotice}</span>
+              </div>
+            )}
+
             {friendsList.length === 0 ? (
               <div className="text-center py-8 space-y-2">
                 <Users size={28} className="text-neutral-700 mx-auto stroke-[1.2]" />
@@ -920,68 +990,89 @@ export const GroupPanel: React.FC = () => {
             ) : (
               <div className="space-y-2">
                 {friendsList.map((friend) => {
-                  const loc = friendsLocations[friend.friendId];
-                  const isStale = !loc || !loc.timestamp || (Date.now() - loc.timestamp > 120000);
-                  const isLive = loc && loc.sharingEnabled && !isStale;
-
-                  let distanceStr = 'Location unavailable';
-                  if (isLive && loc) {
-                    const dist = calculateDistanceInMeters(currentLocation, { lat: loc.lat, lng: loc.lng });
-                    distanceStr = dist < 1000 ? `${Math.round(dist)} m away` : `${(dist / 1000).toFixed(1)} km away`;
-                  }
+                  const isOnline = friend.online ?? true;
+                  const isRemoveBusy = !!isProcessingAction[`remove_${friend.friendId}`];
+                  const isBlockBusy = !!isProcessingAction[`block_${friend.friendId}`];
 
                   return (
                     <div
                       key={friend.friendId}
-                      className="flex items-center justify-between p-2.5 bg-neutral-950/60 border border-neutral-900 rounded-xl hover:border-neutral-800 transition-colors"
+                      className="flex items-center justify-between p-3 bg-neutral-950/60 border border-neutral-900 rounded-xl hover:border-neutral-800 transition-colors"
                     >
                       <div className="flex items-center space-x-2.5 min-w-0 flex-1">
-                        <div className="w-8 h-8 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center font-bold text-indigo-400 shrink-0 text-xs">
-                          {friend.friendName.slice(0, 2).toUpperCase()}
+                        <div className="relative shrink-0">
+                          {friend.friendPhotoUrl ? (
+                            <img
+                              src={friend.friendPhotoUrl}
+                              alt={friend.friendName}
+                              className="w-9 h-9 rounded-full object-cover border border-neutral-800"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center font-bold text-indigo-400 text-xs">
+                              {friend.friendName ? friend.friendName.slice(0, 2).toUpperCase() : '??'}
+                            </div>
+                          )}
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-neutral-950 ${
+                              isOnline ? 'bg-emerald-500' : 'bg-neutral-600'
+                            }`}
+                            title={isOnline ? 'Online' : 'Offline'}
+                          />
                         </div>
-                        <div className="min-w-0">
-                          <span className="text-xs font-bold text-neutral-200 truncate block">{friend.friendName}</span>
-                          <span className="text-[8px] text-indigo-400/80 font-mono block">{friend.friendEclipseId || 'Eclipse User'}</span>
-                          <div className="flex items-center space-x-1.5 mt-0.5">
-                            {isLive ? (
-                              <span className="inline-flex items-center text-[9px] text-emerald-400 bg-emerald-950/30 px-1.5 py-0.5 rounded-md border border-emerald-900/40 font-semibold">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse" />
-                                Live • {distanceStr}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center text-[9px] text-neutral-500 bg-neutral-900 px-1.5 py-0.5 rounded-md border border-neutral-800">
-                                Location unavailable
-                              </span>
-                            )}
+
+                        <div className="min-w-0 flex-1">
+                          <span className="text-xs font-bold text-neutral-200 truncate block">
+                            {friend.friendName}
+                          </span>
+                          <span className="text-[9px] text-indigo-400/90 font-mono block">
+                            {friend.friendEclipseId || 'Eclipse User'}
+                          </span>
+                          <div className="flex items-center space-x-1.5 mt-0.5 text-[9px]">
+                            <span
+                              className={`inline-flex items-center gap-1 font-semibold ${
+                                isOnline ? 'text-emerald-400' : 'text-neutral-500'
+                              }`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-neutral-600'
+                                }`}
+                              />
+                              {isOnline ? 'Online' : 'Offline'}
+                            </span>
+                            <span className="text-neutral-600">•</span>
+                            <span className="text-neutral-400">
+                              {formatLastActive(friend.lastActive, friend.timestamp, isOnline)}
+                            </span>
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center space-x-1.5 shrink-0">
-                        {isLive && loc && (
-                          <button
-                            onClick={() => {
-                              const stop = {
-                                id: `friend-${friend.friendId}`,
-                                name: friend.friendName,
-                                location: { lat: loc.lat, lng: loc.lng },
-                                theme: 'Friend',
-                              } as any;
-                              addStop(stop);
-                              setActiveTab('routes');
-                            }}
-                            className="flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all shadow-md shadow-emerald-900/20"
-                            title="Navigate to Friend"
-                          >
-                            <Compass size={11} className="animate-spin" style={{ animationDuration: '3s' }} />
-                            <span>Navigate</span>
-                          </button>
-                        )}
+
+                      {/* Friend Action Buttons */}
+                      <div className="flex items-center space-x-1.5 shrink-0 ml-2">
                         <button
-                          onClick={() => handleRemoveFriend(friend.friendId)}
-                          className="p-1.5 bg-neutral-900 hover:bg-rose-950/30 text-neutral-500 hover:text-rose-400 rounded-lg transition-colors border border-transparent hover:border-rose-900/30 shrink-0"
+                          onClick={() => handleViewLocation(friend)}
+                          className="flex items-center space-x-1 px-2.5 py-1.5 bg-indigo-600/90 hover:bg-indigo-600 active:scale-95 text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all shadow-sm"
+                          title="View Location"
+                        >
+                          <MapPin size={11} />
+                          <span>View Location</span>
+                        </button>
+                        <button
+                          onClick={() => handleRemoveFriend(friend)}
+                          disabled={isRemoveBusy || isBlockBusy}
+                          className="p-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-amber-400 rounded-lg transition-colors border border-neutral-800 shrink-0 disabled:opacity-50"
                           title="Remove Friend"
                         >
-                          <Trash2 size={13} />
+                          <UserMinus size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleBlockFriend(friend)}
+                          disabled={isRemoveBusy || isBlockBusy}
+                          className="p-1.5 bg-neutral-900 hover:bg-rose-950/40 text-neutral-400 hover:text-rose-400 rounded-lg transition-colors border border-neutral-800 hover:border-rose-900/50 shrink-0 disabled:opacity-50"
+                          title="Block User"
+                        >
+                          <ShieldAlert size={13} />
                         </button>
                       </div>
                     </div>

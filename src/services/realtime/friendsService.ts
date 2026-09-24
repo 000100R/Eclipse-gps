@@ -531,10 +531,18 @@ export const sendFriendRequest = async (
     return { success: false, error: 'You cannot send a friend request to yourself.' };
   }
 
-  // 1. Check local storage state for friends or existing pending requests
+  // 1. Check local storage state for friends or existing pending requests or blocks
   const localFriends = getLocalFriends();
   if (localFriends[senderId]?.[receiverId]) {
     return { success: false, error: 'You are already friends with this user.' };
+  }
+
+  const localBlocked = getLocalBlockedUsers();
+  if (localBlocked[senderId]?.[receiverId]) {
+    return { success: false, error: 'You have blocked this user. Unblock them first to send a friend request.' };
+  }
+  if (localBlocked[receiverId]?.[senderId]) {
+    return { success: false, error: 'Cannot send a friend request to this user.' };
   }
 
   const localOut = getLocalFriendRequests();
@@ -575,6 +583,19 @@ export const sendFriendRequest = async (
       const friendSnap = await getDoc(friendRef);
       if (friendSnap.exists()) {
         return { success: false, error: 'You are already friends with this user.' };
+      }
+
+      // Check if either user has blocked the other in Firestore
+      const myBlockedRef = doc(firestore, 'users', senderId, 'blockedUsers', receiverId);
+      const myBlockedSnap = await getDoc(myBlockedRef);
+      if (myBlockedSnap.exists()) {
+        return { success: false, error: 'You have blocked this user. Unblock them first to send a friend request.' };
+      }
+
+      const theirBlockedRef = doc(firestore, 'users', receiverId, 'blockedUsers', senderId);
+      const theirBlockedSnap = await getDoc(theirBlockedRef);
+      if (theirBlockedSnap.exists()) {
+        return { success: false, error: 'Cannot send a friend request to this user.' };
       }
 
       // Check if outgoing request already exists and is pending
@@ -835,6 +856,10 @@ export const removeFriend = async (myId: string, friendId: string): Promise<{ su
   if (friends[friendId]) delete friends[friendId][myId];
   saveLocalFriends(friends);
 
+  // Clear live location records to revoke location access immediately
+  clearLiveLocation(myId);
+  clearLiveLocation(friendId);
+
   triggerLocalFriendListeners('friends', myId);
   triggerLocalFriendListeners('friends', friendId);
 
@@ -842,8 +867,10 @@ export const removeFriend = async (myId: string, friendId: string): Promise<{ su
   if (isFirebaseConfigured()) {
     try {
       const firestore = getFirebaseFirestore();
-      await deleteDoc(doc(firestore, 'users', myId, 'friends', friendId));
-      await deleteDoc(doc(firestore, 'users', friendId, 'friends', myId));
+      await deleteDoc(doc(firestore, 'users', myId, 'friends', friendId)).catch(() => {});
+      await deleteDoc(doc(firestore, 'users', friendId, 'friends', myId)).catch(() => {});
+      await deleteDoc(doc(firestore, 'friendships', `${myId}_${friendId}`)).catch(() => {});
+      await deleteDoc(doc(firestore, 'friendships', `${friendId}_${myId}`)).catch(() => {});
     } catch (err) {
       console.warn('Firestore removeFriend error:', err);
     }
@@ -858,7 +885,7 @@ export const blockUser = async (
   targetName: string = '',
   targetEclipseId: string = ''
 ): Promise<{ success: boolean }> => {
-  // 1. First remove any active friendship
+  // 1. First remove any active friendship (also revokes location sharing)
   await removeFriend(myId, targetUserId);
 
   // 2. Clean up any pending requests
@@ -871,6 +898,11 @@ export const blockUser = async (
   if (out[myId]) delete out[myId][targetUserId];
   if (out[targetUserId]) delete out[targetUserId][myId];
   saveLocalFriendRequests(out);
+
+  triggerLocalFriendListeners('incoming_requests', myId);
+  triggerLocalFriendListeners('outgoing_requests', myId);
+  triggerLocalFriendListeners('incoming_requests', targetUserId);
+  triggerLocalFriendListeners('outgoing_requests', targetUserId);
 
   // 3. Add to local blocked users
   const blocked = getLocalBlockedUsers();
@@ -937,7 +969,14 @@ export const listenToFriends = (
     const lid = Math.random().toString();
     localFriendListeners.push({ id: lid, type: 'friends', targetId: userId, callback });
     const friends = getLocalFriends();
-    callback(Object.values(friends[userId] || {}));
+    const rawList = Object.values(friends[userId] || {});
+    const seen = new Set<string>();
+    const deduplicated = rawList.filter((f) => {
+      if (seen.has(f.friendId)) return false;
+      seen.add(f.friendId);
+      return true;
+    });
+    callback(deduplicated);
     return () => {
       localFriendListeners = localFriendListeners.filter((l) => l.id !== lid);
     };
@@ -950,25 +989,37 @@ export const listenToFriends = (
     friendsCollection,
     (snapshot) => {
       const list: FriendRelation[] = [];
+      const seenIds = new Set<string>();
       snapshot.forEach((d) => {
         const data = d.data();
-        list.push({
-          friendId: data.friendId || d.id,
-          friendName: data.friendName || 'Friend',
-          friendEclipseId: data.friendEclipseId || 'ECL-???????',
-          friendPhotoUrl: data.friendPhotoUrl || '',
-          online: data.online ?? true,
-          sharingEnabled: data.sharingEnabled ?? false,
-          lastActive: data.lastActive,
-          timestamp: data.timestamp || Date.now(),
-        });
+        const fId = data.friendId || d.id;
+        if (!seenIds.has(fId)) {
+          seenIds.add(fId);
+          list.push({
+            friendId: fId,
+            friendName: data.friendName || 'Friend',
+            friendEclipseId: data.friendEclipseId || 'ECL-???????',
+            friendPhotoUrl: data.friendPhotoUrl || '',
+            online: data.online ?? true,
+            sharingEnabled: data.sharingEnabled ?? false,
+            lastActive: data.lastActive,
+            timestamp: data.timestamp || Date.now(),
+          });
+        }
       });
       callback(list);
     },
     (error) => {
       console.warn('Error listening to friends in Firestore:', error);
       const friends = getLocalFriends();
-      callback(Object.values(friends[userId] || {}));
+      const rawList = Object.values(friends[userId] || {});
+      const seen = new Set<string>();
+      const deduplicated = rawList.filter((f) => {
+        if (seen.has(f.friendId)) return false;
+        seen.add(f.friendId);
+        return true;
+      });
+      callback(deduplicated);
     }
   );
 

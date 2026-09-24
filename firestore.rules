@@ -14,12 +14,13 @@ service cloud.firestore {
       // Friend subcollection
       match /friends/{friendId} {
         allow read: if true;
-        allow write: if request.auth == null || request.auth.uid == userId || request.auth.uid == friendId;
+        allow write, delete: if request.auth == null || request.auth.uid == userId || request.auth.uid == friendId;
       }
 
       // Blocked users subcollection
       match /blockedUsers/{blockedId} {
-        allow read, write: if request.auth == null || request.auth.uid == userId;
+        allow read: if request.auth == null || request.auth.uid == userId || request.auth.uid == blockedId;
+        allow write, delete: if request.auth == null || request.auth.uid == userId;
       }
     }
 
@@ -32,8 +33,10 @@ service cloud.firestore {
     // 4. FRIEND REQUEST RULES
     match /friendRequests/{requestId} {
       allow read: if true;
-      // Sender can create their own request
-      allow create: if request.auth == null || request.auth.uid == request.resource.data.senderId;
+      // Sender can create their own request if neither user is blocked
+      allow create: if (request.auth == null || request.auth.uid == request.resource.data.senderId)
+        && !exists(/databases/$(database)/documents/users/$(request.resource.data.receiverId)/blockedUsers/$(request.resource.data.senderId))
+        && !exists(/databases/$(database)/documents/users/$(request.resource.data.senderId)/blockedUsers/$(request.resource.data.receiverId));
       // Only sender or receiver can update (accept/decline) or delete (cancel) request
       allow update, delete: if request.auth == null || request.auth.uid == resource.data.senderId || request.auth.uid == resource.data.receiverId;
     }
