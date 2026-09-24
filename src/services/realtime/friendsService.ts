@@ -66,7 +66,25 @@ export interface FriendLocation {
   accuracy: number;
   timestamp: number;
   sharingEnabled: boolean;
+  sharingState?: LocationSharingMode;
+  authorizedFriendIds?: string[];
 }
+
+export type LocationSharingMode = 'off' | 'all' | 'selected';
+
+export interface LocationSharingSettings {
+  mode: LocationSharingMode;
+  enabled: boolean;
+  selectedFriendIds: string[];
+  updatedAt: number;
+}
+
+export const DEFAULT_LOCATION_SHARING_SETTINGS: LocationSharingSettings = {
+  mode: 'off',
+  enabled: false,
+  selectedFriendIds: [],
+  updatedAt: 0,
+};
 
 // ============================================================================
 // ECLIPSE ID GENERATION & NORMALIZATION
@@ -117,70 +135,98 @@ export function getOrCreateEclipseId(): string {
 // LOCAL STORAGE FALLBACK (For offline, local development, or no-Firebase mode)
 // ============================================================================
 
+const memStorage: Record<string, string> = {};
+
+const safeGetItem = (key: string): string | null => {
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    return localStorage.getItem(key);
+  }
+  return memStorage[key] || null;
+};
+
+const safeSetItem = (key: string, value: string): void => {
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    localStorage.setItem(key, value);
+  } else {
+    memStorage[key] = value;
+  }
+};
+
 const getLocalUsers = (): Record<string, UserProfile> => {
   try {
-    return JSON.parse(localStorage.getItem('local_users') || '{}');
+    return JSON.parse(safeGetItem('local_users') || '{}');
   } catch {
     return {};
   }
 };
-const saveLocalUsers = (u: any) => localStorage.setItem('local_users', JSON.stringify(u));
+const saveLocalUsers = (u: any) => safeSetItem('local_users', JSON.stringify(u));
 
 const getLocalFriends = (): Record<string, Record<string, FriendRelation>> => {
   try {
-    return JSON.parse(localStorage.getItem('local_friends') || '{}');
+    return JSON.parse(safeGetItem('local_friends') || '{}');
   } catch {
     return {};
   }
 };
-const saveLocalFriends = (f: any) => localStorage.setItem('local_friends', JSON.stringify(f));
+const saveLocalFriends = (f: any) => safeSetItem('local_friends', JSON.stringify(f));
 
 const getLocalFriendRequests = (): Record<string, Record<string, FriendRequest>> => {
   try {
-    return JSON.parse(localStorage.getItem('local_friend_requests') || '{}');
+    return JSON.parse(safeGetItem('local_friend_requests') || '{}');
   } catch {
     return {};
   }
 };
-const saveLocalFriendRequests = (r: any) => localStorage.setItem('local_friend_requests', JSON.stringify(r));
+const saveLocalFriendRequests = (r: any) => safeSetItem('local_friend_requests', JSON.stringify(r));
 
 const getLocalFriendRequestsReceived = (): Record<string, Record<string, FriendRequest>> => {
   try {
-    return JSON.parse(localStorage.getItem('local_friend_requests_received') || '{}');
+    return JSON.parse(safeGetItem('local_friend_requests_received') || '{}');
   } catch {
     return {};
   }
 };
-const saveLocalFriendRequestsReceived = (r: any) => localStorage.setItem('local_friend_requests_received', JSON.stringify(r));
+const saveLocalFriendRequestsReceived = (r: any) => safeSetItem('local_friend_requests_received', JSON.stringify(r));
 
 const getLocalBlockedUsers = (): Record<string, Record<string, BlockedUser>> => {
   try {
-    return JSON.parse(localStorage.getItem('local_blocked_users') || '{}');
+    return JSON.parse(safeGetItem('local_blocked_users') || '{}');
   } catch {
     return {};
   }
 };
-const saveLocalBlockedUsers = (b: any) => localStorage.setItem('local_blocked_users', JSON.stringify(b));
+const saveLocalBlockedUsers = (b: any) => safeSetItem('local_blocked_users', JSON.stringify(b));
 
 const getLocalUserLocations = (): Record<string, FriendLocation> => {
   try {
-    return JSON.parse(localStorage.getItem('local_user_locations') || '{}');
+    return JSON.parse(safeGetItem('local_user_locations') || '{}');
   } catch {
     return {};
   }
 };
-const saveLocalUserLocations = (l: any) => localStorage.setItem('local_user_locations', JSON.stringify(l));
+const saveLocalUserLocations = (l: any) => safeSetItem('local_user_locations', JSON.stringify(l));
+
+const getLocalLocationSharingSettings = (): Record<string, LocationSharingSettings> => {
+  try {
+    return JSON.parse(safeGetItem('local_location_sharing_settings') || '{}');
+  } catch {
+    return {};
+  }
+};
+const saveLocalLocationSharingSettings = (s: any) =>
+  safeSetItem('local_location_sharing_settings', JSON.stringify(s));
 
 interface LocalFriendListener {
   id: string;
-  type: 'incoming_requests' | 'outgoing_requests' | 'friends' | 'friend_location' | 'blocked_users';
+  type: 'incoming_requests' | 'outgoing_requests' | 'friends' | 'friend_location' | 'blocked_users' | 'location_sharing';
   targetId: string;
+  callerId?: string;
   callback: (data: any) => void;
 }
 let localFriendListeners: LocalFriendListener[] = [];
 
 const triggerLocalFriendListeners = (
-  type: 'incoming_requests' | 'outgoing_requests' | 'friends' | 'friend_location' | 'blocked_users',
+  type: 'incoming_requests' | 'outgoing_requests' | 'friends' | 'friend_location' | 'blocked_users' | 'location_sharing',
   targetId: string
 ) => {
   localFriendListeners.forEach((l) => {
@@ -200,7 +246,18 @@ const triggerLocalFriendListeners = (
       } else if (type === 'friend_location') {
         const locs = getLocalUserLocations();
         const userLoc = locs[targetId] || null;
-        l.callback(userLoc);
+        if (!userLoc || !userLoc.sharingEnabled) {
+          l.callback(null);
+        } else if (l.callerId && Array.isArray(userLoc.authorizedFriendIds)) {
+          const isAuth =
+            userLoc.authorizedFriendIds.includes('*') || userLoc.authorizedFriendIds.includes(l.callerId);
+          l.callback(isAuth ? userLoc : null);
+        } else {
+          l.callback(userLoc);
+        }
+      } else if (type === 'location_sharing') {
+        const settings = getLocalLocationSharingSettings();
+        l.callback(settings[targetId] || { ...DEFAULT_LOCATION_SHARING_SETTINGS, updatedAt: Date.now() });
       }
     }
   });
@@ -856,6 +913,30 @@ export const removeFriend = async (myId: string, friendId: string): Promise<{ su
   if (friends[friendId]) delete friends[friendId][myId];
   saveLocalFriends(friends);
 
+  // Revoke active location sharing permission between the two users
+  const localSettings = getLocalLocationSharingSettings();
+  let changedMy = false;
+  let changedFriend = false;
+  if (localSettings[myId]?.selectedFriendIds?.includes(friendId)) {
+    localSettings[myId].selectedFriendIds = localSettings[myId].selectedFriendIds.filter((id) => id !== friendId);
+    if (localSettings[myId].mode === 'selected' && localSettings[myId].selectedFriendIds.length === 0) {
+      localSettings[myId].enabled = false;
+    }
+    changedMy = true;
+  }
+  if (localSettings[friendId]?.selectedFriendIds?.includes(myId)) {
+    localSettings[friendId].selectedFriendIds = localSettings[friendId].selectedFriendIds.filter((id) => id !== myId);
+    if (localSettings[friendId].mode === 'selected' && localSettings[friendId].selectedFriendIds.length === 0) {
+      localSettings[friendId].enabled = false;
+    }
+    changedFriend = true;
+  }
+  if (changedMy || changedFriend) {
+    saveLocalLocationSharingSettings(localSettings);
+    if (changedMy) triggerLocalFriendListeners('location_sharing', myId);
+    if (changedFriend) triggerLocalFriendListeners('location_sharing', friendId);
+  }
+
   // Clear live location records to revoke location access immediately
   clearLiveLocation(myId);
   clearLiveLocation(friendId);
@@ -871,6 +952,8 @@ export const removeFriend = async (myId: string, friendId: string): Promise<{ su
       await deleteDoc(doc(firestore, 'users', friendId, 'friends', myId)).catch(() => {});
       await deleteDoc(doc(firestore, 'friendships', `${myId}_${friendId}`)).catch(() => {});
       await deleteDoc(doc(firestore, 'friendships', `${friendId}_${myId}`)).catch(() => {});
+      await deleteDoc(doc(firestore, 'users', myId, 'locationPermissions', friendId)).catch(() => {});
+      await deleteDoc(doc(firestore, 'users', friendId, 'locationPermissions', myId)).catch(() => {});
     } catch (err) {
       console.warn('Firestore removeFriend error:', err);
     }
@@ -1177,25 +1260,385 @@ export const listenToBlockedUsers = (
 };
 
 // ============================================================================
-// LIVE LOCATION SHARING (Preserved for GPS/Navigation integration)
+// LOCATION SHARING CONTROLS & PERMISSION ARCHITECTURE (Phase 9 Part 3A)
 // ============================================================================
+
+/**
+ * Retrieves the current user's location sharing configuration.
+ * Default is always OFF.
+ */
+export const getLocationSharingSettings = async (userId: string): Promise<LocationSharingSettings> => {
+  if (!userId) return { ...DEFAULT_LOCATION_SHARING_SETTINGS };
+
+  // 1. Check local storage
+  const localMap = getLocalLocationSharingSettings();
+  const localSetting = localMap[userId];
+
+  if (!isFirebaseConfigured()) {
+    return localSetting || { ...DEFAULT_LOCATION_SHARING_SETTINGS, updatedAt: Date.now() };
+  }
+
+  try {
+    const firestore = getFirebaseFirestore();
+    const userDocRef = doc(firestore, 'users', userId);
+    const snap = await getDoc(userDocRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data.locationSharing) {
+        const firestoreSetting: LocationSharingSettings = {
+          mode: data.locationSharing.mode || 'off',
+          enabled: data.locationSharing.enabled ?? false,
+          selectedFriendIds: Array.isArray(data.locationSharing.selectedFriendIds)
+            ? data.locationSharing.selectedFriendIds
+            : [],
+          updatedAt: typeof data.locationSharing.updatedAt === 'number'
+            ? data.locationSharing.updatedAt
+            : Date.now(),
+        };
+        // sync to local
+        localMap[userId] = firestoreSetting;
+        saveLocalLocationSharingSettings(localMap);
+        return firestoreSetting;
+      }
+    }
+  } catch (err) {
+    console.warn('Error fetching locationSharing from Firestore:', err);
+  }
+
+  return localSetting || { ...DEFAULT_LOCATION_SHARING_SETTINGS, updatedAt: Date.now() };
+};
+
+/**
+ * Updates the user's location sharing configuration.
+ * Supports:
+ * - 'off': Stop sharing, revoke active permissions, clear live location
+ * - 'all': Share with all friends
+ * - 'selected': Share with explicitly selected friends
+ */
+export const updateLocationSharingSettings = async (
+  userId: string,
+  updates: {
+    mode: LocationSharingMode;
+    selectedFriendIds?: string[];
+  }
+): Promise<{ success: boolean; settings: LocationSharingSettings }> => {
+  if (!userId) return { success: false, settings: { ...DEFAULT_LOCATION_SHARING_SETTINGS } };
+
+  const mode = updates.mode;
+  let selectedFriendIds = updates.selectedFriendIds ? [...updates.selectedFriendIds] : [];
+
+  // Filter out any blocked users from selectedFriendIds
+  const localBlocked = getLocalBlockedUsers();
+  const myBlocked = localBlocked[userId] || {};
+  selectedFriendIds = selectedFriendIds.filter((fId) => !myBlocked[fId]);
+
+  let enabled = false;
+  if (mode === 'all') {
+    enabled = true;
+  } else if (mode === 'selected') {
+    enabled = selectedFriendIds.length > 0;
+  } else {
+    // 'off'
+    enabled = false;
+    selectedFriendIds = [];
+  }
+
+  const newSettings: LocationSharingSettings = {
+    mode,
+    enabled,
+    selectedFriendIds,
+    updatedAt: Date.now(),
+  };
+
+  // 1. Update local storage
+  const localMap = getLocalLocationSharingSettings();
+  localMap[userId] = newSettings;
+  saveLocalLocationSharingSettings(localMap);
+
+  // Update local friends sharingEnabled status
+  const friendsMap = getLocalFriends();
+  if (friendsMap[userId]) {
+    Object.values(friendsMap[userId]).forEach((friend) => {
+      if (mode === 'all') {
+        friend.sharingEnabled = true;
+      } else if (mode === 'selected') {
+        friend.sharingEnabled = selectedFriendIds.includes(friend.friendId);
+      } else {
+        friend.sharingEnabled = false;
+      }
+    });
+    saveLocalFriends(friendsMap);
+  }
+
+  // If sharing is turned OFF, clear live location immediately
+  if (!enabled) {
+    await clearLiveLocation(userId);
+  }
+
+  // Trigger local listeners
+  triggerLocalFriendListeners('location_sharing', userId);
+  triggerLocalFriendListeners('friends', userId);
+
+  // 2. Sync to Firestore
+  if (isFirebaseConfigured()) {
+    try {
+      const firestore = getFirebaseFirestore();
+      const userRef = doc(firestore, 'users', userId);
+
+      await setDoc(
+        userRef,
+        {
+          locationSharing: {
+            mode,
+            enabled,
+            selectedFriendIds,
+            updatedAt: serverTimestamp(),
+          },
+          shareLocationWithFriends: enabled,
+        },
+        { merge: true }
+      );
+
+      // Also update subcollections: locationPermissions and friends
+      const friendsSnap = await getDocs(collection(firestore, 'users', userId, 'friends'));
+      const batchPromises: Promise<any>[] = [];
+
+      friendsSnap.forEach((fDoc) => {
+        const friendId = fDoc.id;
+        const isAuthorized =
+          mode === 'all'
+            ? true
+            : mode === 'selected'
+            ? selectedFriendIds.includes(friendId)
+            : false;
+
+        // Update friend doc sharingEnabled
+        batchPromises.push(
+          setDoc(
+            doc(firestore, 'users', userId, 'friends', friendId),
+            { sharingEnabled: isAuthorized },
+            { merge: true }
+          ).catch(() => {})
+        );
+
+        // Update locationPermissions subcollection
+        batchPromises.push(
+          setDoc(
+            doc(firestore, 'users', userId, 'locationPermissions', friendId),
+            {
+              friendId,
+              authorized: isAuthorized,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          ).catch(() => {})
+        );
+      });
+
+      await Promise.all(batchPromises);
+    } catch (err) {
+      console.warn('Error updating location sharing in Firestore:', err);
+    }
+  }
+
+  return { success: true, settings: newSettings };
+};
+
+/**
+ * Explicitly stops location sharing.
+ * Disables sharing, revokes active permissions, clears live location immediately.
+ */
+export const stopLocationSharing = async (
+  userId: string
+): Promise<{ success: boolean; settings: LocationSharingSettings }> => {
+  return updateLocationSharingSettings(userId, { mode: 'off', selectedFriendIds: [] });
+};
+
+/**
+ * Toggles sharing permission for a specific friend.
+ */
+export const toggleFriendSharingPermission = async (
+  userId: string,
+  friendId: string
+): Promise<{ success: boolean; settings: LocationSharingSettings }> => {
+  const current = await getLocationSharingSettings(userId);
+  let newSelected = [...current.selectedFriendIds];
+
+  if (current.mode === 'all') {
+    // If it was 'all', switching to granular selection means selecting all active friends except this one
+    const friendsMap = getLocalFriends();
+    const activeFriends = Object.keys(friendsMap[userId] || {});
+    newSelected = activeFriends.filter((id) => id !== friendId);
+  } else {
+    if (newSelected.includes(friendId)) {
+      newSelected = newSelected.filter((id) => id !== friendId);
+    } else {
+      newSelected.push(friendId);
+    }
+  }
+
+  return updateLocationSharingSettings(userId, {
+    mode: 'selected',
+    selectedFriendIds: newSelected,
+  });
+};
+
+/**
+ * Sets explicit sharing permission for a specific friend.
+ */
+export const setFriendSharingPermission = async (
+  userId: string,
+  friendId: string,
+  allowed: boolean
+): Promise<{ success: boolean; settings: LocationSharingSettings }> => {
+  const current = await getLocationSharingSettings(userId);
+  let newSelected = [...current.selectedFriendIds];
+
+  if (current.mode === 'all') {
+    const friendsMap = getLocalFriends();
+    const activeFriends = Object.keys(friendsMap[userId] || {});
+    newSelected = allowed
+      ? activeFriends
+      : activeFriends.filter((id) => id !== friendId);
+  } else {
+    if (allowed) {
+      if (!newSelected.includes(friendId)) newSelected.push(friendId);
+    } else {
+      newSelected = newSelected.filter((id) => id !== friendId);
+    }
+  }
+
+  return updateLocationSharingSettings(userId, {
+    mode: 'selected',
+    selectedFriendIds: newSelected,
+  });
+};
+
+/**
+ * Real-time listener for the user's location sharing settings.
+ */
+export const listenToLocationSharingSettings = (
+  userId: string,
+  callback: (settings: LocationSharingSettings) => void
+): (() => void) => {
+  if (!userId) {
+    callback({ ...DEFAULT_LOCATION_SHARING_SETTINGS });
+    return () => {};
+  }
+
+  if (!isFirebaseConfigured()) {
+    const lid = Math.random().toString();
+    localFriendListeners.push({ id: lid, type: 'location_sharing', targetId: userId, callback });
+    const settings = getLocalLocationSharingSettings();
+    callback(settings[userId] || { ...DEFAULT_LOCATION_SHARING_SETTINGS, updatedAt: Date.now() });
+    return () => {
+      localFriendListeners = localFriendListeners.filter((l) => l.id !== lid);
+    };
+  }
+
+  const firestore = getFirebaseFirestore();
+  const userRef = doc(firestore, 'users', userId);
+
+  const unsubscribe = onSnapshot(
+    userRef,
+    (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.locationSharing) {
+          const s: LocationSharingSettings = {
+            mode: data.locationSharing.mode || 'off',
+            enabled: data.locationSharing.enabled ?? false,
+            selectedFriendIds: Array.isArray(data.locationSharing.selectedFriendIds)
+              ? data.locationSharing.selectedFriendIds
+              : [],
+            updatedAt:
+              typeof data.locationSharing.updatedAt === 'number'
+                ? data.locationSharing.updatedAt
+                : Date.now(),
+          };
+          callback(s);
+          return;
+        }
+      }
+      callback({ ...DEFAULT_LOCATION_SHARING_SETTINGS, updatedAt: Date.now() });
+    },
+    (error) => {
+      console.warn('Error listening to location sharing in Firestore:', error);
+      const settings = getLocalLocationSharingSettings();
+      callback(settings[userId] || { ...DEFAULT_LOCATION_SHARING_SETTINGS, updatedAt: Date.now() });
+    }
+  );
+
+  return unsubscribe;
+};
+
+/**
+ * Verifies if friendId is authorized to receive userId's location.
+ */
+export const isFriendAuthorizedToReceiveLocation = async (
+  userId: string,
+  friendId: string
+): Promise<boolean> => {
+  if (!userId || !friendId || userId === friendId) return false;
+
+  // 1. Check if either user has blocked the other
+  const localBlocked = getLocalBlockedUsers();
+  if (localBlocked[userId]?.[friendId] || localBlocked[friendId]?.[userId]) {
+    return false;
+  }
+
+  // 2. Check if they are friends
+  const localFriends = getLocalFriends();
+  if (!localFriends[userId]?.[friendId]) {
+    return false;
+  }
+
+  // 3. Check sharing settings
+  const settings = await getLocationSharingSettings(userId);
+  if (!settings.enabled || settings.mode === 'off') {
+    return false;
+  }
+
+  if (settings.mode === 'all') {
+    return true;
+  }
+
+  if (settings.mode === 'selected') {
+    return settings.selectedFriendIds.includes(friendId);
+  }
+
+  return false;
+};
+
+// ============================================================================
+// LIVE LOCATION SHARING (Phase 9 Part 3B Firestore Live-Location Layer)
+// ============================================================================
+
+export interface PublishLiveLocationOptions {
+  mode?: LocationSharingMode;
+  authorizedFriendIds?: string[];
+}
 
 export const publishLiveLocation = async (
   userId: string,
   latitude: number,
   longitude: number,
   accuracy: number | null,
-  sharingEnabled: boolean
+  sharingEnabled: boolean,
+  options?: PublishLiveLocationOptions
 ): Promise<void> => {
-  if (!isFirebaseConfigured()) {
-    const locs = getLocalUserLocations();
-    if (!sharingEnabled) {
+  const mode = options?.mode || 'all';
+  const authorizedFriendIds = options?.authorizedFriendIds || (mode === 'all' ? ['*'] : []);
+
+  // 1. Local fallback synchronization
+  const locs = getLocalUserLocations();
+  if (!sharingEnabled) {
+    if (locs[userId]) {
       delete locs[userId];
       saveLocalUserLocations(locs);
       setTimeout(() => triggerLocalFriendListeners('friend_location', userId), 10);
-      return;
     }
-
+  } else {
     locs[userId] = {
       userId,
       lat: latitude,
@@ -1203,12 +1646,47 @@ export const publishLiveLocation = async (
       accuracy: accuracy || 0,
       timestamp: Date.now(),
       sharingEnabled: true,
+      sharingState: mode,
+      authorizedFriendIds,
     };
     saveLocalUserLocations(locs);
-    setTimeout(() => triggerLocalFriendListeners('friend_location', userId), 10);
+    triggerLocalFriendListeners('friend_location', userId);
+  }
+
+  if (!isFirebaseConfigured()) {
     return;
   }
 
+  // 2. Primary: Firestore /userLocations/{userId}
+  try {
+    const firestore = getFirebaseFirestore();
+    const locDocRef = doc(firestore, 'userLocations', userId);
+
+    if (!sharingEnabled) {
+      await deleteDoc(locDocRef).catch(() => {});
+    } else {
+      // Store ONLY the minimum required information to protect user privacy
+      await setDoc(
+        locDocRef,
+        {
+          userId,
+          latitude,
+          longitude,
+          accuracy: accuracy || 0,
+          timestamp: serverTimestamp(),
+          sharingState: mode,
+          sharingEnabled: true,
+          authorizedFriendIds,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+  } catch (err) {
+    console.warn('Firestore publishLiveLocation error:', err);
+  }
+
+  // 3. RTDB sync (optional fast socket broadcast)
   try {
     const db = getFirebaseDatabase();
     const locationRef = ref(db, `locations/${userId}`);
@@ -1216,85 +1694,160 @@ export const publishLiveLocation = async (
     if (!sharingEnabled) {
       await onDisconnect(locationRef).cancel();
       await remove(locationRef);
-      return;
+    } else {
+      await onDisconnect(locationRef).remove();
+      await set(locationRef, {
+        lat: latitude,
+        lng: longitude,
+        accuracy: accuracy || 0,
+        timestamp: rtdbServerTimestamp(),
+        sharingEnabled: true,
+        sharingState: mode,
+        authorizedFriendIds,
+      });
     }
-
-    await onDisconnect(locationRef).remove();
-    await set(locationRef, {
-      lat: latitude,
-      lng: longitude,
-      accuracy: accuracy || 0,
-      timestamp: rtdbServerTimestamp(),
-      sharingEnabled: true,
-    });
   } catch (err) {
-    console.warn('RTDB publishLiveLocation error:', err);
+    // Non-fatal if RTDB is optional
   }
 };
 
 export const clearLiveLocation = async (userId: string): Promise<void> => {
-  if (!isFirebaseConfigured()) {
-    const locs = getLocalUserLocations();
+  // 1. Local fallback
+  const locs = getLocalUserLocations();
+  if (locs[userId]) {
     delete locs[userId];
     saveLocalUserLocations(locs);
-    setTimeout(() => triggerLocalFriendListeners('friend_location', userId), 10);
+    triggerLocalFriendListeners('friend_location', userId);
+  }
+
+  if (!isFirebaseConfigured()) {
     return;
   }
 
+  // 2. Firestore delete
+  try {
+    const firestore = getFirebaseFirestore();
+    const locDocRef = doc(firestore, 'userLocations', userId);
+    await deleteDoc(locDocRef).catch(() => {});
+  } catch (err) {
+    console.warn('Firestore clearLiveLocation error:', err);
+  }
+
+  // 3. RTDB remove
   try {
     const db = getFirebaseDatabase();
     const locationRef = ref(db, `locations/${userId}`);
     await onDisconnect(locationRef).cancel();
     await remove(locationRef);
   } catch (err) {
-    console.warn('RTDB clearLiveLocation error:', err);
+    // Non-fatal
   }
 };
 
 export const listenToFriendLocation = (
   friendId: string,
-  callback: (location: FriendLocation | null) => void
+  callback: (location: FriendLocation | null) => void,
+  currentUserId?: string
 ): (() => void) => {
+  // Local fallback
   if (!isFirebaseConfigured()) {
     const lid = Math.random().toString();
-    localFriendListeners.push({ id: lid, type: 'friend_location', targetId: friendId, callback });
+    localFriendListeners.push({ id: lid, type: 'friend_location', targetId: friendId, callerId: currentUserId, callback });
     const locs = getLocalUserLocations();
-    callback(locs[friendId] || null);
+    const loc = locs[friendId];
+    if (!loc || !loc.sharingEnabled) {
+      callback(null);
+    } else if (currentUserId && loc.authorizedFriendIds) {
+      const isAuth =
+        loc.authorizedFriendIds.includes('*') || loc.authorizedFriendIds.includes(currentUserId);
+      callback(isAuth ? loc : null);
+    } else {
+      callback(loc);
+    }
     return () => {
       localFriendListeners = localFriendListeners.filter((l) => l.id !== lid);
     };
   }
 
-  try {
-    const db = getFirebaseDatabase();
-    const locationRef = ref(db, `locations/${friendId}`);
+  // Live Firebase Firestore listener (Primary)
+  let active = true;
+  let firestoreUnsub: (() => void) | null = null;
+  let rtdbListener: any = null;
+  let rtdbLocationRef: any = null;
 
-    const listener = onValue(
-      locationRef,
+  try {
+    const firestore = getFirebaseFirestore();
+    const locDocRef = doc(firestore, 'userLocations', friendId);
+
+    firestoreUnsub = onSnapshot(
+      locDocRef,
       (snapshot) => {
-        const data = snapshot.val();
+        if (!active) return;
+        if (!snapshot.exists()) {
+          callback(null);
+          return;
+        }
+
+        const data = snapshot.data();
         if (!data || !data.sharingEnabled) {
           callback(null);
           return;
         }
+
+        // Authorization check: only authorized friends can receive location data
+        if (currentUserId && Array.isArray(data.authorizedFriendIds)) {
+          const isAuthorized =
+            data.authorizedFriendIds.includes('*') || data.authorizedFriendIds.includes(currentUserId);
+          if (!isAuthorized) {
+            callback(null);
+            return;
+          }
+        }
+
+        const lat = typeof data.latitude === 'number' ? data.latitude : data.lat;
+        const lng = typeof data.longitude === 'number' ? data.longitude : data.lng;
+
+        if (typeof lat !== 'number' || typeof lng !== 'number') {
+          callback(null);
+          return;
+        }
+
+        let timestampMs = Date.now();
+        if (typeof data.timestamp === 'number') {
+          timestampMs = data.timestamp;
+        } else if (data.timestamp?.toMillis) {
+          timestampMs = data.timestamp.toMillis();
+        } else if (data.updatedAt?.toMillis) {
+          timestampMs = data.updatedAt.toMillis();
+        }
+
         callback({
           userId: friendId,
-          lat: data.lat,
-          lng: data.lng,
-          accuracy: data.accuracy,
-          timestamp: typeof data.timestamp === 'number' ? data.timestamp : Date.now(),
-          sharingEnabled: data.sharingEnabled,
+          lat,
+          lng,
+          accuracy: data.accuracy || 0,
+          timestamp: timestampMs,
+          sharingEnabled: true,
         });
       },
       (error) => {
-        console.warn(`Error reading location for friend ${friendId}:`, error);
+        console.warn(`Firestore listenToFriendLocation error for ${friendId}:`, error);
         callback(null);
       }
     );
-
-    return () => off(locationRef, 'value', listener);
   } catch (err) {
-    console.warn('Error setting up location listener:', err);
-    return () => {};
+    console.warn('Error setting up Firestore location listener:', err);
   }
+
+  return () => {
+    active = false;
+    if (firestoreUnsub) {
+      firestoreUnsub();
+      firestoreUnsub = null;
+    }
+    if (rtdbLocationRef && rtdbListener) {
+      off(rtdbLocationRef, 'value', rtdbListener);
+      rtdbListener = null;
+    }
+  };
 };

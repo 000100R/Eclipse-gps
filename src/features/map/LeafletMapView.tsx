@@ -22,6 +22,7 @@ import { crowdIntelligenceService } from '../../services/intelligence/crowdIntel
 import { trafficIntelligenceService } from '../../services/intelligence/trafficIntelligenceService';
 import { clusterMarkers } from '../../utils/markerCluster';
 import { extractLocation } from '../../services/routing/routingService';
+import { getFriendLocationStatus, buildFriendMarkerSvg, buildFriendPopupHtml } from './friendMarkerUtils';
 import L from 'leaflet';
 
 export const LeafletMapView: React.FC = () => {
@@ -39,6 +40,14 @@ export const LeafletMapView: React.FC = () => {
   const gpsAccuracyCircleRef = useRef<L.Circle | null>(null);
   const groupMarkersRef = useRef<L.LayerGroup | null>(null);
   const friendMarkersRef = useRef<L.LayerGroup | null>(null);
+  interface ActiveLeafletFriendMarker {
+    marker: L.Marker;
+    lastLat: number;
+    lastLng: number;
+    lastTimestamp: number;
+    status: 'live' | 'stale' | 'offline';
+  }
+  const friendMarkersMapRef = useRef<Map<string, ActiveLeafletFriendMarker>>(new Map());
   const crowdLayerRef = useRef<L.LayerGroup | null>(null);
   const trafficLayerRef = useRef<L.LayerGroup | null>(null);
   const metroGateLayerRef = useRef<L.LayerGroup | null>(null);
@@ -73,6 +82,8 @@ export const LeafletMapView: React.FC = () => {
     activeGroup,
     friendsList,
     friendsLocations,
+    blockedUsers,
+    setActiveTab,
     userId,
     pandalCrowdCounts,
     pandalCrowdTrends,
@@ -642,47 +653,165 @@ export const LeafletMapView: React.FC = () => {
 
   }, [activeGroup, userId]);
 
-  // Draw live friend markers
+  // Global handler for Friend Marker navigation action
+  useEffect(() => {
+    (window as any).__eclipseNavigateToFriend = async (
+      friendId: string,
+      friendNameEncoded: string,
+      lat: number,
+      lng: number
+    ) => {
+      const friendName = decodeURIComponent(friendNameEncoded);
+      await calculateRouteToItem({
+        id: `friend-${friendId}`,
+        name: friendName,
+        category: 'friend',
+        location: { lat, lng },
+      });
+      setIsNavigating(true);
+      setActiveTab('home');
+    };
+
+    return () => {
+      delete (window as any).__eclipseNavigateToFriend;
+    };
+  }, [calculateRouteToItem, setIsNavigating, setActiveTab]);
+
+  // 👥 Draw and Sync live friend markers (Phase 9 Part 3C)
   useEffect(() => {
     const map = mapInstanceRef.current;
     const friendMarkers = friendMarkersRef.current;
     if (!map || !friendMarkers) return;
 
-    friendMarkers.clearLayers();
-    if (isLostInCrowdActive) return;
+    const markersMap = friendMarkersMapRef.current;
+
+    if (isLostInCrowdActive) {
+      markersMap.forEach(({ marker }) => {
+        marker.closePopup();
+        friendMarkers.removeLayer(marker);
+      });
+      markersMap.clear();
+      return;
+    }
+
+    const validFriendIds = new Set<string>();
 
     friendsList.forEach((friend) => {
+      // Must not be blocked in either direction
+      if (blockedUsers.some((b) => b.blockedId === friend.friendId)) return;
+
       const loc = friendsLocations[friend.friendId];
       if (!loc || !loc.sharingEnabled) return;
 
-      // Filter out stale locations (> 120 seconds old)
-      const isStale = Date.now() - loc.timestamp > 120000;
-      if (isStale) return;
+      validFriendIds.add(friend.friendId);
 
-      const friendHtml = `
-        <div class="relative flex flex-col items-center justify-center">
-          <div class="absolute w-12 h-12 rounded-full bg-emerald-500/20 animate-ping duration-1000"></div>
-          <div class="absolute -top-7 bg-emerald-950/95 text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-md border border-emerald-800/80 shadow-md whitespace-nowrap z-[1000]">
-            🟢 ${friend.friendName}
-          </div>
-          <div class="w-7 h-7 rounded-full bg-emerald-500 border-2 border-neutral-950 flex items-center justify-center shadow-lg shadow-emerald-500/50 font-bold text-white text-[10px] relative z-20">
-            ${friend.friendName.slice(0, 2).toUpperCase()}
-          </div>
-        </div>
-      `;
+      const statusInfo = getFriendLocationStatus(loc.timestamp);
+      const existing = markersMap.get(friend.friendId);
 
-      const friendIcon = L.divIcon({
-        html: friendHtml,
-        className: '',
-        iconSize: [48, 48],
-        iconAnchor: [24, 24],
+      const friendIcon = L.icon({
+        iconUrl: buildFriendMarkerSvg(friend, statusInfo),
+        iconSize: [46, 54],
+        iconAnchor: [23, 51],
+        popupAnchor: [0, -48],
       });
 
-      const marker = L.marker([loc.lat, loc.lng], { icon: friendIcon });
-      friendMarkers.addLayer(marker);
+      const popupHtml = buildFriendPopupHtml(friend, loc, statusInfo);
+
+      if (existing) {
+        // 1. UPDATE EXISTING MARKER POSITION (No duplicate marker, no map recreation)
+        if (existing.lastLat !== loc.lat || existing.lastLng !== loc.lng) {
+          existing.marker.setLatLng([loc.lat, loc.lng]);
+          existing.lastLat = loc.lat;
+          existing.lastLng = loc.lng;
+        }
+
+        // Update icon if status changed
+        if (existing.status !== statusInfo.status) {
+          existing.status = statusInfo.status;
+          existing.marker.setIcon(friendIcon);
+        }
+
+        // Update popup content with latest timestamp and coordinates
+        existing.lastTimestamp = loc.timestamp;
+        existing.marker.setPopupContent(popupHtml);
+      } else {
+        // 2. CREATE DEDICATED FRIEND MARKER (Unique per friend)
+        const marker = L.marker([loc.lat, loc.lng], {
+          icon: friendIcon,
+          zIndexOffset: 600,
+          title: `Friend: ${friend.friendName} (${friend.friendEclipseId})`,
+        });
+
+        marker.bindPopup(popupHtml, {
+          className: 'eclipse-custom-leaflet-popup',
+          closeButton: true,
+          autoPan: false,
+        });
+
+        friendMarkers.addLayer(marker);
+
+        markersMap.set(friend.friendId, {
+          marker,
+          lastLat: loc.lat,
+          lastLng: loc.lng,
+          lastTimestamp: loc.timestamp,
+          status: statusInfo.status,
+        });
+      }
     });
 
-  }, [friendsList, friendsLocations, isLostInCrowdActive]);
+    // 3. CLEAN UP REMOVED / STOPPED / BLOCKED FRIENDS
+    markersMap.forEach((entry, fId) => {
+      if (!validFriendIds.has(fId)) {
+        entry.marker.closePopup();
+        friendMarkers.removeLayer(entry.marker);
+        markersMap.delete(fId);
+      }
+    });
+  }, [friendsList, friendsLocations, blockedUsers, isLostInCrowdActive]);
+
+  // Periodic Staleness Check: refresh visual status (live -> stale -> offline) every 30s
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const markersMap = friendMarkersMapRef.current;
+      if (markersMap.size === 0) return;
+
+      friendsList.forEach((friend) => {
+        const existing = markersMap.get(friend.friendId);
+        const loc = friendsLocations[friend.friendId];
+        if (!existing || !loc) return;
+
+        const currentStatus = getFriendLocationStatus(loc.timestamp);
+        if (existing.status !== currentStatus.status) {
+          existing.status = currentStatus.status;
+          const friendIcon = L.icon({
+            iconUrl: buildFriendMarkerSvg(friend, currentStatus),
+            iconSize: [46, 54],
+            iconAnchor: [23, 51],
+            popupAnchor: [0, -48],
+          });
+          existing.marker.setIcon(friendIcon);
+        }
+        const popupHtml = buildFriendPopupHtml(friend, loc, currentStatus);
+        existing.marker.setPopupContent(popupHtml);
+      });
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [friendsList, friendsLocations]);
+
+  // Cleanup friend markers on map unmount
+  useEffect(() => {
+    return () => {
+      const markersMap = friendMarkersMapRef.current;
+      const friendMarkers = friendMarkersRef.current;
+      markersMap.forEach(({ marker }) => {
+        marker.closePopup();
+        if (friendMarkers) friendMarkers.removeLayer(marker);
+      });
+      markersMap.clear();
+    };
+  }, []);
 
   // Draw Crowd Intelligence Layer (halos + status badges)
   useEffect(() => {

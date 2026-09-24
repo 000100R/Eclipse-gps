@@ -27,6 +27,8 @@ import {
   FriendRequest,
   FriendLocation,
   BlockedUser,
+  LocationSharingMode,
+  LocationSharingSettings,
   getOrCreateEclipseId,
   generateEclipseId,
   normalizeEclipseId,
@@ -46,6 +48,13 @@ import {
   publishLiveLocation,
   clearLiveLocation,
   syncUserProfile,
+  getLocationSharingSettings,
+  updateLocationSharingSettings,
+  stopLocationSharing as stopLocationSharingService,
+  toggleFriendSharingPermission as toggleFriendSharingPermissionService,
+  setFriendSharingPermission as setFriendSharingPermissionService,
+  listenToLocationSharingSettings,
+  isFriendAuthorizedToReceiveLocation,
 } from '../services/realtime/friendsService';
 import {
   PujaGroup,
@@ -189,6 +198,12 @@ interface AppStateContextType {
   setSharingLocation: (sharing: boolean) => void;
   shareLocationWithFriends: boolean;
   setShareLocationWithFriends: (share: boolean) => void;
+  locationSharingMode: LocationSharingMode;
+  selectedFriendsToShare: string[];
+  setLocationSharingMode: (mode: LocationSharingMode) => Promise<void>;
+  toggleFriendLocationSharing: (friendId: string) => Promise<void>;
+  setFriendLocationSharing: (friendId: string, allowed: boolean) => Promise<void>;
+  stopLocationSharing: () => Promise<void>;
   friendsList: FriendRelation[];
   friendsLocations: Record<string, FriendLocation>;
   incomingRequests: FriendRequest[];
@@ -448,10 +463,108 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const [sharingLocation, setSharingLocation] = useState<boolean>(false); // Explicit opt-out!
-  const [shareLocationWithFriends, setShareLocationWithFriendsState] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem('eclipse_gps_shareLocationWithFriends') === 'true';
+
+  // Phase 9 Part 3A: Location sharing mode & explicit selection
+  // Default state: Location sharing = OFF
+  const [locationSharingMode, setLocationSharingModeState] = useState<LocationSharingMode>(() => {
+    if (typeof window === 'undefined') return 'off';
+    const saved = localStorage.getItem('eclipse_gps_location_sharing_mode');
+    return (saved === 'all' || saved === 'selected') ? saved : 'off';
   });
+
+  const [selectedFriendsToShare, setSelectedFriendsToShareState] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('eclipse_gps_selected_friends_sharing');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const shareLocationWithFriends = locationSharingMode === 'all' || (locationSharingMode === 'selected' && selectedFriendsToShare.length > 0);
+
+  const setLocationSharingMode = async (mode: LocationSharingMode) => {
+    setLocationSharingModeState(mode);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('eclipse_gps_location_sharing_mode', mode);
+      localStorage.setItem('eclipse_gps_shareLocationWithFriends', mode !== 'off' ? 'true' : 'false');
+    }
+    if (userId) {
+      await updateLocationSharingSettings(userId, {
+        mode,
+        selectedFriendIds: mode === 'off' ? [] : selectedFriendsToShare,
+      });
+    }
+  };
+
+  const setShareLocationWithFriends = async (share: boolean) => {
+    if (share) {
+      await setLocationSharingMode('all');
+    } else {
+      await stopLocationSharing();
+    }
+  };
+
+  const toggleFriendLocationSharing = async (friendId: string) => {
+    const isSelected = selectedFriendsToShare.includes(friendId);
+    let newSelected: string[];
+    if (isSelected) {
+      newSelected = selectedFriendsToShare.filter((id) => id !== friendId);
+    } else {
+      newSelected = [...selectedFriendsToShare, friendId];
+    }
+    setSelectedFriendsToShareState(newSelected);
+    setLocationSharingModeState('selected');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('eclipse_gps_location_sharing_mode', 'selected');
+      localStorage.setItem('eclipse_gps_selected_friends_sharing', JSON.stringify(newSelected));
+      localStorage.setItem('eclipse_gps_shareLocationWithFriends', newSelected.length > 0 ? 'true' : 'false');
+    }
+    if (userId) {
+      await updateLocationSharingSettings(userId, {
+        mode: 'selected',
+        selectedFriendIds: newSelected,
+      });
+    }
+  };
+
+  const setFriendLocationSharing = async (friendId: string, allowed: boolean) => {
+    let newSelected: string[];
+    if (allowed) {
+      newSelected = selectedFriendsToShare.includes(friendId)
+        ? selectedFriendsToShare
+        : [...selectedFriendsToShare, friendId];
+    } else {
+      newSelected = selectedFriendsToShare.filter((id) => id !== friendId);
+    }
+    setSelectedFriendsToShareState(newSelected);
+    setLocationSharingModeState('selected');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('eclipse_gps_location_sharing_mode', 'selected');
+      localStorage.setItem('eclipse_gps_selected_friends_sharing', JSON.stringify(newSelected));
+      localStorage.setItem('eclipse_gps_shareLocationWithFriends', newSelected.length > 0 ? 'true' : 'false');
+    }
+    if (userId) {
+      await updateLocationSharingSettings(userId, {
+        mode: 'selected',
+        selectedFriendIds: newSelected,
+      });
+    }
+  };
+
+  const stopLocationSharing = async () => {
+    setLocationSharingModeState('off');
+    setSelectedFriendsToShareState([]);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('eclipse_gps_location_sharing_mode', 'off');
+      localStorage.setItem('eclipse_gps_selected_friends_sharing', JSON.stringify([]));
+      localStorage.setItem('eclipse_gps_shareLocationWithFriends', 'false');
+    }
+    if (userId) {
+      await stopLocationSharingService(userId);
+    }
+  };
 
   const [friendsList, setFriendsList] = useState<FriendRelation[]>([]);
   const [friendsLocations, setFriendsLocations] = useState<Record<string, FriendLocation>>({});
@@ -485,29 +598,6 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const unblockFriendAction = async (blockedId: string) => {
     return unblockUserService(userId, blockedId);
-  };
-
-  const setShareLocationWithFriends = (share: boolean) => {
-    if (share) {
-      if (typeof window !== 'undefined' && navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          () => {
-            setWatchLocation(true);
-            setShareLocationWithFriendsState(true);
-            localStorage.setItem('eclipse_gps_shareLocationWithFriends', 'true');
-          },
-          (err) => {
-            console.warn('Geolocation permission error:', err);
-          }
-        );
-      } else {
-        setShareLocationWithFriendsState(true);
-        localStorage.setItem('eclipse_gps_shareLocationWithFriends', 'true');
-      }
-    } else {
-      setShareLocationWithFriendsState(false);
-      localStorage.setItem('eclipse_gps_shareLocationWithFriends', 'false');
-    }
   };
 
   const [activeGroupState, setActiveGroup] = useState<any | null>(null);
@@ -1055,92 +1145,193 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const unsubBlocked = listenToBlockedUsers(userId, (blocked) => {
       setBlockedUsers(blocked);
     });
+    const unsubSharing = listenToLocationSharingSettings(userId, (settings) => {
+      setLocationSharingModeState(settings.mode);
+      setSelectedFriendsToShareState(settings.selectedFriendIds || []);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('eclipse_gps_location_sharing_mode', settings.mode);
+        localStorage.setItem('eclipse_gps_selected_friends_sharing', JSON.stringify(settings.selectedFriendIds || []));
+        localStorage.setItem('eclipse_gps_shareLocationWithFriends', settings.enabled ? 'true' : 'false');
+      }
+    });
 
     return () => {
       unsubIncoming();
       unsubOutgoing();
       unsubFriends();
       unsubBlocked();
+      unsubSharing();
     };
   }, [userId]);
 
-  // Listen to live locations of friends
+  // Listen to live locations of friends (Phase 9 Part 3C)
   useEffect(() => {
-    if (!isFirebaseConfigured() || !userId || friendsList.length === 0) {
+    if (!userId || friendsList.length === 0) {
       setFriendsLocations({});
       return;
     }
 
     const unsubscribes: (() => void)[] = [];
 
-    friendsList.forEach((friend) => {
-      const unsub = listenToFriendLocation(friend.friendId, (loc) => {
-        setFriendsLocations((prev) => {
-          if (!loc) {
-            const copy = { ...prev };
-            delete copy[friend.friendId];
-            return copy;
-          }
-          return {
-            ...prev,
-            [friend.friendId]: loc,
-          };
-        });
-      });
+    // Filter out blocked users
+    const activeFriends = friendsList.filter(
+      (friend) => !blockedUsers.some((b) => b.blockedId === friend.friendId)
+    );
+
+    // Prune locations for any friends who were removed or blocked
+    setFriendsLocations((prev) => {
+      const allowedIds = new Set(activeFriends.map((f) => f.friendId));
+      let changed = false;
+      const copy: Record<string, FriendLocation> = { ...prev };
+      for (const id of Object.keys(copy)) {
+        if (!allowedIds.has(id)) {
+          delete copy[id];
+          changed = true;
+        }
+      }
+      return changed ? copy : prev;
+    });
+
+    activeFriends.forEach((friend) => {
+      const unsub = listenToFriendLocation(
+        friend.friendId,
+        (loc) => {
+          setFriendsLocations((prev) => {
+            if (!loc) {
+              if (!prev[friend.friendId]) return prev;
+              const copy = { ...prev };
+              delete copy[friend.friendId];
+              return copy;
+            }
+            return {
+              ...prev,
+              [friend.friendId]: loc,
+            };
+          });
+        },
+        userId
+      );
       unsubscribes.push(unsub);
     });
 
     return () => {
       unsubscribes.forEach((unsub) => unsub());
     };
-  }, [friendsList, userId]);
+  }, [friendsList, blockedUsers, userId]);
 
+  // Throttling references for Firebase live location updates (Phase 9 Part 3B)
   const lastPublishedFriendLocRef = useRef<Location | null>(null);
+  const lastPublishedTimeRef = useRef<number>(0);
+  const pendingPublishTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const latestLocationRef = useRef<Location | null>(null);
+  latestLocationRef.current = currentLocation;
 
-  // Publish our live location to friends
+  // Publish our live location to Firestore for authorized friends
   useEffect(() => {
-    const handleFriendLocationPublishing = async () => {
-      if (!isFirebaseConfigured() || !userId) return;
+    // 1. Must have a logged in user
+    if (!userId) return;
 
-      if (!shareLocationWithFriends) {
-        // Stop sharing / Clear location immediately
-        await clearLiveLocation(userId);
+    // 2. Immediate Stop Sharing & Invalidation check
+    const isSharingActive = shareLocationWithFriends && locationSharingMode !== 'off';
+
+    if (!isSharingActive) {
+      if (pendingPublishTimeoutRef.current) {
+        clearTimeout(pendingPublishTimeoutRef.current);
+        pendingPublishTimeoutRef.current = null;
+      }
+      if (lastPublishedFriendLocRef.current !== null || lastPublishedTimeRef.current !== 0) {
         lastPublishedFriendLocRef.current = null;
-        return;
+        lastPublishedTimeRef.current = 0;
+        clearLiveLocation(userId).catch((err) => {
+          console.warn('Error clearing live location on stop sharing:', err);
+        });
+      }
+      return;
+    }
+
+    // 3. Valid GPS fix check (reusing existing GPS tracking system)
+    if (!currentLocation || !hasValidGps || gpsStatus !== 'tracking') {
+      return;
+    }
+
+    const now = Date.now();
+    const timeSinceLastPublish = now - lastPublishedTimeRef.current;
+
+    // Distance calculation since last write
+    let distMoved = Infinity;
+    if (lastPublishedFriendLocRef.current) {
+      distMoved = calculateDistanceInMeters(lastPublishedFriendLocRef.current, currentLocation);
+    }
+
+    // Conservative Throttling Strategy:
+    // - MIN_INTERVAL_MS: 10,000 ms (10 seconds) - never write faster than 10s
+    // - MIN_DISTANCE_M: 10 meters - skip stationary noise
+    // - KEEPALIVE_INTERVAL_MS: 60,000 ms (60 seconds) with >= 3 meters movement
+    const MIN_INTERVAL_MS = 10000;
+    const MIN_DISTANCE_M = 10;
+    const KEEPALIVE_INTERVAL_MS = 60000;
+
+    const isFirstPublish = !lastPublishedFriendLocRef.current;
+    const isTimeElapsed = timeSinceLastPublish >= MIN_INTERVAL_MS;
+    const hasMeaningfulMovement = distMoved >= MIN_DISTANCE_M;
+    const isKeepaliveDue = timeSinceLastPublish >= KEEPALIVE_INTERVAL_MS && distMoved >= 3;
+
+    if (isFirstPublish || (isTimeElapsed && (hasMeaningfulMovement || isKeepaliveDue))) {
+      // Clear any pending queued update
+      if (pendingPublishTimeoutRef.current) {
+        clearTimeout(pendingPublishTimeoutRef.current);
+        pendingPublishTimeoutRef.current = null;
       }
 
-      if (!currentLocation || !hasValidGps || gpsStatus !== 'tracking') {
-        return;
+      lastPublishedTimeRef.current = now;
+      lastPublishedFriendLocRef.current = currentLocation;
+
+      publishLiveLocation(userId, currentLocation.lat, currentLocation.lng, gpsAccuracy, true, {
+        mode: locationSharingMode,
+        authorizedFriendIds: locationSharingMode === 'all' ? ['*'] : selectedFriendsToShare,
+      }).catch((err) => {
+        console.error('Error publishing live location to Firestore:', err);
+      });
+    } else if (hasMeaningfulMovement && !isTimeElapsed) {
+      // Meaningful movement occurred, but cooldown is active: queue a trailing publish
+      if (!pendingPublishTimeoutRef.current) {
+        const remainingTime = Math.max(500, MIN_INTERVAL_MS - timeSinceLastPublish);
+        pendingPublishTimeoutRef.current = setTimeout(() => {
+          pendingPublishTimeoutRef.current = null;
+          const loc = latestLocationRef.current;
+          if (!loc || !shareLocationWithFriends || locationSharingMode === 'off') return;
+
+          lastPublishedTimeRef.current = Date.now();
+          lastPublishedFriendLocRef.current = loc;
+
+          publishLiveLocation(userId, loc.lat, loc.lng, gpsAccuracy, true, {
+            mode: locationSharingMode,
+            authorizedFriendIds: locationSharingMode === 'all' ? ['*'] : selectedFriendsToShare,
+          }).catch((err) => {
+            console.error('Error publishing queued live location to Firestore:', err);
+          });
+        }, remainingTime);
       }
+    }
+  }, [
+    shareLocationWithFriends,
+    locationSharingMode,
+    selectedFriendsToShare,
+    currentLocation,
+    userId,
+    gpsAccuracy,
+    gpsStatus,
+    hasValidGps,
+  ]);
 
-      // Movement threshold check: 5 meters
-      let shouldPublish = false;
-      if (!lastPublishedFriendLocRef.current) {
-        shouldPublish = true;
-      } else {
-        const dist = calculateDistanceInMeters(lastPublishedFriendLocRef.current, currentLocation);
-        if (dist >= 5) {
-          shouldPublish = true;
-        }
-      }
-
-      if (shouldPublish) {
-        try {
-          await publishLiveLocation(userId, currentLocation.lat, currentLocation.lng, gpsAccuracy, true);
-          lastPublishedFriendLocRef.current = currentLocation;
-        } catch (err) {
-          console.error('Error publishing live location to friends:', err);
-        }
-      }
-    };
-
-    handleFriendLocationPublishing();
-  }, [shareLocationWithFriends, currentLocation, userId, gpsAccuracy, gpsStatus]);
-
-  // Clean up friend location on unmount
+  // Clean up location on unmount or sign-out
   useEffect(() => {
     return () => {
-      if (isFirebaseConfigured() && userId) {
+      if (pendingPublishTimeoutRef.current) {
+        clearTimeout(pendingPublishTimeoutRef.current);
+        pendingPublishTimeoutRef.current = null;
+      }
+      if (userId) {
         clearLiveLocation(userId).catch(() => {});
       }
     };
@@ -3429,6 +3620,12 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setSharingLocation,
         shareLocationWithFriends,
         setShareLocationWithFriends,
+        locationSharingMode,
+        selectedFriendsToShare,
+        setLocationSharingMode,
+        toggleFriendLocationSharing,
+        setFriendLocationSharing,
+        stopLocationSharing,
         friendsList,
         friendsLocations,
         incomingRequests,

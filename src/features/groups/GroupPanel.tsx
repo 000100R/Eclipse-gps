@@ -25,7 +25,11 @@ import {
   X,
   UserMinus,
   Trash2,
-  Share2
+  Share2,
+  EyeOff,
+  Radio,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { isFirebaseConfigured } from '../../services/firebase';
 import {
@@ -58,6 +62,12 @@ export const GroupPanel: React.FC = () => {
     setSharingLocation,
     shareLocationWithFriends,
     setShareLocationWithFriends,
+    locationSharingMode,
+    selectedFriendsToShare,
+    setLocationSharingMode,
+    toggleFriendLocationSharing,
+    setFriendLocationSharing,
+    stopLocationSharing,
     friendsList,
     friendsLocations,
     incomingRequests,
@@ -90,7 +100,8 @@ export const GroupPanel: React.FC = () => {
     isLostInCrowdActive,
     setIsLostInCrowdActive,
     calculateRouteToItem,
-    setIsNavigating
+    setIsNavigating,
+    setMapCenter
   } = useAppState();
 
   // Navigation sub-tab inside Friends Tab: 'friends' or 'groups'
@@ -329,10 +340,17 @@ export const GroupPanel: React.FC = () => {
 
   const handleViewLocation = (friend: FriendRelation) => {
     setViewLocationFriend(friend);
-    setFriendActionNotice(`Location sync for ${friend.friendName} (${friend.friendEclipseId}): Real-time GPS synchronization and map markers will be activated in Phase 9 Part 3.`);
+    const loc = friendsLocations[friend.friendId];
+    if (loc && loc.sharingEnabled) {
+      setMapCenter({ lat: loc.lat, lng: loc.lng });
+      setActiveTab('home');
+      setFriendActionNotice(`Centered map on ${friend.friendName}'s live location.`);
+    } else {
+      setFriendActionNotice(`${friend.friendName} is not currently sharing location with you.`);
+    }
     setTimeout(() => {
       setFriendActionNotice(null);
-    }, 5000);
+    }, 4000);
   };
 
   const handleRemoveFriend = async (friend: FriendRelation) => {
@@ -670,31 +688,205 @@ export const GroupPanel: React.FC = () => {
       {/* FRIENDS TAB CONTENT */}
       {subTab === 'friends' && (
         <div className="space-y-4">
-          {/* Privacy Broadcast Toggle Setting */}
-          <div className="p-3.5 bg-neutral-950/80 rounded-xl border border-neutral-900 space-y-2 shadow-lg">
+          {/* Phase 9 Part 3A: Location Sharing Controls */}
+          <div className="p-4 bg-neutral-950/90 rounded-2xl border border-neutral-800/80 space-y-3 shadow-xl">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <Compass size={14} className={shareLocationWithFriends ? 'text-emerald-400 animate-spin' : 'text-neutral-500'} />
-                <span className="text-xs font-semibold text-neutral-200">Share my live location with friends</span>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  id="toggle-friend-location-sharing"
-                  type="checkbox"
-                  checked={shareLocationWithFriends}
-                  onChange={(e) => setShareLocationWithFriends(e.target.checked)}
-                  className="sr-only peer"
+                <Compass
+                  size={16}
+                  className={
+                    locationSharingMode === 'all'
+                      ? 'text-emerald-400 animate-spin'
+                      : locationSharingMode === 'selected'
+                      ? 'text-indigo-400'
+                      : 'text-neutral-500'
+                  }
+                  style={{ animationDuration: '6s' }}
                 />
-                <div className="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-neutral-300 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-              </label>
+                <div>
+                  <h3 className="text-xs font-bold text-neutral-100 uppercase tracking-wider">
+                    Location Sharing Controls
+                  </h3>
+                  <p className="text-[10px] text-neutral-400">
+                    Explicitly choose who can view your real-time location
+                  </p>
+                </div>
+              </div>
+
+              {/* Mode Badge */}
+              <div>
+                {locationSharingMode === 'off' && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-neutral-900 text-neutral-400 border border-neutral-800">
+                    <EyeOff size={10} className="mr-1" />
+                    Sharing OFF
+                  </span>
+                )}
+                {locationSharingMode === 'all' && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/70 text-emerald-400 border border-emerald-800/70">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5" />
+                    All Friends ({friendsList.length})
+                  </span>
+                )}
+                {locationSharingMode === 'selected' && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-950/70 text-indigo-400 border border-indigo-800/70">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 mr-1.5" />
+                    {selectedFriendsToShare.length} Selected
+                  </span>
+                )}
+              </div>
             </div>
-            <p className="text-[10px] text-neutral-400 leading-relaxed">
-              {shareLocationWithFriends ? (
-                <span className="text-emerald-400 font-semibold flex items-center space-x-1">
-                  <span>✓ Live broadcast active! Accepted friends can see you on their map.</span>
+
+            {/* 3 Main Mode Selection Buttons */}
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <button
+                type="button"
+                id="btn-location-sharing-off"
+                onClick={() => stopLocationSharing()}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  locationSharingMode === 'off'
+                    ? 'bg-neutral-900 border-neutral-700 text-white shadow-sm ring-1 ring-neutral-600'
+                    : 'bg-neutral-950 border-neutral-800/80 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200'
+                }`}
+              >
+                <div className="flex items-center space-x-1.5 mb-0.5">
+                  <EyeOff size={12} className={locationSharingMode === 'off' ? 'text-rose-400' : 'text-neutral-500'} />
+                  <span className="text-[11px] font-bold">Stop Sharing</span>
+                </div>
+                <p className="text-[9px] text-neutral-500 leading-tight">Disable & revoke</p>
+              </button>
+
+              <button
+                type="button"
+                id="btn-location-sharing-all"
+                onClick={() => setLocationSharingMode('all')}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  locationSharingMode === 'all'
+                    ? 'bg-emerald-950/40 border-emerald-500 text-emerald-300 shadow-sm ring-1 ring-emerald-500/50'
+                    : 'bg-neutral-950 border-neutral-800/80 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200'
+                }`}
+              >
+                <div className="flex items-center space-x-1.5 mb-0.5">
+                  <Users size={12} className={locationSharingMode === 'all' ? 'text-emerald-400' : 'text-neutral-500'} />
+                  <span className="text-[11px] font-bold">All Friends</span>
+                </div>
+                <p className="text-[9px] text-neutral-500 leading-tight">Share with everyone</p>
+              </button>
+
+              <button
+                type="button"
+                id="btn-location-sharing-selected"
+                onClick={() => setLocationSharingMode('selected')}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  locationSharingMode === 'selected'
+                    ? 'bg-indigo-950/40 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/50'
+                    : 'bg-neutral-950 border-neutral-800/80 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200'
+                }`}
+              >
+                <div className="flex items-center space-x-1.5 mb-0.5">
+                  <UserCheck size={12} className={locationSharingMode === 'selected' ? 'text-indigo-400' : 'text-neutral-500'} />
+                  <span className="text-[11px] font-bold">Selected</span>
+                </div>
+                <p className="text-[9px] text-neutral-500 leading-tight">Choose friends</p>
+              </button>
+            </div>
+
+            {/* Selected Friends Granular Selection Drawer */}
+            {locationSharingMode === 'selected' && (
+              <div className="pt-2.5 border-t border-neutral-900 space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
+                    Authorize Specific Friends ({selectedFriendsToShare.length} of {friendsList.length} enabled)
+                  </span>
+                  {friendsList.length > 0 && (
+                    <div className="flex items-center space-x-2 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => friendsList.forEach((f) => setFriendLocationSharing(f.friendId, true))}
+                        className="text-indigo-400 hover:text-indigo-300 font-semibold"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-neutral-600">•</span>
+                      <button
+                        type="button"
+                        onClick={() => friendsList.forEach((f) => setFriendLocationSharing(f.friendId, false))}
+                        className="text-neutral-400 hover:text-neutral-300 font-semibold"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {friendsList.length === 0 ? (
+                  <p className="text-[11px] text-neutral-500 italic py-2">
+                    No active friends connected yet. Add friends below to grant them location access.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                    {friendsList.map((f) => {
+                      const isSelected = selectedFriendsToShare.includes(f.friendId);
+                      return (
+                        <div
+                          key={f.friendId}
+                          onClick={() => toggleFriendLocationSharing(f.friendId)}
+                          className={`flex items-center justify-between p-2 rounded-xl border cursor-pointer transition-colors ${
+                            isSelected
+                              ? 'bg-indigo-950/30 border-indigo-900/60 hover:border-indigo-700'
+                              : 'bg-neutral-950 border-neutral-900 hover:border-neutral-800 opacity-75'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <div className="w-6 h-6 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center text-[9px] font-bold text-indigo-400 shrink-0">
+                              {f.friendName ? f.friendName.slice(0, 2).toUpperCase() : '??'}
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-xs font-semibold text-neutral-200 truncate block">
+                                {f.friendName}
+                              </span>
+                              <span className="text-[8px] text-indigo-400 font-mono block">
+                                {f.friendEclipseId}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-1.5">
+                            <span
+                              className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                isSelected
+                                  ? 'text-indigo-300 bg-indigo-900/40 border border-indigo-700/50'
+                                  : 'text-neutral-500 bg-neutral-900 border border-neutral-800'
+                              }`}
+                            >
+                              {isSelected ? 'Authorized' : 'Hidden'}
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}} // Click handled by parent div
+                              className="rounded border-neutral-700 text-indigo-600 focus:ring-0 focus:ring-offset-0 bg-neutral-900 cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Helpful description notice */}
+            <p className="text-[10px] text-neutral-500 leading-relaxed border-t border-neutral-900/60 pt-2">
+              {locationSharingMode === 'off' && (
+                <span>Location sharing is completely turned OFF. No friends can receive or view your location.</span>
+              )}
+              {locationSharingMode === 'all' && (
+                <span className="text-emerald-400/90 font-medium">All accepted friends are authorized to view your live GPS location.</span>
+              )}
+              {locationSharingMode === 'selected' && (
+                <span className="text-indigo-400/90 font-medium">
+                  Only the {selectedFriendsToShare.length} explicitly authorized friend{selectedFriendsToShare.length === 1 ? '' : 's'} can receive your live location.
                 </span>
-              ) : (
-                "Continuous location sharing is disabled. Toggle above to safely broadcast your location with your friends."
               )}
             </p>
           </div>
@@ -1044,6 +1236,40 @@ export const GroupPanel: React.FC = () => {
                             <span className="text-neutral-400">
                               {formatLastActive(friend.lastActive, friend.timestamp, isOnline)}
                             </span>
+                            <span className="text-neutral-600">•</span>
+                            {locationSharingMode === 'off' && (
+                              <span className="text-[9px] text-neutral-500 font-medium">Sharing off</span>
+                            )}
+                            {locationSharingMode === 'all' && (
+                              <span className="text-[9px] text-emerald-400 font-medium">Sharing on</span>
+                            )}
+                            {locationSharingMode === 'selected' && (
+                              selectedFriendsToShare.includes(friend.friendId) ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleFriendLocationSharing(friend.friendId);
+                                  }}
+                                  className="text-[9px] text-indigo-400 font-bold hover:underline"
+                                  title="Click to toggle location authorization"
+                                >
+                                  Authorized ✓
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleFriendLocationSharing(friend.friendId);
+                                  }}
+                                  className="text-[9px] text-neutral-500 hover:text-indigo-300"
+                                  title="Click to authorize location sharing"
+                                >
+                                  + Authorize
+                                </button>
+                              )
+                            )}
                           </div>
                         </div>
                       </div>

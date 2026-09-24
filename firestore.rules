@@ -8,43 +8,100 @@ service cloud.firestore {
 
     // 2. USER PROFILES & SUBCOLLECTIONS
     match /users/{userId} {
+      // Anyone can read profiles for search / friend lists
       allow read: if true;
-      allow write: if request.auth == null || request.auth.uid == userId;
+      // Only the user themselves can create or modify their own profile
+      allow write: if request.auth != null && request.auth.uid == userId;
 
       // Friend subcollection
       match /friends/{friendId} {
-        allow read: if true;
-        allow write, delete: if request.auth == null || request.auth.uid == userId || request.auth.uid == friendId;
+        // Readable by the user or the friend
+        allow read: if request.auth != null && (request.auth.uid == userId || request.auth.uid == friendId);
+        // Only the user or the friend can create, update, or delete friendship records
+        allow write, delete: if request.auth != null && (request.auth.uid == userId || request.auth.uid == friendId);
+      }
+
+      // Location sharing permissions subcollection
+      match /locationPermissions/{friendId} {
+        // Readable by the user or the specified friend
+        allow read: if request.auth != null && (request.auth.uid == userId || request.auth.uid == friendId);
+        // ONLY the user themselves can grant or revoke location access for friends
+        allow write, delete: if request.auth != null && request.auth.uid == userId;
       }
 
       // Blocked users subcollection
       match /blockedUsers/{blockedId} {
-        allow read: if request.auth == null || request.auth.uid == userId || request.auth.uid == blockedId;
-        allow write, delete: if request.auth == null || request.auth.uid == userId;
+        // Readable by the user or the blocked user
+        allow read: if request.auth != null && (request.auth.uid == userId || request.auth.uid == blockedId);
+        // ONLY the user themselves can block or unblock
+        allow write, delete: if request.auth != null && request.auth.uid == userId;
       }
     }
 
     // 3. ECLIPSE ID DIRECT LOOKUP INDEX
     match /eclipseIds/{normalizedId} {
       allow read: if true;
-      allow write: if true;
+      // Users can only claim an Eclipse ID for their own authenticated UID
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
     }
 
     // 4. FRIEND REQUEST RULES
     match /friendRequests/{requestId} {
-      allow read: if true;
+      // Only sender or receiver can read the request
+      allow read: if request.auth != null && (
+        resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid
+      );
       // Sender can create their own request if neither user is blocked
-      allow create: if (request.auth == null || request.auth.uid == request.resource.data.senderId)
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.senderId
+        && request.resource.data.senderId != request.resource.data.receiverId
         && !exists(/databases/$(database)/documents/users/$(request.resource.data.receiverId)/blockedUsers/$(request.resource.data.senderId))
         && !exists(/databases/$(database)/documents/users/$(request.resource.data.senderId)/blockedUsers/$(request.resource.data.receiverId));
-      // Only sender or receiver can update (accept/decline) or delete (cancel) request
-      allow update, delete: if request.auth == null || request.auth.uid == resource.data.senderId || request.auth.uid == resource.data.receiverId;
+      // Only receiver can accept/decline; sender can cancel
+      allow update: if request.auth != null && (
+        (request.auth.uid == resource.data.receiverId && request.resource.data.senderId == resource.data.senderId && request.resource.data.receiverId == resource.data.receiverId)
+        || (request.auth.uid == resource.data.senderId && request.resource.data.status == 'cancelled')
+      );
+      // Only sender or receiver can delete
+      allow delete: if request.auth != null && (
+        request.auth.uid == resource.data.senderId || request.auth.uid == resource.data.receiverId
+      );
     }
 
     // 5. FRIENDSHIP COMPATIBILITY COLLECTION
     match /friendships/{friendshipId} {
-      allow read: if true;
-      allow write: if request.auth == null || request.auth.uid in resource.data.users || request.auth.uid in request.resource.data.users;
+      allow read: if request.auth != null && request.auth.uid in resource.data.users;
+      allow create: if request.auth != null && request.auth.uid in request.resource.data.users;
+      allow update, delete: if request.auth != null && request.auth.uid in resource.data.users;
+    }
+
+    // 6. LIVE USER LOCATIONS (Phase 9 Part 3B & 3C & 3D)
+    match /userLocations/{targetUserId} {
+      // Users can ONLY write or delete their OWN location document
+      allow write, delete: if request.auth != null && request.auth.uid == targetUserId;
+
+      // Live location is readable ONLY by currently authorized friends:
+      // 1. Target user can read their own location
+      // 2. OR:
+      //    a. sharingEnabled must be true
+      //    b. Caller must be an active friend in /users/{targetUserId}/friends/{callerUid}
+      //    c. Caller must be authorized (explicitly in authorizedFriendIds, or '*' if all friends)
+      //    d. Neither user has blocked the other
+      allow read: if request.auth != null && (
+        request.auth.uid == targetUserId
+        || (
+          resource.data.sharingEnabled == true
+          && exists(/databases/$(database)/documents/users/$(targetUserId)/friends/$(request.auth.uid))
+          && (
+            request.auth.uid in resource.data.authorizedFriendIds
+            || '*' in resource.data.authorizedFriendIds
+          )
+          && !exists(/databases/$(database)/documents/users/$(targetUserId)/blockedUsers/$(request.auth.uid))
+          && !exists(/databases/$(database)/documents/users/$(request.auth.uid)/blockedUsers/$(targetUserId))
+        )
+      );
     }
   }
 }

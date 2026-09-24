@@ -23,6 +23,7 @@ import { crowdIntelligenceService } from '../../services/intelligence/crowdIntel
 import { trafficIntelligenceService } from '../../services/intelligence/trafficIntelligenceService';
 import { clusterMarkers } from '../../utils/markerCluster';
 import { extractLocation } from '../../services/routing/routingService';
+import { getFriendLocationStatus, buildFriendMarkerSvg, buildFriendPopupHtml } from './friendMarkerUtils';
 
 export const GoogleMapView: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -41,7 +42,16 @@ export const GoogleMapView: React.FC = () => {
   const gpsAccuracyCircleRef = useRef<google.maps.Circle | null>(null);
   const streetViewPanoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
   const groupMarkersRef = useRef<google.maps.Marker[]>([]);
-  const friendMarkersRef = useRef<google.maps.Marker[]>([]);
+  interface ActiveGoogleFriendMarker {
+    marker: google.maps.Marker;
+    infoWindow: google.maps.InfoWindow;
+    lastLat: number;
+    lastLng: number;
+    lastTimestamp: number;
+    status: 'live' | 'stale' | 'offline';
+  }
+  const friendMarkersMapRef = useRef<Map<string, ActiveGoogleFriendMarker>>(new Map());
+  const activeFriendInfoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const crowdCirclesRef = useRef<google.maps.Circle[]>([]);
   const trafficPolylinesRef = useRef<google.maps.Polyline[]>([]);
   const trafficMarkersRef = useRef<google.maps.Marker[]>([]);
@@ -79,6 +89,8 @@ export const GoogleMapView: React.FC = () => {
     activeGroup,
     friendsList,
     friendsLocations,
+    blockedUsers,
+    setActiveTab,
     userId,
     pandalCrowdCounts,
     pandalCrowdTrends,
@@ -762,41 +774,177 @@ export const GoogleMapView: React.FC = () => {
 
   }, [activeGroup, googleLoaded, userId]);
 
-  // Sync Friend Markers on Google Map
+  // Global handler for Friend Marker navigation action
+  useEffect(() => {
+    (window as any).__eclipseNavigateToFriend = async (
+      friendId: string,
+      friendNameEncoded: string,
+      lat: number,
+      lng: number
+    ) => {
+      const friendName = decodeURIComponent(friendNameEncoded);
+      await calculateRouteToItem({
+        id: `friend-${friendId}`,
+        name: friendName,
+        category: 'friend',
+        location: { lat, lng },
+      });
+      setIsNavigating(true);
+      setActiveTab('home');
+    };
+
+    return () => {
+      delete (window as any).__eclipseNavigateToFriend;
+    };
+  }, [calculateRouteToItem, setIsNavigating, setActiveTab]);
+
+  // 👥 Sync Friend Markers on Google Map (Phase 9 Part 3C)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !googleLoaded) return;
 
-    // Clear old friend markers
-    friendMarkersRef.current.forEach(m => m.setMap(null));
-    friendMarkersRef.current = [];
+    const markersMap = friendMarkersMapRef.current;
 
-    if (isLostInCrowdActive) return;
+    if (isLostInCrowdActive) {
+      // If Lost in Crowd mode is active, temporarily remove friend markers
+      markersMap.forEach(({ marker, infoWindow }) => {
+        infoWindow.close();
+        marker.setMap(null);
+      });
+      markersMap.clear();
+      return;
+    }
+
+    const validFriendIds = new Set<string>();
 
     friendsList.forEach((friend) => {
+      // Must not be blocked in either direction
+      if (blockedUsers.some((b) => b.blockedId === friend.friendId)) return;
+
       const loc = friendsLocations[friend.friendId];
       if (!loc || !loc.sharingEnabled) return;
 
-      // Filter out stale locations (> 120 seconds old)
-      const isStale = Date.now() - loc.timestamp > 120000;
-      if (isStale) return;
+      validFriendIds.add(friend.friendId);
 
-      const friendSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="%2310b981" stroke="white" stroke-width="2"/><text x="18" y="22" font-family="sans-serif" font-size="10" font-weight="bold" fill="white" text-anchor="middle">${encodeURIComponent(friend.friendName.slice(0, 2).toUpperCase())}</text></svg>`;
+      const statusInfo = getFriendLocationStatus(loc.timestamp);
+      const existing = markersMap.get(friend.friendId);
 
-      const fMarker = new google.maps.Marker({
-        position: { lat: loc.lat, lng: loc.lng },
-        map,
-        title: `🟢 Friend: ${friend.friendName}`,
-        icon: {
-          url: friendSvg,
-          size: new google.maps.Size(36, 36),
-          anchor: new google.maps.Point(18, 18),
+      if (existing) {
+        // 1. UPDATE EXISTING MARKER POSITION (No duplicate marker, no map recreation)
+        if (existing.lastLat !== loc.lat || existing.lastLng !== loc.lng) {
+          existing.marker.setPosition({ lat: loc.lat, lng: loc.lng });
+          existing.lastLat = loc.lat;
+          existing.lastLng = loc.lng;
         }
-      });
-      friendMarkersRef.current.push(fMarker);
+
+        // Update icon if status changed (live -> stale -> offline)
+        if (existing.status !== statusInfo.status) {
+          existing.status = statusInfo.status;
+          const updatedSvg = buildFriendMarkerSvg(friend, statusInfo);
+          existing.marker.setIcon({
+            url: updatedSvg,
+            size: new google.maps.Size(46, 54),
+            anchor: new google.maps.Point(23, 51),
+          });
+        }
+
+        // Update popup infoWindow content with latest timestamp and coordinates
+        existing.lastTimestamp = loc.timestamp;
+        const popupHtml = buildFriendPopupHtml(friend, loc, statusInfo);
+        existing.infoWindow.setContent(popupHtml);
+      } else {
+        // 2. CREATE DEDICATED FRIEND MARKER (Unique per friend)
+        const friendSvg = buildFriendMarkerSvg(friend, statusInfo);
+
+        const fMarker = new google.maps.Marker({
+          position: { lat: loc.lat, lng: loc.lng },
+          map,
+          title: `Friend: ${friend.friendName} (${friend.friendEclipseId})`,
+          zIndex: 140, // Distinct from pandals (100) and user blue dot (200)
+          icon: {
+            url: friendSvg,
+            size: new google.maps.Size(46, 54),
+            anchor: new google.maps.Point(23, 51),
+          },
+        });
+
+        const popupHtml = buildFriendPopupHtml(friend, loc, statusInfo);
+        const infoWindow = new google.maps.InfoWindow({
+          content: popupHtml,
+          disableAutoPan: false,
+        });
+
+        fMarker.addListener('click', () => {
+          if (activeFriendInfoWindowRef.current) {
+            activeFriendInfoWindowRef.current.close();
+          }
+          infoWindow.open({
+            anchor: fMarker,
+            map,
+          });
+          activeFriendInfoWindowRef.current = infoWindow;
+        });
+
+        markersMap.set(friend.friendId, {
+          marker: fMarker,
+          infoWindow,
+          lastLat: loc.lat,
+          lastLng: loc.lng,
+          lastTimestamp: loc.timestamp,
+          status: statusInfo.status,
+        });
+      }
     });
 
-  }, [friendsList, friendsLocations, googleLoaded, isLostInCrowdActive]);
+    // 3. CLEAN UP REMOVED / STOPPED / BLOCKED FRIENDS
+    markersMap.forEach((entry, fId) => {
+      if (!validFriendIds.has(fId)) {
+        entry.infoWindow.close();
+        entry.marker.setMap(null);
+        markersMap.delete(fId);
+      }
+    });
+  }, [friendsList, friendsLocations, blockedUsers, googleLoaded, isLostInCrowdActive]);
+
+  // Periodic Staleness Check: refresh visual status (live -> stale -> offline) every 30s
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const markersMap = friendMarkersMapRef.current;
+      if (markersMap.size === 0) return;
+
+      friendsList.forEach((friend) => {
+        const existing = markersMap.get(friend.friendId);
+        const loc = friendsLocations[friend.friendId];
+        if (!existing || !loc) return;
+
+        const currentStatus = getFriendLocationStatus(loc.timestamp);
+        if (existing.status !== currentStatus.status) {
+          existing.status = currentStatus.status;
+          const updatedSvg = buildFriendMarkerSvg(friend, currentStatus);
+          existing.marker.setIcon({
+            url: updatedSvg,
+            size: new google.maps.Size(46, 54),
+            anchor: new google.maps.Point(23, 51),
+          });
+        }
+        const popupHtml = buildFriendPopupHtml(friend, loc, currentStatus);
+        existing.infoWindow.setContent(popupHtml);
+      });
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [friendsList, friendsLocations]);
+
+  // Cleanup friend markers on map unmount
+  useEffect(() => {
+    return () => {
+      friendMarkersMapRef.current.forEach(({ marker, infoWindow }) => {
+        infoWindow.close();
+        marker.setMap(null);
+      });
+      friendMarkersMapRef.current.clear();
+    };
+  }, []);
 
   // Render OSRM Polyline Path and Alternatives on Google Map
   useEffect(() => {

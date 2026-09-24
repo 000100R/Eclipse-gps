@@ -70,9 +70,31 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["blockedId"]
+    },
+    "UserLocation": {
+      "title": "UserLocation",
+      "description": "Throttled live GPS coordinates and sharing state stored for authorized friends",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "sharingState": { "type": "string", "enum": ["off", "all", "selected"] },
+        "sharingEnabled": { "type": "boolean" },
+        "authorizedFriendIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["userId", "latitude", "longitude", "sharingState", "sharingEnabled"]
     }
   },
   "firestore": {
+    "/userLocations/{userId}": {
+      "schema": "UserLocation",
+      "description": "Active live location updates for friends"
+    },
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "User profile documents"
