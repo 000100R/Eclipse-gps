@@ -310,6 +310,12 @@ export const DiscoveryHUD: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Settings About Marker */}
+                  <div className="flex items-center justify-between px-2.5 py-1 bg-neutral-900/40 rounded-lg border border-neutral-800/60 text-[9px]">
+                    <span className="text-neutral-500 font-medium">About Build</span>
+                    <span className="font-mono text-emerald-400 font-semibold">APK BUILD TEST: 2026-09-24-A</span>
+                  </div>
+
                   {/* GPS Status Notification */}
                   {(gpsStatus === 'denied' || gpsStatus === 'error') && (
                     <div className="bg-amber-950/40 border border-amber-800/60 rounded-xl px-2.5 py-1.5 text-[11px] text-amber-200/90 flex items-start gap-1.5">

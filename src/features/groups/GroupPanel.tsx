@@ -639,9 +639,18 @@ export const GroupPanel: React.FC = () => {
           </p>
         </div>
 
-        {/* Settings & About Info */}
-        <div className="pt-1 text-center border-t border-neutral-900/60">
-          <p className="text-[10px] font-mono text-neutral-500">APK BUILD TEST: 2026-09-24-A</p>
+        {/* About Section */}
+        <div id="settings-about-section" className="p-3 bg-neutral-950/80 rounded-xl border border-neutral-900 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">About Eclipse GPS</span>
+            <span className="text-[9px] font-mono text-neutral-500">v1.0.0</span>
+          </div>
+          <div className="flex items-center justify-between text-xs pt-0.5">
+            <span className="text-neutral-400 text-[11px]">Build Status</span>
+            <span className="text-[10px] font-mono text-emerald-400 font-semibold bg-emerald-950/50 border border-emerald-800/60 px-2 py-0.5 rounded">
+              APK BUILD TEST: 2026-09-24-A
+            </span>
+          </div>
         </div>
       </GlassPanel>
 
