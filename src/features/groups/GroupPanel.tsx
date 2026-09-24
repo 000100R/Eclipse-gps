@@ -24,7 +24,8 @@ import {
   Check,
   X,
   UserMinus,
-  Trash2
+  Trash2,
+  Share2
 } from 'lucide-react';
 import { isFirebaseConfigured } from '../../services/firebase';
 import {
@@ -44,6 +45,7 @@ import {
 export const GroupPanel: React.FC = () => {
   const {
     userId,
+    eclipseId,
     displayName,
     setDisplayName,
     sharingLocation,
@@ -115,7 +117,31 @@ export const GroupPanel: React.FC = () => {
 
   // Copy local ID
   const copyUserId = () => {
-    navigator.clipboard.writeText(userId);
+    const idToCopy = eclipseId || userId;
+    navigator.clipboard.writeText(idToCopy);
+    setIsCopiedId(true);
+    setTimeout(() => setIsCopiedId(false), 2000);
+  };
+
+  // Share Eclipse ID via device sharing system
+  const shareEclipseId = async () => {
+    const idToShare = eclipseId || userId;
+    const shareData = {
+      title: 'My Eclipse ID',
+      text: `Connect with me on Eclipse GPS! My Eclipse ID is ${idToShare}`,
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+
+    // Fallback to clipboard
+    navigator.clipboard.writeText(idToShare);
     setIsCopiedId(true);
     setTimeout(() => setIsCopiedId(false), 2000);
   };
@@ -325,14 +351,10 @@ export const GroupPanel: React.FC = () => {
       <GlassPanel className="p-3.5 space-y-3 bg-neutral-950/40 border-neutral-900">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Your Eclipse Identity</span>
-          <button
-            onClick={copyUserId}
-            className="flex items-center space-x-1 text-[9px] text-neutral-400 hover:text-white font-mono bg-neutral-900/60 hover:bg-neutral-900 px-1.5 py-0.5 rounded transition-all"
-            title="Click to copy full Eclipse ID"
-          >
-            {isCopiedId ? <CheckCircle size={10} className="text-emerald-400" /> : <Copy size={10} />}
-            <span>ID: {userId.slice(0, 10)}...</span>
-          </button>
+          <span className="text-[9px] text-emerald-400 font-medium flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Active
+          </span>
         </div>
         <div className="flex items-center space-x-2">
           <div className="relative">
@@ -351,6 +373,50 @@ export const GroupPanel: React.FC = () => {
               className="bg-transparent border-b border-neutral-800 hover:border-neutral-700 focus:border-indigo-500 text-xs font-bold text-neutral-100 w-full focus:outline-none py-0.5"
             />
             <p className="text-[9px] text-neutral-500 mt-0.5">Edit username directly above — updates in real-time</p>
+          </div>
+        </div>
+
+        {/* My Eclipse ID Section */}
+        <div className="p-3 bg-neutral-950/80 rounded-xl border border-neutral-900 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">My Eclipse ID</span>
+            <span className="text-[9px] text-indigo-400/80 font-mono">Permanent Public ID</span>
+          </div>
+          <div className="flex items-center justify-between gap-2 bg-neutral-900/60 px-3 py-2 rounded-lg border border-neutral-800/80">
+            <span className="font-mono text-sm font-bold tracking-wider text-neutral-100 select-all">
+              {eclipseId || 'ECL-???????'}
+            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                id="btn-copy-eclipse-id"
+                onClick={copyUserId}
+                className="flex items-center space-x-1 text-[11px] font-medium text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-800 active:scale-95 px-2.5 py-1 rounded-md transition-all border border-neutral-700/60"
+                title="Copy Eclipse ID"
+              >
+                {isCopiedId ? (
+                  <>
+                    <CheckCircle size={12} className="text-emerald-400" />
+                    <span className="text-emerald-400 font-semibold">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={12} />
+                    <span>Copy ID</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                id="btn-share-eclipse-id"
+                onClick={shareEclipseId}
+                className="flex items-center space-x-1 text-[11px] font-medium text-white bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-2.5 py-1 rounded-md transition-all shadow-sm"
+                title="Share Eclipse ID"
+              >
+                <Share2 size={12} />
+                <span>Share ID</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -498,7 +564,7 @@ export const GroupPanel: React.FC = () => {
                           </div>
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-neutral-200 truncate">{user.displayName}</p>
-                            <p className="text-[8px] text-neutral-500 font-mono">ID: {user.userId.slice(0, 12)}</p>
+                            <p className="text-[8px] text-neutral-500 font-mono">{user.eclipseId || 'Eclipse User'}</p>
                           </div>
                         </div>
 

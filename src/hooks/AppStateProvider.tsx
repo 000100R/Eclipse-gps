@@ -26,9 +26,22 @@ import {
   FriendRelation,
   FriendRequest,
   FriendLocation,
+  BlockedUser,
+  getOrCreateEclipseId,
+  generateEclipseId,
+  normalizeEclipseId,
+  searchUserByEclipseId,
+  sendFriendRequest as sendFriendRequestService,
+  acceptFriendRequest as acceptFriendRequestService,
+  rejectFriendRequest as rejectFriendRequestService,
+  cancelFriendRequest as cancelFriendRequestService,
+  removeFriend as removeFriendService,
+  blockUser as blockUserService,
+  unblockUser as unblockUserService,
   listenToIncomingRequests,
   listenToOutgoingRequests,
   listenToFriends,
+  listenToBlockedUsers,
   listenToFriendLocation,
   publishLiveLocation,
   clearLiveLocation,
@@ -167,8 +180,11 @@ interface AppStateContextType {
 
   // Eclipse Friends & Group Mode
   userId: string;
+  eclipseId: string;
   displayName: string;
   setDisplayName: (name: string) => void;
+  photoUrl: string;
+  setPhotoUrl: (url: string) => void;
   sharingLocation: boolean;
   setSharingLocation: (sharing: boolean) => void;
   shareLocationWithFriends: boolean;
@@ -177,6 +193,14 @@ interface AppStateContextType {
   friendsLocations: Record<string, FriendLocation>;
   incomingRequests: FriendRequest[];
   outgoingRequests: FriendRequest[];
+  blockedUsers: BlockedUser[];
+  sendFriendRequestToUser: (receiverId: string, receiverName: string, receiverEclipseId: string, receiverPhotoUrl?: string) => Promise<{ success: boolean; error?: string }>;
+  acceptFriendRequestAction: (req: FriendRequest) => Promise<{ success: boolean; error?: string }>;
+  rejectFriendRequestAction: (req: FriendRequest) => Promise<{ success: boolean; error?: string }>;
+  cancelFriendRequestAction: (req: FriendRequest) => Promise<{ success: boolean; error?: string }>;
+  removeFriendAction: (friendId: string) => Promise<{ success: boolean }>;
+  blockFriendAction: (friendId: string, friendName?: string, friendEclipseId?: string) => Promise<{ success: boolean }>;
+  unblockFriendAction: (blockedId: string) => Promise<{ success: boolean }>;
   activeGroup: any | null;
   setActiveGroup: (group: any | null) => void;
   groupsList: PujaGroup[];
@@ -407,6 +431,22 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return name;
   });
 
+  const [eclipseId, setEclipseIdState] = useState<string>(() => {
+    return getOrCreateEclipseId();
+  });
+
+  const [photoUrl, setPhotoUrlState] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem('eclipse_gps_photoUrl') || '';
+  });
+
+  const setPhotoUrl = (url: string) => {
+    setPhotoUrlState(url);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('eclipse_gps_photoUrl', url);
+    }
+  };
+
   const [sharingLocation, setSharingLocation] = useState<boolean>(false); // Explicit opt-out!
   const [shareLocationWithFriends, setShareLocationWithFriendsState] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -417,6 +457,35 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [friendsLocations, setFriendsLocations] = useState<Record<string, FriendLocation>>({});
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([]);
   const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([]);
+  const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
+
+  const sendFriendRequestToUser = async (receiverId: string, receiverName: string, receiverEclipseId: string, receiverPhotoUrl: string = '') => {
+    return sendFriendRequestService(userId, displayName, receiverId, receiverName, eclipseId, receiverEclipseId, photoUrl, receiverPhotoUrl);
+  };
+
+  const acceptFriendRequestAction = async (req: FriendRequest) => {
+    return acceptFriendRequestService(req);
+  };
+
+  const rejectFriendRequestAction = async (req: FriendRequest) => {
+    return rejectFriendRequestService(req);
+  };
+
+  const cancelFriendRequestAction = async (req: FriendRequest) => {
+    return cancelFriendRequestService(req);
+  };
+
+  const removeFriendAction = async (friendId: string) => {
+    return removeFriendService(userId, friendId);
+  };
+
+  const blockFriendAction = async (friendId: string, friendName?: string, friendEclipseId?: string) => {
+    return blockUserService(userId, friendId, friendName, friendEclipseId);
+  };
+
+  const unblockFriendAction = async (blockedId: string) => {
+    return unblockUserService(userId, blockedId);
+  };
 
   const setShareLocationWithFriends = (share: boolean) => {
     if (share) {
@@ -961,18 +1030,18 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [groupLocations, isNavigating, routeStops, currentLocation, routePreference]);
 
-  // Synchronize custom local identity with public user registry in Firebase RTDB
+  // Synchronize custom local identity with public user registry and Eclipse ID in Firestore
   useEffect(() => {
-    if (isFirebaseConfigured() && userId && displayName) {
-      syncUserProfile(userId, displayName).catch((err) => {
-        console.error('Failed to sync user profile with Firebase:', err);
+    if (userId && displayName && eclipseId) {
+      syncUserProfile(userId, displayName, photoUrl, eclipseId).catch((err) => {
+        console.warn('Failed to sync user profile with Firebase:', err);
       });
     }
-  }, [userId, displayName]);
+  }, [userId, displayName, photoUrl, eclipseId]);
 
-  // Listen to incoming requests, outgoing requests, and friends
+  // Listen to incoming requests, outgoing requests, friends, and blocked users
   useEffect(() => {
-    if (!isFirebaseConfigured() || !userId) return;
+    if (!userId) return;
 
     const unsubIncoming = listenToIncomingRequests(userId, (requests) => {
       setIncomingRequests(requests);
@@ -983,11 +1052,15 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const unsubFriends = listenToFriends(userId, (friends) => {
       setFriendsList(friends);
     });
+    const unsubBlocked = listenToBlockedUsers(userId, (blocked) => {
+      setBlockedUsers(blocked);
+    });
 
     return () => {
       unsubIncoming();
       unsubOutgoing();
       unsubFriends();
+      unsubBlocked();
     };
   }, [userId]);
 
@@ -3347,8 +3420,11 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setIsAiSheetOpen,
 
         userId,
+        eclipseId,
         displayName,
         setDisplayName,
+        photoUrl,
+        setPhotoUrl,
         sharingLocation,
         setSharingLocation,
         shareLocationWithFriends,
@@ -3357,6 +3433,14 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         friendsLocations,
         incomingRequests,
         outgoingRequests,
+        blockedUsers,
+        sendFriendRequestToUser,
+        acceptFriendRequestAction,
+        rejectFriendRequestAction,
+        cancelFriendRequestAction,
+        removeFriendAction,
+        blockFriendAction,
+        unblockFriendAction,
         activeGroup,
         setActiveGroup,
         groupsList,

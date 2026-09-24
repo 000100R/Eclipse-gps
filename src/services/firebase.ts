@@ -1,10 +1,12 @@
 import { initializeApp, getApp, getApps, FirebaseApp } from 'firebase/app';
 import { getDatabase, Database } from 'firebase/database';
 import { getFirestore, Firestore } from 'firebase/firestore';
+import { getAuth, Auth } from 'firebase/auth';
 
 let firebaseApp: FirebaseApp | null = null;
 let realtimeDb: Database | null = null;
 let firestoreDb: Firestore | null = null;
+let authInstance: Auth | null = null;
 
 const getFirebaseConfig = () => {
   // Vite client-side environment variables
@@ -64,6 +66,14 @@ export function getFirebaseFirestore(): Firestore {
   const app = getFirebaseApp();
   firestoreDb = getFirestore(app);
   return firestoreDb;
+}
+
+export function getFirebaseAuth(): Auth {
+  if (authInstance) return authInstance;
+
+  const app = getFirebaseApp();
+  authInstance = getAuth(app);
+  return authInstance;
 }
 
 export function isFirebaseConfigured(): boolean {

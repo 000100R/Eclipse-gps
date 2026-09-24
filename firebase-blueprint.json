@@ -1,33 +1,97 @@
 {
-  "databaseId": "default",
-  "collections": {
-    "users": {
-      "fields": {
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with display name and public unique Eclipse ID",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "eclipseId": { "type": "string" },
+        "eclipseIdLower": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "online": { "type": "boolean" },
+        "lastActive": { "type": "string", "format": "date-time" },
+        "shareLocationWithFriends": { "type": "boolean" }
+      },
+      "required": ["userId", "eclipseId", "displayName"]
+    },
+    "EclipseIdLookup": {
+      "title": "EclipseIdLookup",
+      "description": "Direct index mapping normalized Eclipse ID to user profile",
+      "type": "object",
+      "properties": {
+        "eclipseId": { "type": "string" },
         "userId": { "type": "string" },
         "displayName": { "type": "string" },
-        "lastActive": { "type": "timestamp" }
+        "photoUrl": { "type": "string" }
       },
-      "indexes": []
+      "required": ["eclipseId", "userId"]
     },
-    "friendRequests": {
-      "fields": {
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "Friend request between two users identified by Eclipse ID",
+      "type": "object",
+      "properties": {
+        "requestId": { "type": "string" },
         "senderId": { "type": "string" },
         "senderName": { "type": "string" },
+        "senderEclipseId": { "type": "string" },
+        "senderPhotoUrl": { "type": "string" },
         "receiverId": { "type": "string" },
         "receiverName": { "type": "string" },
-        "status": { "type": "string" },
-        "timestamp": { "type": "timestamp" }
+        "receiverEclipseId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined", "cancelled"] },
+        "timestamp": { "type": "string", "format": "date-time" }
       },
-      "indexes": []
+      "required": ["senderId", "receiverId", "status"]
     },
-    "friendships": {
-      "fields": {
-        "userId": { "type": "string" },
+    "FriendRelation": {
+      "title": "FriendRelation",
+      "description": "Active friendship relation stored in user subcollection",
+      "type": "object",
+      "properties": {
         "friendId": { "type": "string" },
         "friendName": { "type": "string" },
-        "timestamp": { "type": "timestamp" }
+        "friendEclipseId": { "type": "string" },
+        "friendPhotoUrl": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
       },
-      "indexes": []
+      "required": ["friendId"]
+    },
+    "BlockedUser": {
+      "title": "BlockedUser",
+      "description": "Blocked user record stored in user subcollection",
+      "type": "object",
+      "properties": {
+        "blockedId": { "type": "string" },
+        "blockedName": { "type": "string" },
+        "blockedEclipseId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["blockedId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents"
+    },
+    "/users/{userId}/friends/{friendId}": {
+      "schema": "FriendRelation",
+      "description": "Subcollection of accepted friends"
+    },
+    "/users/{userId}/blockedUsers/{blockedId}": {
+      "schema": "BlockedUser",
+      "description": "Subcollection of blocked users"
+    },
+    "/eclipseIds/{normalizedId}": {
+      "schema": "EclipseIdLookup",
+      "description": "Direct lookup mapping normalized Eclipse IDs to user metadata"
+    },
+    "/friendRequests/{requestId}": {
+      "schema": "FriendRequest",
+      "description": "Pending and historical friend requests"
     }
   }
 }
