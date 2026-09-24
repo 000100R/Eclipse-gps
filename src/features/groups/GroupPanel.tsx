@@ -638,6 +638,11 @@ export const GroupPanel: React.FC = () => {
             )}
           </p>
         </div>
+
+        {/* Settings & About Info */}
+        <div className="pt-1 text-center border-t border-neutral-900/60">
+          <p className="text-[10px] font-mono text-neutral-500">APK BUILD TEST: 2026-09-24-A</p>
+        </div>
       </GlassPanel>
 
       {errorMsg && (

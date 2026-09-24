@@ -284,10 +284,13 @@ export const LocationRequiredScreen: React.FC = () => {
           )}
         </div>
 
-        {/* Privacy Note */}
-        <div className="flex items-center justify-center gap-1.5 text-[10px] text-neutral-500 pt-1">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500/80" />
-          <span>On-device processing • Real-time location is required to unlock app</span>
+        {/* Privacy Note & App Info */}
+        <div className="flex flex-col items-center justify-center gap-1 text-[10px] text-neutral-500 pt-1">
+          <div className="flex items-center justify-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500/80" />
+            <span>On-device processing • Real-time location is required to unlock app</span>
+          </div>
+          <p className="text-[9px] font-mono text-neutral-500">APK BUILD TEST: 2026-09-24-A</p>
         </div>
       </GlassPanel>
     </div>
