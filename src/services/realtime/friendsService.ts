@@ -654,9 +654,22 @@ export const acceptFriendRequest = async (
     reqDocId = myIdOrReq.requestId || `${senderId}_${receiverId}`;
   }
 
+  // Resolve Eclipse IDs from local registry if still default
+  const localUsers = getLocalUsers() || {};
+  if ((!senderEclipseId || senderEclipseId === 'ECL-???????') && localUsers[senderId]?.eclipseId) {
+    senderEclipseId = localUsers[senderId].eclipseId;
+    senderPhotoUrl = senderPhotoUrl || localUsers[senderId].photoUrl || '';
+    senderName = senderName || localUsers[senderId].displayName || 'Friend';
+  }
+  if ((!receiverEclipseId || receiverEclipseId === 'ECL-???????') && localUsers[receiverId]?.eclipseId) {
+    receiverEclipseId = localUsers[receiverId].eclipseId;
+    receiverPhotoUrl = receiverPhotoUrl || localUsers[receiverId].photoUrl || '';
+    receiverName = receiverName || localUsers[receiverId].displayName || 'Explorer';
+  }
+
   const now = Date.now();
 
-  // 1. Update local storage
+  // 1. Update local storage for immediate responsiveness
   const friends = getLocalFriends();
   if (!friends[receiverId]) friends[receiverId] = {};
   friends[receiverId][senderId] = {
@@ -682,10 +695,12 @@ export const acceptFriendRequest = async (
   // Clear pending requests locally
   const inc = getLocalFriendRequestsReceived();
   if (inc[receiverId]) delete inc[receiverId][senderId];
+  if (inc[senderId]) delete inc[senderId][receiverId];
   saveLocalFriendRequestsReceived(inc);
 
   const out = getLocalFriendRequests();
   if (out[senderId]) delete out[senderId][receiverId];
+  if (out[receiverId]) delete out[receiverId][senderId];
   saveLocalFriendRequests(out);
 
   triggerLocalFriendListeners('friends', receiverId);
@@ -698,6 +713,27 @@ export const acceptFriendRequest = async (
     try {
       const firestore = getFirebaseFirestore();
 
+      // Retrieve full profiles from Firestore if Eclipse ID is missing
+      if (!senderEclipseId || senderEclipseId === 'ECL-???????') {
+        const sSnap = await getDoc(doc(firestore, 'users', senderId));
+        if (sSnap.exists()) {
+          const sData = sSnap.data() || {};
+          senderEclipseId = sData.eclipseId || senderEclipseId;
+          senderPhotoUrl = senderPhotoUrl || sData.photoUrl || '';
+          senderName = senderName || sData.displayName || 'Friend';
+        }
+      }
+      if (!receiverEclipseId || receiverEclipseId === 'ECL-???????') {
+        const rSnap = await getDoc(doc(firestore, 'users', receiverId));
+        if (rSnap.exists()) {
+          const rData = rSnap.data() || {};
+          receiverEclipseId = rData.eclipseId || receiverEclipseId;
+          receiverPhotoUrl = receiverPhotoUrl || rData.photoUrl || '';
+          receiverName = receiverName || rData.displayName || 'Explorer';
+        }
+      }
+
+      // Add to receiver's friends subcollection
       const myFriendRef = doc(firestore, 'users', receiverId, 'friends', senderId);
       await setDoc(myFriendRef, {
         friendId: senderId,
@@ -707,6 +743,7 @@ export const acceptFriendRequest = async (
         timestamp: serverTimestamp(),
       });
 
+      // Add to sender's friends subcollection
       const theirFriendRef = doc(firestore, 'users', senderId, 'friends', receiverId);
       await setDoc(theirFriendRef, {
         friendId: receiverId,
@@ -716,8 +753,14 @@ export const acceptFriendRequest = async (
         timestamp: serverTimestamp(),
       });
 
-      const reqRef = doc(firestore, 'friendRequests', reqDocId);
-      await deleteDoc(reqRef).catch(() => {});
+      // Clean up the request document in Firestore
+      await deleteDoc(doc(firestore, 'friendRequests', reqDocId)).catch(() => {});
+      if (reqDocId !== `${senderId}_${receiverId}`) {
+        await deleteDoc(doc(firestore, 'friendRequests', `${senderId}_${receiverId}`)).catch(() => {});
+      }
+      if (reqDocId !== `${receiverId}_${senderId}`) {
+        await deleteDoc(doc(firestore, 'friendRequests', `${receiverId}_${senderId}`)).catch(() => {});
+      }
     } catch (err: any) {
       console.error('Firestore acceptFriendRequest error:', err);
       return { success: false, error: err.message || 'Failed to accept friend request.' };
@@ -733,13 +776,16 @@ export const rejectFriendRequest = async (
 ): Promise<{ success: boolean; error?: string }> => {
   let senderId: string;
   let receiverId: string;
+  let reqDocId: string;
 
   if (typeof myIdOrReq === 'string') {
     receiverId = myIdOrReq;
     senderId = friendIdParam || '';
+    reqDocId = `${senderId}_${receiverId}`;
   } else {
     senderId = myIdOrReq.senderId;
     receiverId = myIdOrReq.receiverId;
+    reqDocId = myIdOrReq.requestId || `${senderId}_${receiverId}`;
   }
 
   // Local storage cleanup
@@ -759,8 +805,13 @@ export const rejectFriendRequest = async (
   if (isFirebaseConfigured()) {
     try {
       const firestore = getFirebaseFirestore();
-      await deleteDoc(doc(firestore, 'friendRequests', `${senderId}_${receiverId}`)).catch(() => {});
-      await deleteDoc(doc(firestore, 'friendRequests', `${receiverId}_${senderId}`)).catch(() => {});
+      await deleteDoc(doc(firestore, 'friendRequests', reqDocId)).catch(() => {});
+      if (reqDocId !== `${senderId}_${receiverId}`) {
+        await deleteDoc(doc(firestore, 'friendRequests', `${senderId}_${receiverId}`)).catch(() => {});
+      }
+      if (reqDocId !== `${receiverId}_${senderId}`) {
+        await deleteDoc(doc(firestore, 'friendRequests', `${receiverId}_${senderId}`)).catch(() => {});
+      }
     } catch (err: any) {
       console.warn('Firestore rejectFriendRequest error:', err);
     }

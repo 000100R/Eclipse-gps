@@ -34,6 +34,7 @@ import {
   SearchEclipseIdResult,
   sendFriendRequest,
   rejectFriendRequest,
+  cancelFriendRequest,
   acceptFriendRequest,
   removeFriend,
   listenToIncomingRequests,
@@ -101,6 +102,7 @@ export const GroupPanel: React.FC = () => {
   const [isSearchingEclipseId, setIsSearchingEclipseId] = useState(false);
   const [requestSuccessMsg, setRequestSuccessMsg] = useState<string | null>(null);
   const [isSendingRequest, setIsSendingRequest] = useState<Record<string, boolean>>({});
+  const [isProcessingAction, setIsProcessingAction] = useState<Record<string, boolean>>({});
   
   const [isCopiedId, setIsCopiedId] = useState(false);
   const [copiedGroup, setCopiedGroup] = useState(false);
@@ -238,29 +240,66 @@ export const GroupPanel: React.FC = () => {
   };
 
   const handleAcceptRequest = async (request: FriendRequest) => {
+    const actionKey = request.requestId || request.senderId;
     try {
       setErrorMsg(null);
-      await acceptFriendRequest(userId, displayName, request.senderId, request.senderName);
+      setRequestSuccessMsg(null);
+      setIsProcessingAction((prev) => ({ ...prev, [actionKey]: true }));
+      const res = await acceptFriendRequest({
+        ...request,
+        receiverId: userId,
+        receiverName: displayName,
+        receiverEclipseId: eclipseId,
+        receiverPhotoUrl: photoUrl,
+      });
+      if (res.success) {
+        setRequestSuccessMsg(`You and ${request.senderName} are now connected as friends!`);
+        setTimeout(() => setRequestSuccessMsg(null), 3500);
+      } else {
+        setErrorMsg(res.error || 'Failed to accept friend request.');
+      }
     } catch (err: any) {
-      setErrorMsg('Failed to accept request.');
+      setErrorMsg(err.message || 'Failed to accept request.');
+    } finally {
+      setIsProcessingAction((prev) => ({ ...prev, [actionKey]: false }));
     }
   };
 
   const handleRejectRequest = async (request: FriendRequest) => {
+    const actionKey = request.requestId || request.senderId;
     try {
       setErrorMsg(null);
-      await rejectFriendRequest(userId, request.senderId);
+      setIsProcessingAction((prev) => ({ ...prev, [actionKey]: true }));
+      const res = await rejectFriendRequest({
+        ...request,
+        receiverId: userId,
+      });
+      if (!res.success) {
+        setErrorMsg(res.error || 'Failed to decline request.');
+      }
     } catch (err: any) {
-      setErrorMsg('Failed to decline request.');
+      setErrorMsg(err.message || 'Failed to decline request.');
+    } finally {
+      setIsProcessingAction((prev) => ({ ...prev, [actionKey]: false }));
     }
   };
 
   const handleCancelOutgoing = async (request: FriendRequest) => {
+    const actionKey = request.requestId || request.receiverId;
     try {
       setErrorMsg(null);
-      await rejectFriendRequest(userId, request.receiverId);
+      setIsProcessingAction((prev) => ({ ...prev, [actionKey]: true }));
+      const res = await cancelFriendRequest({
+        ...request,
+        senderId: userId,
+      });
+      if (!res.success) {
+        setErrorMsg(res.error || 'Failed to cancel request.');
+      }
     } catch (err: any) {
-      setErrorMsg('Failed to cancel request.');
+      setErrorMsg(err.message || 'Failed to cancel request.');
+    } finally {
+      setIsProcessingAction((prev) => ({ ...prev, [actionKey]: false }));
     }
   };
 
@@ -816,44 +855,51 @@ export const GroupPanel: React.FC = () => {
                 <span>Incoming Friend Requests ({incomingRequests.length})</span>
               </span>
               <div className="space-y-2">
-                {incomingRequests.map((req) => (
-                  <div
-                    key={req.senderId}
-                    className="flex items-center justify-between p-2.5 bg-neutral-950 border border-neutral-900 rounded-xl"
-                  >
-                    <div className="flex items-center space-x-2 min-w-0">
-                      {req.senderPhotoUrl ? (
-                        <img
-                          src={req.senderPhotoUrl}
-                          alt={req.senderName}
-                          className="w-8 h-8 rounded-full object-cover border border-neutral-800 shrink-0"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-neutral-900 text-xs font-bold flex items-center justify-center text-rose-400 shrink-0">
-                          {req.senderName.slice(0, 2).toUpperCase()}
+                {incomingRequests.map((req) => {
+                  const actionKey = req.requestId || req.senderId;
+                  const isBusy = !!isProcessingAction[actionKey];
+
+                  return (
+                    <div
+                      key={req.senderId}
+                      className="flex items-center justify-between p-2.5 bg-neutral-950 border border-neutral-900 rounded-xl"
+                    >
+                      <div className="flex items-center space-x-2 min-w-0">
+                        {req.senderPhotoUrl ? (
+                          <img
+                            src={req.senderPhotoUrl}
+                            alt={req.senderName}
+                            className="w-8 h-8 rounded-full object-cover border border-neutral-800 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-neutral-900 text-xs font-bold flex items-center justify-center text-rose-400 shrink-0">
+                            {req.senderName.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-neutral-200 truncate">{req.senderName}</p>
+                          <p className="text-[8px] text-indigo-400/80 font-mono">{req.senderEclipseId || 'Eclipse User'}</p>
                         </div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-neutral-200 truncate">{req.senderName}</p>
-                        <p className="text-[8px] text-indigo-400/80 font-mono">{req.senderEclipseId || 'Eclipse User'}</p>
+                      </div>
+                      <div className="flex space-x-1.5 shrink-0 ml-2">
+                        <button
+                          onClick={() => handleAcceptRequest(req)}
+                          disabled={isBusy}
+                          className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all disabled:opacity-50 shadow-sm"
+                        >
+                          {isBusy ? 'Accepting...' : 'Accept'}
+                        </button>
+                        <button
+                          onClick={() => handleRejectRequest(req)}
+                          disabled={isBusy}
+                          className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 active:scale-95 text-neutral-400 hover:text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all disabled:opacity-50"
+                        >
+                          {isBusy ? '...' : 'Decline'}
+                        </button>
                       </div>
                     </div>
-                    <div className="flex space-x-1.5 shrink-0">
-                      <button
-                        onClick={() => handleAcceptRequest(req)}
-                        className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all"
-                      >
-                        Accept
-                      </button>
-                      <button
-                        onClick={() => handleRejectRequest(req)}
-                        className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition-all"
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </GlassPanel>
           )}
@@ -952,28 +998,47 @@ export const GroupPanel: React.FC = () => {
                 Pending Requests Sent ({outgoingRequests.length})
               </span>
               <div className="space-y-2">
-                {outgoingRequests.map((req) => (
-                  <div
-                    key={req.receiverId}
-                    className="flex items-center justify-between p-2 bg-neutral-950/40 border border-neutral-900 rounded-xl"
-                  >
-                    <div className="flex items-center space-x-2 min-w-0">
-                      <div className="w-6 h-6 rounded-full bg-neutral-900 text-[10px] font-bold flex items-center justify-center text-neutral-500">
-                        {req.receiverName.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-neutral-300 truncate">{req.receiverName}</p>
-                        <p className="text-[8px] text-indigo-400/80 font-mono">{req.receiverEclipseId || 'Eclipse User'}</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleCancelOutgoing(req)}
-                      className="text-[9px] text-neutral-500 hover:text-rose-400 bg-neutral-900 hover:bg-neutral-900/80 px-2 py-1 rounded-lg border border-neutral-800 font-bold uppercase transition-colors"
+                {outgoingRequests.map((req) => {
+                  const actionKey = req.requestId || req.receiverId;
+                  const isBusy = !!isProcessingAction[actionKey];
+
+                  return (
+                    <div
+                      key={req.receiverId}
+                      className="flex items-center justify-between p-2 bg-neutral-950/40 border border-neutral-900 rounded-xl"
                     >
-                      Cancel
-                    </button>
-                  </div>
-                ))}
+                      <div className="flex items-center space-x-2 min-w-0">
+                        {req.receiverPhotoUrl ? (
+                          <img
+                            src={req.receiverPhotoUrl}
+                            alt={req.receiverName}
+                            className="w-7 h-7 rounded-full object-cover border border-neutral-800 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-7 h-7 rounded-full bg-neutral-900 text-[10px] font-bold flex items-center justify-center text-neutral-500 shrink-0">
+                            {req.receiverName ? req.receiverName.slice(0, 2).toUpperCase() : '??'}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-neutral-300 truncate">{req.receiverName}</p>
+                          <div className="flex items-center space-x-1.5">
+                            <span className="text-[8px] text-indigo-400/80 font-mono">{req.receiverEclipseId || 'Eclipse User'}</span>
+                            <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[8px] font-bold uppercase tracking-wider bg-amber-950/40 text-amber-400 border border-amber-900/50">
+                              Request Sent
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleCancelOutgoing(req)}
+                        disabled={isBusy}
+                        className="text-[9px] text-neutral-400 hover:text-rose-400 bg-neutral-900 hover:bg-neutral-800 px-2.5 py-1.5 rounded-lg border border-neutral-800 font-bold uppercase tracking-wider transition-colors disabled:opacity-50 shrink-0 ml-2"
+                      >
+                        {isBusy ? 'Cancelling...' : 'Cancel Request'}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </GlassPanel>
           )}
