@@ -91,7 +91,7 @@ export function generateEclipseId(): string {
  * e.g. "ecl-7k4p9x2" -> "ECL-7K4P9X2", "7k4p9x2" -> "ECL-7K4P9X2", " ECL 7K4P9X2 " -> "ECL-7K4P9X2"
  */
 export function normalizeEclipseId(id: string): string {
-  if (!id) return '';
+  if (!id || typeof id !== 'string') return '';
   let clean = id.trim().toUpperCase().replace(/[\s\-_]+/g, '');
   if (clean.startsWith('ECL')) {
     clean = clean.slice(3);
@@ -299,6 +299,11 @@ export const searchUserByEclipseId = async (
   outgoing: FriendRequest[] = [],
   incoming: FriendRequest[] = []
 ): Promise<SearchEclipseIdResult> => {
+  const safeFriends = Array.isArray(myFriends) ? myFriends : [];
+  const safeBlocked = Array.isArray(blockedList) ? blockedList : [];
+  const safeOutgoing = Array.isArray(outgoing) ? outgoing : [];
+  const safeIncoming = Array.isArray(incoming) ? incoming : [];
+
   const normalized = normalizeEclipseId(rawQuery);
   if (!normalized || normalized.length < 5) {
     return {
@@ -327,31 +332,33 @@ export const searchUserByEclipseId = async (
       let foundProfile: UserProfile | null = null;
 
       if (lookupSnap.exists()) {
-        const lookupData = lookupSnap.data();
+        const lookupData = lookupSnap.data() || {};
         const targetUserId = lookupData.userId;
 
         // Fetch full profile from users collection
-        const userRef = doc(firestore, 'users', targetUserId);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          const ud = userSnap.data();
-          foundProfile = {
-            userId: ud.userId || targetUserId,
-            eclipseId: ud.eclipseId || lookupData.eclipseId,
-            eclipseIdLower: ud.eclipseIdLower || normalizedLower,
-            displayName: ud.displayName || lookupData.displayName || 'Eclipse Explorer',
-            photoUrl: ud.photoUrl || lookupData.photoUrl || '',
-            online: ud.online ?? true,
-            lastActive: ud.lastActive,
-          };
-        } else {
-          foundProfile = {
-            userId: targetUserId,
-            eclipseId: lookupData.eclipseId || normalized,
-            displayName: lookupData.displayName || 'Eclipse Explorer',
-            photoUrl: lookupData.photoUrl || '',
-            online: true,
-          };
+        if (targetUserId) {
+          const userRef = doc(firestore, 'users', targetUserId);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            const ud = userSnap.data() || {};
+            foundProfile = {
+              userId: ud.userId || targetUserId,
+              eclipseId: ud.eclipseId || lookupData.eclipseId || normalized,
+              eclipseIdLower: ud.eclipseIdLower || normalizedLower,
+              displayName: ud.displayName || lookupData.displayName || 'Eclipse Explorer',
+              photoUrl: ud.photoUrl || lookupData.photoUrl || '',
+              online: ud.online ?? true,
+              lastActive: ud.lastActive,
+            };
+          } else {
+            foundProfile = {
+              userId: targetUserId,
+              eclipseId: lookupData.eclipseId || normalized,
+              displayName: lookupData.displayName || 'Eclipse Explorer',
+              photoUrl: lookupData.photoUrl || '',
+              online: true,
+            };
+          }
         }
       } else {
         // Fallback: Query users collection by eclipseIdLower
@@ -362,7 +369,7 @@ export const searchUserByEclipseId = async (
         );
         const qSnap = await getDocs(usersQuery);
         if (!qSnap.empty) {
-          const docData = qSnap.docs[0].data();
+          const docData = qSnap.docs[0].data() || {};
           foundProfile = {
             userId: docData.userId || qSnap.docs[0].id,
             eclipseId: docData.eclipseId || normalized,
@@ -377,10 +384,10 @@ export const searchUserByEclipseId = async (
 
       if (foundProfile) {
         const isSelf = foundProfile.userId === currentUserId;
-        const isFriend = myFriends.some((f) => f.friendId === foundProfile!.userId);
-        const isBlocked = blockedList.some((b) => b.blockedId === foundProfile!.userId);
-        const hasSentRequest = outgoing.some((r) => r.receiverId === foundProfile!.userId && r.status === 'pending');
-        const hasReceivedRequest = incoming.some((r) => r.senderId === foundProfile!.userId && r.status === 'pending');
+        const isFriend = safeFriends.some((f) => f && f.friendId === foundProfile!.userId);
+        const isBlocked = safeBlocked.some((b) => b && b.blockedId === foundProfile!.userId);
+        const hasSentRequest = safeOutgoing.some((r) => r && r.receiverId === foundProfile!.userId && r.status === 'pending');
+        const hasReceivedRequest = safeIncoming.some((r) => r && r.senderId === foundProfile!.userId && r.status === 'pending');
 
         return {
           found: true,
@@ -398,18 +405,19 @@ export const searchUserByEclipseId = async (
   }
 
   // Local storage fallback search
-  const localUsers = getLocalUsers();
+  const localUsers = getLocalUsers() || {};
   const matchedUser = Object.values(localUsers).find((u) => {
+    if (!u) return false;
     const userNorm = normalizeEclipseId(u.eclipseId || '').toLowerCase();
     return userNorm === normalizedLower;
   });
 
   if (matchedUser) {
     const isSelf = matchedUser.userId === currentUserId;
-    const isFriend = myFriends.some((f) => f.friendId === matchedUser.userId);
-    const isBlocked = blockedList.some((b) => b.blockedId === matchedUser.userId);
-    const hasSentRequest = outgoing.some((r) => r.receiverId === matchedUser.userId && r.status === 'pending');
-    const hasReceivedRequest = incoming.some((r) => r.senderId === matchedUser.userId && r.status === 'pending');
+    const isFriend = safeFriends.some((f) => f && f.friendId === matchedUser.userId);
+    const isBlocked = safeBlocked.some((b) => b && b.blockedId === matchedUser.userId);
+    const hasSentRequest = safeOutgoing.some((r) => r && r.receiverId === matchedUser.userId && r.status === 'pending');
+    const hasReceivedRequest = safeIncoming.some((r) => r && r.senderId === matchedUser.userId && r.status === 'pending');
 
     return {
       found: true,
@@ -515,8 +523,28 @@ export const sendFriendRequest = async (
   senderPhotoUrl: string = '',
   receiverPhotoUrl: string = ''
 ): Promise<{ success: boolean; error?: string }> => {
+  if (!senderId || !receiverId) {
+    return { success: false, error: 'Invalid user identities provided.' };
+  }
+
   if (senderId === receiverId) {
     return { success: false, error: 'You cannot send a friend request to yourself.' };
+  }
+
+  // 1. Check local storage state for friends or existing pending requests
+  const localFriends = getLocalFriends();
+  if (localFriends[senderId]?.[receiverId]) {
+    return { success: false, error: 'You are already friends with this user.' };
+  }
+
+  const localOut = getLocalFriendRequests();
+  if (localOut[senderId]?.[receiverId]?.status === 'pending') {
+    return { success: false, error: 'A friend request has already been sent to this user.' };
+  }
+
+  const localInc = getLocalFriendRequestsReceived();
+  if (localInc[senderId]?.[receiverId]?.status === 'pending') {
+    return { success: false, error: 'This user has already sent you a friend request. Check your incoming requests to accept.' };
   }
 
   const senderEclipseId = senderEclipseIdParam || getOrCreateEclipseId();
@@ -537,7 +565,45 @@ export const sendFriendRequest = async (
     timestamp: Date.now(),
   };
 
-  // 1. Update local storage fallback
+  // 2. Check Firestore if configured
+  if (isFirebaseConfigured()) {
+    try {
+      const firestore = getFirebaseFirestore();
+
+      // Check if already friends in Firestore
+      const friendRef = doc(firestore, 'users', senderId, 'friends', receiverId);
+      const friendSnap = await getDoc(friendRef);
+      if (friendSnap.exists()) {
+        return { success: false, error: 'You are already friends with this user.' };
+      }
+
+      // Check if outgoing request already exists and is pending
+      const reqRef = doc(firestore, 'friendRequests', reqDocId);
+      const reqSnap = await getDoc(reqRef);
+      if (reqSnap.exists() && reqSnap.data()?.status === 'pending') {
+        return { success: false, error: 'A friend request has already been sent to this user.' };
+      }
+
+      // Check if reverse incoming request already exists and is pending
+      const reverseReqRef = doc(firestore, 'friendRequests', `${receiverId}_${senderId}`);
+      const reverseSnap = await getDoc(reverseReqRef);
+      if (reverseSnap.exists() && reverseSnap.data()?.status === 'pending') {
+        return { success: false, error: 'This user has already sent you a friend request. Check your incoming requests to accept.' };
+      }
+
+      // Write request document
+      await setDoc(reqRef, {
+        ...payload,
+        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      });
+    } catch (err: any) {
+      console.error('Firestore sendFriendRequest error:', err);
+      return { success: false, error: err.message || 'Failed to send friend request.' };
+    }
+  }
+
+  // 3. Update local storage fallback and trigger local listeners
   const out = getLocalFriendRequests();
   if (!out[senderId]) out[senderId] = {};
   out[senderId][receiverId] = payload;
@@ -550,22 +616,6 @@ export const sendFriendRequest = async (
 
   triggerLocalFriendListeners('outgoing_requests', senderId);
   triggerLocalFriendListeners('incoming_requests', receiverId);
-
-  // 2. Update Firestore if configured
-  if (isFirebaseConfigured()) {
-    try {
-      const firestore = getFirebaseFirestore();
-      const reqRef = doc(firestore, 'friendRequests', reqDocId);
-      await setDoc(reqRef, {
-        ...payload,
-        timestamp: serverTimestamp(),
-        createdAt: serverTimestamp(),
-      });
-    } catch (err: any) {
-      console.error('Firestore sendFriendRequest error:', err);
-      return { success: false, error: err.message || 'Failed to send friend request.' };
-    }
-  }
 
   return { success: true };
 };

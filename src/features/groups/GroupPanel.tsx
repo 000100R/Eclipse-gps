@@ -30,6 +30,8 @@ import {
 import { isFirebaseConfigured } from '../../services/firebase';
 import {
   searchUsers,
+  searchUserByEclipseId,
+  SearchEclipseIdResult,
   sendFriendRequest,
   rejectFriendRequest,
   acceptFriendRequest,
@@ -48,6 +50,8 @@ export const GroupPanel: React.FC = () => {
     eclipseId,
     displayName,
     setDisplayName,
+    photoUrl,
+    blockedUsers,
     sharingLocation,
     setSharingLocation,
     shareLocationWithFriends,
@@ -93,6 +97,10 @@ export const GroupPanel: React.FC = () => {
   // Friends Foundation state
   const [friendSearchQuery, setFriendSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
+  const [eclipseSearchResult, setEclipseSearchResult] = useState<SearchEclipseIdResult | null>(null);
+  const [isSearchingEclipseId, setIsSearchingEclipseId] = useState(false);
+  const [requestSuccessMsg, setRequestSuccessMsg] = useState<string | null>(null);
+  const [isSendingRequest, setIsSendingRequest] = useState<Record<string, boolean>>({});
   
   const [isCopiedId, setIsCopiedId] = useState(false);
   const [copiedGroup, setCopiedGroup] = useState(false);
@@ -102,18 +110,46 @@ export const GroupPanel: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [invitedFriends, setInvitedFriends] = useState<Record<string, boolean>>({});
 
-  // Real-time user searching as typing
+  // Real-time user searching as typing (by Eclipse ID & display name)
   useEffect(() => {
-    if (!isFirebaseConfigured() || !userId || !friendSearchQuery.trim()) {
+    const trimmed = friendSearchQuery.trim();
+    if (!trimmed) {
       setSearchResults([]);
+      setEclipseSearchResult(null);
+      setIsSearchingEclipseId(false);
       return;
     }
 
-    const unsubscribe = searchUsers(friendSearchQuery, userId, (results) => {
-      setSearchResults(results);
-    });
-    return unsubscribe;
-  }, [friendSearchQuery, userId]);
+    let isMounted = true;
+    setIsSearchingEclipseId(true);
+
+    // 1. Search by Eclipse ID using existing searchUserByEclipseId
+    searchUserByEclipseId(trimmed, userId, friendsList, blockedUsers, outgoingRequests, incomingRequests)
+      .then((res) => {
+        if (isMounted) {
+          setEclipseSearchResult(res);
+          setIsSearchingEclipseId(false);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setIsSearchingEclipseId(false);
+      });
+
+    // 2. Also search users collection by display name if Firebase is configured
+    let unsubscribe = () => {};
+    if (isFirebaseConfigured() && userId) {
+      unsubscribe = searchUsers(trimmed, userId, (results) => {
+        if (isMounted) {
+          setSearchResults(results);
+        }
+      });
+    }
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [friendSearchQuery, userId, friendsList, blockedUsers, outgoingRequests, incomingRequests]);
 
   // Copy local ID
   const copyUserId = () => {
@@ -148,11 +184,56 @@ export const GroupPanel: React.FC = () => {
 
   // Friends Actions
   const handleSendRequest = async (targetUser: UserProfile) => {
+    if (!targetUser || !targetUser.userId) return;
+
+    // Prevent sending request to yourself
+    if (targetUser.userId === userId) {
+      setErrorMsg('You cannot send a friend request to yourself.');
+      return;
+    }
+
+    // Prevent sending request when already friends
+    const isAlreadyFriend = friendsList.some((f) => f.friendId === targetUser.userId);
+    if (isAlreadyFriend) {
+      setErrorMsg('You are already friends with this user.');
+      return;
+    }
+
+    // Prevent duplicate outgoing requests
+    const isAlreadySent = outgoingRequests.some(
+      (r) => r.receiverId === targetUser.userId && r.status === 'pending'
+    );
+    if (isAlreadySent) {
+      setErrorMsg('A friend request has already been sent to this user.');
+      return;
+    }
+
     try {
       setErrorMsg(null);
-      await sendFriendRequest(userId, displayName, targetUser.userId, targetUser.displayName);
+      setRequestSuccessMsg(null);
+      setIsSendingRequest((prev) => ({ ...prev, [targetUser.userId]: true }));
+
+      const res = await sendFriendRequest(
+        userId,
+        displayName,
+        targetUser.userId,
+        targetUser.displayName,
+        eclipseId,
+        targetUser.eclipseId,
+        photoUrl,
+        targetUser.photoUrl
+      );
+
+      if (res.success) {
+        setRequestSuccessMsg(`Friend request sent to ${targetUser.displayName}!`);
+        setTimeout(() => setRequestSuccessMsg(null), 4000);
+      } else {
+        setErrorMsg(res.error || 'Failed to send friend request.');
+      }
     } catch (err: any) {
-      setErrorMsg('Failed to send friend request. Please try again.');
+      setErrorMsg(err.message || 'Failed to send friend request. Please try again.');
+    } finally {
+      setIsSendingRequest((prev) => ({ ...prev, [targetUser.userId]: false }));
     }
   };
 
@@ -450,8 +531,15 @@ export const GroupPanel: React.FC = () => {
 
       {errorMsg && (
         <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 flex items-center space-x-2">
-          <ShieldAlert size={14} />
+          <ShieldAlert size={14} className="shrink-0" />
           <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {requestSuccessMsg && (
+        <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400 flex items-center space-x-2">
+          <CheckCircle size={14} className="text-emerald-400 shrink-0" />
+          <span>{requestSuccessMsg}</span>
         </div>
       )}
 
@@ -526,10 +614,11 @@ export const GroupPanel: React.FC = () => {
             </div>
             <div className="relative">
               <input
+                id="field-search-eclipse-users"
                 type="text"
                 value={friendSearchQuery}
                 onChange={(e) => setFriendSearchQuery(e.target.value)}
-                placeholder="Type name or Eclipse ID to search..."
+                placeholder="Search by Eclipse ID (e.g. ECL-7K4P9X2) or name..."
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-3 pr-10 py-2.5 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-indigo-500 transition-colors"
               />
               {friendSearchQuery && (
@@ -542,16 +631,106 @@ export const GroupPanel: React.FC = () => {
               )}
             </div>
 
-            {/* Suggestions list */}
+            {/* Suggestions & Search Results */}
             {friendSearchQuery && (
-              <div className="space-y-2 mt-2 pt-1 border-t border-neutral-900 max-h-48 overflow-y-auto">
-                {searchResults.length === 0 ? (
-                  <p className="text-[10px] text-neutral-500 text-center py-2">No matching users found.</p>
-                ) : (
-                  searchResults.map((user) => {
-                    const isFriend = friendsList.some((f) => f.friendId === user.userId);
-                    const isSent = outgoingRequests.some((r) => r.receiverId === user.userId);
-                    const isReceived = incomingRequests.some((r) => r.senderId === user.userId);
+              <div className="space-y-2 mt-2 pt-1 border-t border-neutral-900">
+                {isSearchingEclipseId && (
+                  <div className="p-3 text-center text-xs text-neutral-500 flex items-center justify-center space-x-2">
+                    <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping" />
+                    <span>Searching Eclipse network...</span>
+                  </div>
+                )}
+
+                {/* Direct Eclipse ID Search Result Card */}
+                {eclipseSearchResult?.found && eclipseSearchResult.user && (
+                  <div className="p-3 bg-indigo-950/20 rounded-xl border border-indigo-900/50 space-y-2.5 shadow-md">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                        Eclipse ID Match
+                      </span>
+                      <span className="text-[9px] text-neutral-400 font-mono">Verified Explorer</span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        {eclipseSearchResult.user.photoUrl ? (
+                          <img
+                            src={eclipseSearchResult.user.photoUrl}
+                            alt={eclipseSearchResult.user.displayName}
+                            className="w-10 h-10 rounded-full object-cover border border-neutral-700 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-600 to-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm">
+                            {eclipseSearchResult.user.displayName.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-neutral-100 truncate">
+                            {eclipseSearchResult.user.displayName}
+                          </p>
+                          <span className="inline-block font-mono text-[11px] font-semibold text-indigo-300 bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-800/40">
+                            {eclipseSearchResult.user.eclipseId || 'ECL-???????'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* State-Specific Action Button */}
+                      <div className="shrink-0">
+                        {eclipseSearchResult.isSelf || eclipseSearchResult.user.userId === userId ? (
+                          <span className="text-[10px] text-neutral-400 bg-neutral-900 border border-neutral-800 px-2.5 py-1.5 rounded-lg font-medium">
+                            This is you
+                          </span>
+                        ) : (friendsList || []).some((f) => f?.friendId === eclipseSearchResult.user!.userId) ? (
+                          <span className="flex items-center space-x-1 text-[10px] text-emerald-400 bg-emerald-950/40 border border-emerald-800/50 px-2.5 py-1.5 rounded-lg font-bold uppercase">
+                            <Check size={12} />
+                            <span>Already Friends</span>
+                          </span>
+                        ) : (outgoingRequests || []).some((r) => r?.receiverId === eclipseSearchResult.user!.userId && r?.status === 'pending') ? (
+                          <button
+                            type="button"
+                            disabled
+                            className="flex items-center space-x-1 text-[10px] text-neutral-400 bg-neutral-900 border border-neutral-800 px-2.5 py-1.5 rounded-lg font-bold uppercase cursor-not-allowed opacity-90"
+                          >
+                            <Clock size={12} className="text-amber-400" />
+                            <span>Request Sent</span>
+                          </button>
+                        ) : (incomingRequests || []).some((r) => r?.senderId === eclipseSearchResult.user!.userId && r?.status === 'pending') ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const req = (incomingRequests || []).find((r) => r?.senderId === eclipseSearchResult.user!.userId);
+                              if (req) handleAcceptRequest(req);
+                            }}
+                            className="flex items-center space-x-1 text-[10px] text-white bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-3 py-1.5 rounded-lg font-bold uppercase transition-all shadow-sm"
+                          >
+                            <Check size={12} />
+                            <span>Accept Request</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleSendRequest(eclipseSearchResult.user!)}
+                            disabled={!!isSendingRequest[eclipseSearchResult.user.userId]}
+                            className="flex items-center space-x-1.5 text-[10px] text-white bg-indigo-600 hover:bg-indigo-500 active:scale-95 px-3 py-1.5 rounded-lg font-bold uppercase transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50"
+                          >
+                            <UserPlus size={12} />
+                            <span>{isSendingRequest[eclipseSearchResult.user.userId] ? 'Sending...' : 'Send Friend Request'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Additional / Name Search Results */}
+                {(searchResults || [])
+                  .filter((u) => u && u.userId !== userId && (!eclipseSearchResult?.user || u.userId !== eclipseSearchResult.user.userId))
+                  .map((user) => {
+                    const isFriend = (friendsList || []).some((f) => f?.friendId === user.userId);
+                    const isSent = (outgoingRequests || []).some((r) => r?.receiverId === user.userId && r?.status === 'pending');
+                    const isReceived = (incomingRequests || []).some((r) => r?.senderId === user.userId && r?.status === 'pending');
+                    const isSending = !!isSendingRequest[user.userId];
 
                     return (
                       <div
@@ -559,12 +738,20 @@ export const GroupPanel: React.FC = () => {
                         className="flex items-center justify-between p-2 bg-neutral-900/40 rounded-xl border border-neutral-900/60"
                       >
                         <div className="flex items-center space-x-2 min-w-0">
-                          <div className="w-7 h-7 rounded-full bg-neutral-800 text-[10px] font-bold flex items-center justify-center text-indigo-400">
-                            {user.displayName.slice(0, 2).toUpperCase()}
-                          </div>
+                          {user.photoUrl ? (
+                            <img
+                              src={user.photoUrl}
+                              alt={user.displayName}
+                              className="w-7 h-7 rounded-full object-cover border border-neutral-700 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-7 h-7 rounded-full bg-neutral-800 text-[10px] font-bold flex items-center justify-center text-indigo-400 shrink-0">
+                              {user.displayName.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-neutral-200 truncate">{user.displayName}</p>
-                            <p className="text-[8px] text-neutral-500 font-mono">{user.eclipseId || 'Eclipse User'}</p>
+                            <p className="text-[8px] text-indigo-400/80 font-mono font-semibold">{user.eclipseId || 'Eclipse User'}</p>
                           </div>
                         </div>
 
@@ -593,17 +780,30 @@ export const GroupPanel: React.FC = () => {
                           ) : (
                             <button
                               onClick={() => handleSendRequest(user)}
-                              className="flex items-center space-x-1 text-[9px] text-indigo-400 hover:text-white bg-indigo-950/30 hover:bg-indigo-600 border border-indigo-900/40 hover:border-indigo-500 px-2.5 py-1 rounded-lg font-bold uppercase transition-all"
+                              disabled={isSending}
+                              className="flex items-center space-x-1 text-[9px] text-indigo-400 hover:text-white bg-indigo-950/30 hover:bg-indigo-600 border border-indigo-900/40 hover:border-indigo-500 px-2.5 py-1 rounded-lg font-bold uppercase transition-all disabled:opacity-50"
                             >
                               <UserPlus size={10} />
-                              <span>Add</span>
+                              <span>{isSending ? 'Sending...' : 'Add'}</span>
                             </button>
                           )}
                         </div>
                       </div>
                     );
-                  })
-                )}
+                  })}
+
+                {/* Not found feedback */}
+                {!isSearchingEclipseId &&
+                  !eclipseSearchResult?.found &&
+                  searchResults.length === 0 &&
+                  friendSearchQuery.trim().length >= 4 && (
+                    <div className="p-3 bg-neutral-950/60 rounded-xl border border-neutral-900 text-center space-y-1">
+                      <p className="text-xs font-semibold text-neutral-400">Invalid / User Not Found</p>
+                      <p className="text-[10px] text-neutral-500">
+                        {eclipseSearchResult?.error || `No user found with Eclipse ID or name matching "${friendSearchQuery.trim()}"`}
+                      </p>
+                    </div>
+                  )}
               </div>
             )}
           </GlassPanel>
@@ -622,12 +822,20 @@ export const GroupPanel: React.FC = () => {
                     className="flex items-center justify-between p-2.5 bg-neutral-950 border border-neutral-900 rounded-xl"
                   >
                     <div className="flex items-center space-x-2 min-w-0">
-                      <div className="w-8 h-8 rounded-full bg-neutral-900 text-xs font-bold flex items-center justify-center text-rose-400">
-                        {req.senderName.slice(0, 2).toUpperCase()}
-                      </div>
+                      {req.senderPhotoUrl ? (
+                        <img
+                          src={req.senderPhotoUrl}
+                          alt={req.senderName}
+                          className="w-8 h-8 rounded-full object-cover border border-neutral-800 shrink-0"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-neutral-900 text-xs font-bold flex items-center justify-center text-rose-400 shrink-0">
+                          {req.senderName.slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-neutral-200 truncate">{req.senderName}</p>
-                        <p className="text-[8px] text-neutral-500 font-mono">ID: {req.senderId.slice(0, 10)}...</p>
+                        <p className="text-[8px] text-indigo-400/80 font-mono">{req.senderEclipseId || 'Eclipse User'}</p>
                       </div>
                     </div>
                     <div className="flex space-x-1.5 shrink-0">
@@ -687,6 +895,7 @@ export const GroupPanel: React.FC = () => {
                         </div>
                         <div className="min-w-0">
                           <span className="text-xs font-bold text-neutral-200 truncate block">{friend.friendName}</span>
+                          <span className="text-[8px] text-indigo-400/80 font-mono block">{friend.friendEclipseId || 'Eclipse User'}</span>
                           <div className="flex items-center space-x-1.5 mt-0.5">
                             {isLive ? (
                               <span className="inline-flex items-center text-[9px] text-emerald-400 bg-emerald-950/30 px-1.5 py-0.5 rounded-md border border-emerald-900/40 font-semibold">
@@ -754,7 +963,7 @@ export const GroupPanel: React.FC = () => {
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-neutral-300 truncate">{req.receiverName}</p>
-                        <p className="text-[8px] text-neutral-500 font-mono">ID: {req.receiverId.slice(0, 8)}...</p>
+                        <p className="text-[8px] text-indigo-400/80 font-mono">{req.receiverEclipseId || 'Eclipse User'}</p>
                       </div>
                     </div>
                     <button

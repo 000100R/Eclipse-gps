@@ -20,6 +20,7 @@ import { GroupPanel } from './features/groups/GroupPanel';
 import { LocationRequiredScreen } from './features/location/LocationRequiredScreen';
 import { GlassPanel } from './components/ui/GlassPanel';
 import { AlertTriangle, ShieldCheck, HelpCircle } from 'lucide-react';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 const AppContent: React.FC = () => {
   const [quotaExceeded, setQuotaExceeded] = useState(false);
@@ -211,8 +212,10 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <AppStateProvider>
-      <AppContent />
-    </AppStateProvider>
+    <ErrorBoundary>
+      <AppStateProvider>
+        <AppContent />
+      </AppStateProvider>
+    </ErrorBoundary>
   );
 }
