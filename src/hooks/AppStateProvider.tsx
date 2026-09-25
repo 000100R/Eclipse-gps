@@ -20,6 +20,7 @@ import { SmartRoutePlan, StartLocationOption, DestinationItem, PujaRouteSession 
 import { MetroGateIntelligenceResult, MetroGateRouteOption } from '../types/metro';
 import { smartPujaRoutePlannerService } from '../services/routing/smartPujaRoutePlannerService';
 import { travelDistanceService } from '../services/gps/travelDistanceService';
+import { hasValidGoogleMapsKey } from '../services/map/mapsConfig';
 import { ref, set, remove, onDisconnect, serverTimestamp, onValue, off } from 'firebase/database';
 import { isFirebaseConfigured, getFirebaseDatabase } from '../services/firebase';
 import {
@@ -282,14 +283,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [watchLocation, setWatchLocation] = useState<boolean>(true);
   const [mapRef, setMapRefState] = useState<any>(null);
   const [mapProvider, setMapProvider] = useState<'leaflet' | 'google'>(() => {
-    const cleanValue = (val: string | undefined): string => {
-      if (!val) return '';
-      return val.replace(/^["']|["']$/g, '').trim();
-    };
-    const key = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
-    // Google Maps API keys strictly start with 'AIzaSy' and have a length greater than 20
-    const isValidKey = key.startsWith('AIzaSy') && key.length > 20;
-    return isValidKey ? 'google' : 'leaflet';
+    return hasValidGoogleMapsKey() ? 'google' : 'leaflet';
   });
 
   const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'routes' | 'events' | 'saved' | 'group' | 'visited' | 'journey'>('home');

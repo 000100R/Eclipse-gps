@@ -38,6 +38,7 @@ export default defineConfig(() => {
     },
     define: {
       'import.meta.env.VITE_GOOGLE_MAPS_API_KEY': JSON.stringify(mapsApiKey),
+      'import.meta.env.VITE_GOOGLE_MAPS_API_KEY_ANDROID': JSON.stringify(cleanEnvVar(process.env.VITE_GOOGLE_MAPS_API_KEY_ANDROID) || mapsApiKey),
       'import.meta.env.VITE_GOOGLE_MAPS_MAP_ID': JSON.stringify(mapsMapId),
     },
     server: {

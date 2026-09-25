@@ -5,30 +5,18 @@ import { GoogleMapView } from './GoogleMapView';
 import { IntelligenceGridControl } from './IntelligenceGridControl';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import { Layers, Globe, Compass, Cpu, Check } from 'lucide-react';
+import { getGoogleMapsApiKey, getGoogleMapsMapId, hasValidGoogleMapsKey } from '../../services/map/mapsConfig';
 
 export const MapView: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { mapProvider, setMapProvider, mapStyle, setMapStyle, isNavigating } = useAppState();
   
-  const cleanValue = (val: string | undefined): string => {
-    if (!val) return '';
-    return val.replace(/^["']|["']$/g, '').trim();
-  };
-
-  const isCapacitorAndroid = typeof window !== 'undefined' &&
-    ((window as any).Capacitor?.getPlatform?.() === 'android' ||
-     (navigator.userAgent.includes('Android') && (window as any).Capacitor));
-  const androidKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY_ANDROID);
-  const standardKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
-  const apiKey = (isCapacitorAndroid && androidKey.startsWith('AIzaSy') && androidKey.length > 20)
-    ? androidKey
-    : standardKey;
-  const mapId = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_MAP_ID) || 'DEMO_MAP_ID';
-
-  const isValidKey = apiKey.startsWith('AIzaSy') && apiKey.length > 20;
+  const apiKey = getGoogleMapsApiKey();
+  const mapId = getGoogleMapsMapId();
+  const isValidKey = hasValidGoogleMapsKey();
   const isGoogleActive = mapProvider === 'google' && isValidKey;
   const hasMapId = mapId.length > 5;
-  const isTrue3DSupported = isGoogleActive && hasMapId;
+  const isTrue3DSupported = isValidKey && hasMapId;
 
   // If 3D mode was set but true 3D is not supported by current provider/configuration, revert to standard
   useEffect(() => {
@@ -38,13 +26,27 @@ export const MapView: React.FC = () => {
   }, [isTrue3DSupported, mapStyle, setMapStyle]);
 
   return (
-    <div id="eclipse-map-viewport" className="absolute inset-0 w-full h-full z-0 overflow-hidden">
-      {/* Dynamic Map Component Rendering based on Provider State */}
-      {isGoogleActive ? (
-        <GoogleMapView />
-      ) : (
-        <LeafletMapView />
-      )}
+    <div id="eclipse-map-viewport" className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-neutral-950">
+      {/* Dynamic Map Component Rendering: Both engines are kept mounted to eliminate blank/grey maps during switching */}
+      <div
+        id="google-engine-layer"
+        className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+          isGoogleActive ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
+        }`}
+        style={{ visibility: isGoogleActive ? 'visible' : 'hidden' }}
+      >
+        <GoogleMapView isVisible={isGoogleActive} />
+      </div>
+
+      <div
+        id="leaflet-engine-layer"
+        className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+          !isGoogleActive ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
+        }`}
+        style={{ visibility: !isGoogleActive ? 'visible' : 'hidden' }}
+      >
+        <LeafletMapView isVisible={!isGoogleActive} />
+      </div>
 
       {/* 🗺️ MAP HUD CONTROLS (Top-Left: Map Type Switcher + Intelligence Grid HUD - Active when NOT navigating) */}
       {!isNavigating && (
@@ -128,6 +130,9 @@ export const MapView: React.FC = () => {
                   disabled={!isTrue3DSupported}
                   onClick={() => {
                     if (isTrue3DSupported) {
+                      if (mapProvider !== 'google') {
+                        setMapProvider('google');
+                      }
                       setMapStyle('3d');
                       setIsMenuOpen(false);
                     }
@@ -141,8 +146,6 @@ export const MapView: React.FC = () => {
                   title={
                     isTrue3DSupported
                       ? 'Switch to 3D perspective view'
-                      : mapProvider === 'leaflet'
-                      ? '3D map unavailable (Leaflet 2D engine in use)'
                       : '3D map unavailable (Requires Google Maps Vector Map ID)'
                   }
                 >
@@ -200,7 +203,7 @@ export const MapView: React.FC = () => {
                   ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
                   : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900/40'
               }`}
-              title={isValidKey ? "Switch to WebGL 3D Google Maps Platform" : "Configure a valid VITE_GOOGLE_MAPS_API_KEY (starting with 'AIzaSy') to unlock Google Maps"}
+              title={isValidKey ? "Switch to WebGL 3D Google Maps Platform" : "Configure a valid Google Maps API Key to unlock Google Maps"}
             >
               <Cpu size={12} />
               <span className="hidden sm:inline">Google (3D)</span>

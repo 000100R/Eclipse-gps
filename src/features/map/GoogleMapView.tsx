@@ -24,8 +24,9 @@ import { trafficIntelligenceService } from '../../services/intelligence/trafficI
 import { clusterMarkers } from '../../utils/markerCluster';
 import { extractLocation } from '../../services/routing/routingService';
 import { getFriendLocationStatus, buildFriendMarkerSvg, buildFriendPopupHtml } from './friendMarkerUtils';
+import { getGoogleMapsApiKey, getGoogleMapsMapId } from '../../services/map/mapsConfig';
 
-export const GoogleMapView: React.FC = () => {
+export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = true }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const streetViewRef = useRef<HTMLDivElement>(null);
   
@@ -136,7 +137,9 @@ export const GoogleMapView: React.FC = () => {
   useEffect(() => {
     intelligenceLayerService.updateItemCount('TRAFFIC', trafficIntelligenceService.getAllCorridors().length);
   }, []);
-  const [googleLoaded, setGoogleLoaded] = useState<boolean>(false);
+  const [googleLoaded, setGoogleLoaded] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && !!(window as any).google?.maps?.Map;
+  });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<boolean>(false);
 
@@ -147,34 +150,35 @@ export const GoogleMapView: React.FC = () => {
   const [lockToHeading, setLockToHeading] = useState<boolean>(true);
   const [svAvailabilityMsg, setSvAvailabilityMsg] = useState<string | null>(null);
 
-  const cleanValue = (val: string | undefined): string => {
-    if (!val) return '';
-    return val.replace(/^["']|["']$/g, '').trim();
-  };
+  const apiKey = getGoogleMapsApiKey();
+  const mapId = getGoogleMapsMapId();
 
-  const isCapacitorAndroid = typeof window !== 'undefined' &&
-    ((window as any).Capacitor?.getPlatform?.() === 'android' ||
-     (navigator.userAgent.includes('Android') && (window as any).Capacitor));
-  const androidKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY_ANDROID);
-  const standardKey = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
-  const apiKey = (isCapacitorAndroid && androidKey.startsWith('AIzaSy') && androidKey.length > 20)
-    ? androidKey
-    : standardKey;
-  const mapId = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_MAP_ID) || 'DEMO_MAP_ID';
+  // Reset errors when becoming visible
+  useEffect(() => {
+    if (isVisible) {
+      setLoadError(null);
+      setAuthError(false);
+    }
+  }, [isVisible]);
 
   // Load Google Maps Script
   useEffect(() => {
+    // If maps SDK already available on window, mark as loaded immediately
+    if (typeof window !== 'undefined' && (window as any).google?.maps?.Map) {
+      setGoogleLoaded(true);
+      return;
+    }
+
     if (!apiKey) {
       setLoadError('Google Maps API key is missing.');
       return;
     }
 
-    // Intercept Google Maps Authentication Failures (Invalid API Key, Billing, etc.)
+    // Intercept Google Maps Authentication Failures
     const originalAuthFailure = (window as any).gm_authFailure;
     (window as any).gm_authFailure = () => {
-      console.warn('Google Maps authentication failed (InvalidKeyMapError). Falling back to Leaflet Map Engine.');
+      console.warn('Google Maps authentication notice.');
       setAuthError(true);
-      setMapProvider('leaflet');
       if (originalAuthFailure) {
         try {
           originalAuthFailure();
@@ -186,29 +190,41 @@ export const GoogleMapView: React.FC = () => {
       setOptions({
         key: apiKey,
         v: 'weekly',
+        libraries: ['maps', 'marker', 'places', 'geometry', 'routes'],
         mapIds: mapId ? [mapId] : [],
       });
 
-      // Import the core maps library to trigger script load
-      importLibrary('maps')
+      // Import core libraries to trigger script load
+      Promise.all([
+        importLibrary('maps'),
+        importLibrary('marker'),
+      ])
         .then(() => {
           setGoogleLoaded(true);
+          setLoadError(null);
+          setAuthError(false);
         })
         .catch((err: any) => {
-          console.error('Google Maps SDK loading failed:', err);
-          setLoadError('Failed to load Google Maps SDK.');
-          setMapProvider('leaflet');
+          if ((window as any).google?.maps?.Map) {
+            setGoogleLoaded(true);
+          } else {
+            console.error('Google Maps SDK loading failed:', err);
+            setLoadError('Failed to load Google Maps SDK.');
+          }
         });
     } catch (err: any) {
-      console.error('Error configuring Google Maps SDK Loader:', err);
-      setLoadError('Failed to load Google Maps SDK.');
-      setMapProvider('leaflet');
+      if ((window as any).google?.maps?.Map) {
+        setGoogleLoaded(true);
+      } else {
+        console.error('Error configuring Google Maps SDK Loader:', err);
+        setLoadError('Failed to load Google Maps SDK.');
+      }
     }
 
     return () => {
       (window as any).gm_authFailure = originalAuthFailure;
     };
-  }, [apiKey]);
+  }, [apiKey, mapId]);
 
   // Initialize Map Instance
   useEffect(() => {
@@ -234,12 +250,18 @@ export const GoogleMapView: React.FC = () => {
 
       const map = new google.maps.Map(containerRef.current, {
         ...mapOptions,
-        // Force vector rendering features for buildings to support genuine 3D perspectives
-        renderingType: 'VECTOR' as any,
         internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'] as any,
       });
 
       mapInstanceRef.current = map;
+
+      // Ensure canvas resizes smoothly whenever viewport dimensions change
+      const resizeObserver = new ResizeObserver(() => {
+        if (mapInstanceRef.current && window.google?.maps?.event) {
+          google.maps.event.trigger(mapInstanceRef.current, 'resize');
+        }
+      });
+      resizeObserver.observe(containerRef.current);
 
       // Track map center and update intelligence viewport on pan / zoom
       map.addListener('idle', () => {
@@ -353,6 +375,53 @@ export const GoogleMapView: React.FC = () => {
       mapInstanceRef.current = null;
     };
   }, [googleLoaded]);
+
+  // When visibility switches to true, immediately re-register setMapRef and trigger resize to eliminate blank/grey maps
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !isVisible) return;
+
+    setMapRef({
+      setView: (coords: [number, number], zoom?: number) => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setCenter({ lat: coords[0], lng: coords[1] });
+          if (zoom !== undefined) {
+            mapInstanceRef.current.setZoom(zoom);
+          }
+        }
+      },
+      fitBounds: (bounds: [[number, number], [number, number]]) => {
+        if (mapInstanceRef.current && window.google?.maps) {
+          const gBounds = new google.maps.LatLngBounds(
+            { lat: bounds[0][0], lng: bounds[0][1] },
+            { lat: bounds[1][0], lng: bounds[1][1] }
+          );
+          mapInstanceRef.current.fitBounds(gBounds);
+        }
+      },
+      zoomIn: () => {
+        if (mapInstanceRef.current) {
+          const cur = mapInstanceRef.current.getZoom() || 14;
+          mapInstanceRef.current.setZoom(Math.min(21, cur + 1));
+        }
+      },
+      zoomOut: () => {
+        if (mapInstanceRef.current) {
+          const cur = mapInstanceRef.current.getZoom() || 14;
+          mapInstanceRef.current.setZoom(Math.max(3, cur - 1));
+        }
+      },
+      resetHeading: () => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setHeading(0);
+        }
+      },
+    });
+
+    if (window.google?.maps?.event) {
+      google.maps.event.trigger(map, 'resize');
+    }
+  }, [isVisible, setMapRef]);
 
   // Sync Map Layout Toggles
   useEffect(() => {

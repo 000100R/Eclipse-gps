@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.eclipsegps.app',
-  appName: 'Eclipse GPS',
+  appName: 'উমা এলো',
   webDir: 'dist',
   server: {
     androidScheme: 'https',
@@ -11,8 +11,12 @@ const config: CapacitorConfig = {
       '*.googleapis.com',
       '*.gstatic.com',
       '*.google.com',
+      '*.googleusercontent.com',
+      '*.ggpht.com',
       '*.openstreetmap.org',
       '*.cartocdn.com',
+      '*.arcgisonline.com',
+      'server.arcgisonline.com',
       'router.project-osrm.org',
     ],
   },

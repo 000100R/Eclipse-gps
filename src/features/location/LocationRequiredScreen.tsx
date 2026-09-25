@@ -99,7 +99,7 @@ export const LocationRequiredScreen: React.FC = () => {
 
           <div className="pt-2">
             <span className="text-[10px] font-mono tracking-widest text-neutral-500 uppercase">
-              Eclipse GPS • Strict Access Gate
+              উমা এলো • Strict Access Gate
             </span>
             <h1
               id="location-required-title"
@@ -116,7 +116,7 @@ export const LocationRequiredScreen: React.FC = () => {
             id="location-required-primary-message"
             className="text-base sm:text-lg font-bold text-neutral-100 leading-snug"
           >
-            Eclipse GPS cannot be used without location access.
+            উমা এলো cannot be used without location access.
           </p>
           <p
             id="location-required-secondary-message"
@@ -153,13 +153,13 @@ export const LocationRequiredScreen: React.FC = () => {
               <span>Location permission is blocked or denied</span>
             </div>
             <p className="text-[11px] text-rose-200/90 leading-relaxed">
-              Eclipse GPS requires foreground location to calculate pandal distances and guide your journey.
+              উমা এলো requires foreground location to calculate pandal distances and guide your journey.
             </p>
             <ol className="list-decimal list-inside text-[11px] text-rose-200/90 space-y-1 pl-1 leading-relaxed">
-              <li>Tap <strong className="text-white">OPEN APP SETTINGS</strong> below (or device Settings → Apps → Eclipse GPS).</li>
+              <li>Tap <strong className="text-white">OPEN APP SETTINGS</strong> below (or device Settings → Apps → উমা এলো).</li>
               <li>Tap <strong className="text-white">Permissions → Location</strong>.</li>
               <li>Select <strong className="text-white">Allow only while using the app</strong> (Precise or Approximate).</li>
-              <li>Return to Eclipse GPS and tap <strong className="text-white">TRY AGAIN</strong>.</li>
+              <li>Return to উমা এলো and tap <strong className="text-white">TRY AGAIN</strong>.</li>
             </ol>
           </div>
         )}
