@@ -103,6 +103,9 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
     setActiveMetroGateIntelligence,
   } = useAppState();
 
+  const setMapRefRef = useRef(setMapRef);
+  setMapRefRef.current = setMapRef;
+
   const [currentZoom, setCurrentZoom] = useState<number>(14);
   const { isLayerVisible, layerVisibility } = useIntelligenceGrid();
   const {
@@ -301,43 +304,45 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
         }
       });
 
-      // Inject custom abstraction into the global context
-      setMapRef({
-        setView: (coords: [number, number], zoom?: number) => {
-          if (mapInstanceRef.current) {
-            mapInstanceRef.current.setCenter({ lat: coords[0], lng: coords[1] });
-            if (zoom !== undefined) {
-              mapInstanceRef.current.setZoom(zoom);
+      // Inject custom abstraction into the global context if currently visible
+      if (isVisible) {
+        setMapRefRef.current?.({
+          setView: (coords: [number, number], zoom?: number) => {
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.setCenter({ lat: coords[0], lng: coords[1] });
+              if (zoom !== undefined) {
+                mapInstanceRef.current.setZoom(zoom);
+              }
             }
-          }
-        },
-        fitBounds: (bounds: [[number, number], [number, number]]) => {
-          if (mapInstanceRef.current && window.google?.maps) {
-            const gBounds = new google.maps.LatLngBounds(
-              { lat: bounds[0][0], lng: bounds[0][1] },
-              { lat: bounds[1][0], lng: bounds[1][1] }
-            );
-            mapInstanceRef.current.fitBounds(gBounds);
-          }
-        },
-        zoomIn: () => {
-          if (mapInstanceRef.current) {
-            const cur = mapInstanceRef.current.getZoom() || 14;
-            mapInstanceRef.current.setZoom(Math.min(21, cur + 1));
-          }
-        },
-        zoomOut: () => {
-          if (mapInstanceRef.current) {
-            const cur = mapInstanceRef.current.getZoom() || 14;
-            mapInstanceRef.current.setZoom(Math.max(3, cur - 1));
-          }
-        },
-        resetHeading: () => {
-          if (mapInstanceRef.current) {
-            mapInstanceRef.current.setHeading(0);
-          }
-        },
-      });
+          },
+          fitBounds: (bounds: [[number, number], [number, number]]) => {
+            if (mapInstanceRef.current && window.google?.maps) {
+              const gBounds = new google.maps.LatLngBounds(
+                { lat: bounds[0][0], lng: bounds[0][1] },
+                { lat: bounds[1][0], lng: bounds[1][1] }
+              );
+              mapInstanceRef.current.fitBounds(gBounds);
+            }
+          },
+          zoomIn: () => {
+            if (mapInstanceRef.current) {
+              const cur = mapInstanceRef.current.getZoom() || 14;
+              mapInstanceRef.current.setZoom(Math.min(21, cur + 1));
+            }
+          },
+          zoomOut: () => {
+            if (mapInstanceRef.current) {
+              const cur = mapInstanceRef.current.getZoom() || 14;
+              mapInstanceRef.current.setZoom(Math.max(3, cur - 1));
+            }
+          },
+          resetHeading: () => {
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.setHeading(0);
+            }
+          },
+        });
+      }
 
       // Bind Traffic Layer by default
       const traffic = new google.maps.TrafficLayer();
@@ -371,7 +376,6 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
       if (mapInstanceRef.current && window.google?.maps?.event) {
         google.maps.event.clearInstanceListeners(mapInstanceRef.current);
       }
-      setMapRef(null);
       mapInstanceRef.current = null;
     };
   }, [googleLoaded]);
@@ -381,7 +385,7 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
     const map = mapInstanceRef.current;
     if (!map || !isVisible) return;
 
-    setMapRef({
+    setMapRefRef.current?.({
       setView: (coords: [number, number], zoom?: number) => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.setCenter({ lat: coords[0], lng: coords[1] });
@@ -421,7 +425,7 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
     if (window.google?.maps?.event) {
       google.maps.event.trigger(map, 'resize');
     }
-  }, [isVisible, setMapRef]);
+  }, [isVisible]);
 
   // Sync Map Layout Toggles
   useEffect(() => {

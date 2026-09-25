@@ -95,6 +95,9 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = 
     setActiveMetroGateIntelligence,
   } = useAppState();
 
+  const setMapRefRef = useRef(setMapRef);
+  setMapRefRef.current = setMapRef;
+
   const [currentZoom, setCurrentZoom] = useState<number>(14);
   const { isLayerVisible, layerVisibility } = useIntelligenceGrid();
   const {
@@ -191,24 +194,26 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = 
       updateViewport();
     });
     
-    // Abstract the setView into our AppState mapRef
-    setMapRef({
-      setView: (coords: [number, number], zoom?: number) => {
-        map.setView(coords, zoom || map.getZoom());
-      },
-      fitBounds: (bounds: [[number, number], [number, number]], options?: any) => {
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, ...options });
-      },
-      zoomIn: () => {
-        map.zoomIn();
-      },
-      zoomOut: () => {
-        map.zoomOut();
-      },
-      resetHeading: () => {
-        // Leaflet 2D is North-aligned
-      },
-    });
+    // Abstract the setView into our AppState mapRef if currently visible
+    if (isVisible) {
+      setMapRefRef.current?.({
+        setView: (coords: [number, number], zoom?: number) => {
+          map.setView(coords, zoom || map.getZoom());
+        },
+        fitBounds: (bounds: [[number, number], [number, number]], options?: any) => {
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, ...options });
+        },
+        zoomIn: () => {
+          map.zoomIn();
+        },
+        zoomOut: () => {
+          map.zoomOut();
+        },
+        resetHeading: () => {
+          // Leaflet 2D is North-aligned
+        },
+      });
+    }
 
     // Feature group to hold active catalog markers
     const markersGroup = L.featureGroup().addTo(map);
@@ -245,7 +250,6 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = 
       map.remove();
       mapInstanceRef.current = null;
       setIsMapReady(false);
-      setMapRef(null);
     };
   }, []);
 
@@ -254,7 +258,7 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = 
     const map = mapInstanceRef.current;
     if (!map || !isVisible) return;
 
-    setMapRef({
+    setMapRefRef.current?.({
       setView: (coords: [number, number], zoom?: number) => {
         mapInstanceRef.current?.setView(coords, zoom || mapInstanceRef.current?.getZoom());
       },
@@ -284,7 +288,7 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = 
       clearTimeout(timer1);
       clearTimeout(timer2);
     };
-  }, [isVisible, setMapRef]);
+  }, [isVisible]);
 
   // Dynamic MapStyle tile switcher (Standard, Satellite, Hybrid, 3D)
   useEffect(() => {

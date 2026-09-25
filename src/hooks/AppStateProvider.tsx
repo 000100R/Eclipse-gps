@@ -1908,9 +1908,9 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return R * c; // in meters
   }
 
-  const setMapRef = (ref: any) => {
+  const setMapRef = useCallback((ref: any) => {
     setMapRefState(ref);
-  };
+  }, []);
 
   const recenterMap = () => {
     if (mapRef && currentLocation) {
