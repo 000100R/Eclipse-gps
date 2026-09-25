@@ -754,10 +754,28 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
 
       const merged = [...hydratedPandals, ...(userPandalsInRadius as any[])];
-      if (sortBy === 'nearest') {
-        merged.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+      
+      // Strict deduplication by ID and normalized location key
+      const seenIds = new Set<string>();
+      const seenKeys = new Set<string>();
+      const uniquePandals: Pandal[] = [];
+      for (const p of merged) {
+        if (!p || !p.id) continue;
+        const normName = (p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const locKey = p.location ? `${p.location.lat.toFixed(3)},${p.location.lng.toFixed(3)}` : '';
+        const comboKey = `${normName}_${locKey}`;
+        if (seenIds.has(p.id) || (comboKey && seenKeys.has(comboKey))) {
+          continue;
+        }
+        seenIds.add(p.id);
+        if (comboKey) seenKeys.add(comboKey);
+        uniquePandals.push(p);
       }
-      setPandals(merged);
+
+      if (sortBy === 'nearest') {
+        uniquePandals.sort((a, b) => (a.distance ?? 999999) - (b.distance ?? 999999));
+      }
+      setPandals(uniquePandals);
     } catch (e) {
       console.error('Error during nearby pandal discovery:', e);
     } finally {

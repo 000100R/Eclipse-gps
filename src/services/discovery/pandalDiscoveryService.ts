@@ -463,8 +463,8 @@ export class PandalDiscoveryService {
         rawQuery
       );
 
-      // Perform external multi-pass Google Places discovery when external search is not skipped
-      if (!params.skipExternalSearch) {
+      // Perform external Google Places discovery only if local results are sparse or custom query was specified
+      if (!params.skipExternalSearch && (discoveredPandals.length < 10 || (rawQuery && rawQuery.length > 2))) {
         const passResults = await this.runMultiPassDiscovery(effectiveCenter, finalRadius, rawQuery);
         if (passResults && passResults.length > 0) {
           discoveredPandals = this.mergeAndDeduplicate(
@@ -488,25 +488,25 @@ export class PandalDiscoveryService {
           rawQuery
         );
 
-        // Perform external multi-pass Google Places discovery when external search is not skipped
-        if (!params.skipExternalSearch) {
-          const passResults = await this.runMultiPassDiscovery(effectiveCenter, finalRadius, rawQuery);
-          if (passResults && passResults.length > 0) {
-            discoveredPandals = this.mergeAndDeduplicate(
-              passResults,
-              effectiveCenter,
-              finalRadius,
-              rawQuery
-            );
-            if (!sourcesUsed.includes('GOOGLE_PLACES')) {
-              sourcesUsed.push('GOOGLE_PLACES');
-            }
-          }
-        }
-
-        // If 20 or more unique pandals are found, keep the current radius
+        // If 20 or more unique pandals are found locally, keep the current radius
         if (discoveredPandals.length >= MIN_UNIQUE_PANDALS) {
           break;
+        }
+      }
+
+      // If local database has fewer than 10 within max radius, supplement with external places
+      if (!params.skipExternalSearch && (discoveredPandals.length < 10 || (rawQuery && rawQuery.length > 2))) {
+        const passResults = await this.runMultiPassDiscovery(effectiveCenter, finalRadius, rawQuery);
+        if (passResults && passResults.length > 0) {
+          discoveredPandals = this.mergeAndDeduplicate(
+            passResults,
+            effectiveCenter,
+            finalRadius,
+            rawQuery
+          );
+          if (!sourcesUsed.includes('GOOGLE_PLACES')) {
+            sourcesUsed.push('GOOGLE_PLACES');
+          }
         }
       }
     }
@@ -667,15 +667,13 @@ export class PandalDiscoveryService {
     const queries: string[] = [];
     if (customQuery && customQuery.trim().length > 2) {
       queries.push(customQuery.trim());
-    }
-    for (const q of DISCOVERY_PASS_QUERIES) {
-      if (!queries.some((existing) => existing.toLowerCase() === q.toLowerCase())) {
-        queries.push(q);
-      }
+      queries.push(`${customQuery.trim()} Durga Puja`);
+    } else {
+      queries.push('Durga Puja pandal', 'Bonedi Bari Durga Puja');
     }
 
     const accumulated: DiscoveredPandal[] = [];
-    const BATCH_SIZE = 3;
+    const BATCH_SIZE = 2;
 
     for (let b = 0; b < queries.length; b += BATCH_SIZE) {
       const batch = queries.slice(b, b + BATCH_SIZE);
@@ -683,11 +681,13 @@ export class PandalDiscoveryService {
         const queryResults: DiscoveredPandal[] = [];
         let pageToken: string | undefined = undefined;
         let pageCount = 0;
-        const MAX_PAGES = 3;
+        const MAX_PAGES = 1;
 
         try {
           while (pageCount < MAX_PAGES) {
             pageCount++;
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 4000);
             const response = await fetch('/api/places/search', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -697,7 +697,8 @@ export class PandalDiscoveryService {
                 radius,
                 pageToken,
               }),
-            });
+              signal: ctrl.signal,
+            }).finally(() => clearTimeout(timer));
 
             if (!response.ok) break;
             const data = await response.json();
@@ -727,9 +728,7 @@ export class PandalDiscoveryService {
           accumulated.push(...res);
         }
       }
-      if (b + BATCH_SIZE < queries.length) {
-        await new Promise((resolve) => setTimeout(resolve, 40));
-      }
+      if (accumulated.length >= 25) break;
     }
 
     return accumulated;

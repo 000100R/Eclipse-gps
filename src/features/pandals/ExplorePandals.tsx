@@ -15,6 +15,8 @@ export const ExplorePandals: React.FC = () => {
     pandals,
     currentLocation,
     calculateRouteToItem,
+    setSelectedItem,
+    mapRef,
     isSaved,
     saveLocation,
     unsaveLocation,
@@ -39,9 +41,10 @@ export const ExplorePandals: React.FC = () => {
     return `${(meters / 1000).toFixed(1)} km`;
   };
 
-  // Filters calculation sorted strictly nearest -> farthest
+  // Filters calculation sorted strictly nearest -> farthest and deduplicated
   const filteredPandals = useMemo(() => {
     let list = pandals.filter(p => {
+      if (!p || !p.id) return false;
       const matchesZone = filterZone === 'ALL' || (p.zone && p.zone.toUpperCase() === filterZone) || (p.area && p.area.toUpperCase().includes(filterZone));
       const matchesCrowd = filterCrowd === 'ALL' || p.crowdLevel === filterCrowd;
       return matchesZone && matchesCrowd;
@@ -62,8 +65,24 @@ export const ExplorePandals: React.FC = () => {
       });
     }
 
-    list.sort((a, b) => (a.distance ?? 999999) - (b.distance ?? 999999));
-    return list;
+    // Strict deduplication by ID and normalized location key
+    const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
+    const deduped: typeof list = [];
+    for (const p of list) {
+      const normName = (p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const locKey = p.location ? `${p.location.lat.toFixed(3)},${p.location.lng.toFixed(3)}` : '';
+      const comboKey = `${normName}_${locKey}`;
+      if (seenIds.has(p.id) || (comboKey && seenKeys.has(comboKey))) {
+        continue;
+      }
+      seenIds.add(p.id);
+      if (comboKey) seenKeys.add(comboKey);
+      deduped.push(p);
+    }
+
+    deduped.sort((a, b) => (a.distance ?? 999999) - (b.distance ?? 999999));
+    return deduped;
   }, [pandals, filterZone, filterCrowd, currentLocation]);
 
   const handleToggleFav = (pandal: any) => {
@@ -170,7 +189,18 @@ export const ExplorePandals: React.FC = () => {
             return (
               <GlassPanel key={pandal.id} className="p-4 flex flex-col space-y-3.5">
                 <div className="flex items-start justify-between">
-                  <div className="min-w-0 pr-2">
+                  <div
+                    className="min-w-0 pr-2 flex-1 cursor-pointer"
+                    onClick={() => {
+                      setSelectedItem(pandal);
+                      setActiveTab('home');
+                      if (mapRef && pandal.location) {
+                        if (mapRef.setView) {
+                          mapRef.setView([pandal.location.lat, pandal.location.lng], 16);
+                        }
+                      }
+                    }}
+                  >
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">{pandal.zone} Kolkata</span>
                       {pandal.distance !== undefined && (
@@ -186,21 +216,27 @@ export const ExplorePandals: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <h3 className="text-sm font-bold text-neutral-100 mt-1 truncate">{pandal.name}</h3>
+                    <h3 className="text-sm font-bold text-neutral-100 mt-1 truncate hover:text-indigo-400 transition-colors">{pandal.name}</h3>
                     <p className="text-xs text-neutral-400 mt-0.5 truncate">{pandal.address}</p>
                   </div>
 
                   <div className="flex items-center space-x-1.5 shrink-0">
                     <button
                       id={`btn-fav-toggle-pandal-${pandal.id}`}
-                      onClick={() => handleToggleFav(pandal)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleFav(pandal);
+                      }}
                       className="p-1.5 rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-400 hover:text-rose-500 transition-colors"
                     >
                       <Star size={14} fill={isFav ? '#ef4444' : 'none'} className={isFav ? 'text-rose-500' : ''} />
                     </button>
                     <button
                       id={`btn-visited-toggle-pandal-${pandal.id}`}
-                      onClick={() => toggleVisited(pandal.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleVisited(pandal.id);
+                      }}
                       className={`p-1.5 rounded-lg border transition-colors ${
                         isVisited
                           ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
@@ -311,8 +347,11 @@ export const ExplorePandals: React.FC = () => {
                 <div className="flex items-center justify-between border-t border-neutral-900 pt-3.5 mt-1.5">
                   <button
                     id={`btn-nav-pandal-p-${pandal.id}`}
-                    onClick={() => calculateRouteToItem(pandal)}
-                    className="flex items-center space-x-1.5 text-xs font-bold tracking-wider text-indigo-400 hover:text-indigo-300 uppercase"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      calculateRouteToItem(pandal);
+                    }}
+                    className="flex items-center space-x-1.5 text-xs font-bold tracking-wider text-indigo-400 hover:text-indigo-300 uppercase cursor-pointer touch-manipulation"
                   >
                     <Navigation size={12} className="fill-indigo-400" />
                     <span>Navigate</span>
@@ -320,8 +359,11 @@ export const ExplorePandals: React.FC = () => {
 
                   <button
                     id={`btn-toggle-pandal-report-${pandal.id}`}
-                    onClick={() => setReportingItemId(reportingItemId === pandal.id ? null : pandal.id)}
-                    className="flex items-center space-x-1.5 text-xs font-bold tracking-wider text-neutral-400 hover:text-neutral-300 uppercase"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setReportingItemId(reportingItemId === pandal.id ? null : pandal.id);
+                    }}
+                    className="flex items-center space-x-1.5 text-xs font-bold tracking-wider text-neutral-400 hover:text-neutral-300 uppercase cursor-pointer touch-manipulation"
                   >
                     <MessageSquare size={12} />
                     <span>Report Crowd</span>

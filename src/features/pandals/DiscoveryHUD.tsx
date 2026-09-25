@@ -30,6 +30,7 @@ export const DiscoveryHUD: React.FC = () => {
     selectedItem,
     activeRoute,
     routeStops,
+    mapRef,
   } = useAppState();
 
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -163,21 +164,62 @@ export const DiscoveryHUD: React.FC = () => {
     });
   };
 
-  // Discovered pandals sorted by live GPS distance
+  // Discovered pandals sorted by live GPS distance and strictly deduplicated
   const livePandals = useMemo(() => {
-    const list = [...pandals].filter(p => p.zone !== 'EVENTS');
-    if (discoverySort === 'nearest' && currentLocation) {
-      return list
-        .map(p => {
-          const liveDist = Math.round(getDistance(currentLocation, p.location));
-          return { ...p, distance: liveDist };
-        })
-        .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+    const list = [...pandals].filter(p => p && p.zone !== 'EVENTS');
+
+    // Always compute accurate live distance to user's real GPS location when available
+    const withLiveDist = list.map(p => {
+      const d = currentLocation ? Math.round(getDistance(currentLocation, p.location)) : p.distance;
+      const durationMins = d ? Math.ceil((d / 8.33) / 60) : 0;
+      const travelInfo = d !== undefined
+        ? d < 1200
+          ? `${Math.max(1, Math.round(d / 75))} min walk`
+          : `${Math.max(3, durationMins)} min drive`
+        : p.estimatedTravelTime;
+      return {
+        ...p,
+        distance: d,
+        estimatedTravelTime: travelInfo || p.estimatedTravelTime,
+      };
+    });
+
+    // Strict deduplication to ensure zero duplicate pandals
+    const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
+    const deduplicated: typeof withLiveDist = [];
+    for (const p of withLiveDist) {
+      if (!p || !p.id) continue;
+      const normName = (p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const locKey = p.location ? `${p.location.lat.toFixed(3)},${p.location.lng.toFixed(3)}` : '';
+      const comboKey = `${normName}_${locKey}`;
+      if (seenIds.has(p.id) || (comboKey && seenKeys.has(comboKey))) {
+        continue;
+      }
+      seenIds.add(p.id);
+      if (comboKey) seenKeys.add(comboKey);
+      deduplicated.push(p);
     }
+
     if (discoverySort === 'nearest') {
-      return list.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+      deduplicated.sort((a, b) => (a.distance ?? 999999) - (b.distance ?? 999999));
+    } else if (discoverySort === 'least_crowded') {
+      const crowdScore: Record<string, number> = { LOW: 1, MODERATE: 2, HIGH: 3, HEAVY: 3, EXTREME: 4 };
+      deduplicated.sort((a, b) => (crowdScore[a.crowdLevel || 'MODERATE'] ?? 2) - (crowdScore[b.crowdLevel || 'MODERATE'] ?? 2));
+    } else if (discoverySort === 'fastest') {
+      deduplicated.sort((a, b) => (a.distance ?? 999999) - (b.distance ?? 999999));
+    } else if (discoverySort === 'recommended') {
+      const crowdPenalty: Record<string, number> = { LOW: 0, MODERATE: 2, HEAVY: 8, EXTREME: 15 };
+      deduplicated.sort((a, b) => {
+        const distKmA = (a.distance || 0) / 1000;
+        const distKmB = (b.distance || 0) / 1000;
+        const scoreA = (a.rating || 4.5) * 10 - (crowdPenalty[a.crowdLevel || 'LOW'] || 0) - distKmA * 1.5;
+        const scoreB = (b.rating || 4.5) * 10 - (crowdPenalty[b.crowdLevel || 'LOW'] || 0) - distKmB * 1.5;
+        return scoreB - scoreA;
+      });
     }
-    return list;
+
+    return deduplicated;
   }, [pandals, currentLocation, discoverySort]);
 
   return (
@@ -354,7 +396,14 @@ export const DiscoveryHUD: React.FC = () => {
                             >
                               <div
                                 className="flex-1 cursor-pointer min-w-0"
-                                onClick={() => setSelectedItem(pandal)}
+                                onClick={() => {
+                                  setSelectedItem(pandal);
+                                  if (mapRef && pandal.location) {
+                                    if (mapRef.setView) {
+                                      mapRef.setView([pandal.location.lat, pandal.location.lng], 16);
+                                    }
+                                  }
+                                }}
                               >
                                 <div className="flex items-center space-x-1.5 flex-wrap">
                                   <p className="text-xs font-semibold text-neutral-200 truncate">{pandal.name}</p>
@@ -386,7 +435,10 @@ export const DiscoveryHUD: React.FC = () => {
                                 <button
                                   type="button"
                                   id={`btn-hud-route-${pandal.id}`}
-                                  onClick={() => calculateRouteToItem(pandal)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    calculateRouteToItem(pandal);
+                                  }}
                                   className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white transition-colors cursor-pointer"
                                   title="Navigate"
                                   aria-label={`Navigate to ${pandal.name}`}
