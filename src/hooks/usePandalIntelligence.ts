@@ -42,7 +42,7 @@ export function usePandalIntelligence(userLocation?: Location) {
 
   const fetchPandalsForViewport = useCallback(async () => {
     if (!isPandalVisible) {
-      setPandals([]);
+      setPandals(prev => (prev.length === 0 ? prev : []));
       setEmptyMessage(undefined);
       return;
     }
@@ -85,7 +85,7 @@ export function usePandalIntelligence(userLocation?: Location) {
     isMountedRef.current = true;
 
     if (!isPandalVisible) {
-      setPandals([]);
+      setPandals(prev => (prev.length === 0 ? prev : []));
       setEmptyMessage(undefined);
       return;
     }

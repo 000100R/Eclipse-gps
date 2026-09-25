@@ -25,7 +25,7 @@ import { extractLocation } from '../../services/routing/routingService';
 import { getFriendLocationStatus, buildFriendMarkerSvg, buildFriendPopupHtml } from './friendMarkerUtils';
 import L from 'leaflet';
 
-export const LeafletMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = true }) => {
+export const LeafletMapView: React.FC<{ isVisible?: boolean }> = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const [isMapReady, setIsMapReady] = useState<boolean>(false);
@@ -94,9 +94,6 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = 
     activeMetroGateIntelligence,
     setActiveMetroGateIntelligence,
   } = useAppState();
-
-  const setMapRefRef = useRef(setMapRef);
-  setMapRefRef.current = setMapRef;
 
   const [currentZoom, setCurrentZoom] = useState<number>(14);
   const { isLayerVisible, layerVisibility } = useIntelligenceGrid();
@@ -185,7 +182,12 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = 
     // Track map center and viewport on pan / move
     map.on('moveend', () => {
       const center = map.getCenter();
-      setMapCenter({ lat: center.lat, lng: center.lng });
+      setMapCenter(prev => {
+        if (prev && Math.abs(prev.lat - center.lat) < 0.00001 && Math.abs(prev.lng - center.lng) < 0.00001) {
+          return prev;
+        }
+        return { lat: center.lat, lng: center.lng };
+      });
       updateViewport();
     });
 
@@ -194,26 +196,24 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = 
       updateViewport();
     });
     
-    // Abstract the setView into our AppState mapRef if currently visible
-    if (isVisible) {
-      setMapRefRef.current?.({
-        setView: (coords: [number, number], zoom?: number) => {
-          map.setView(coords, zoom || map.getZoom());
-        },
-        fitBounds: (bounds: [[number, number], [number, number]], options?: any) => {
-          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, ...options });
-        },
-        zoomIn: () => {
-          map.zoomIn();
-        },
-        zoomOut: () => {
-          map.zoomOut();
-        },
-        resetHeading: () => {
-          // Leaflet 2D is North-aligned
-        },
-      });
-    }
+    // Abstract the setView into our AppState mapRef
+    setMapRef({
+      setView: (coords: [number, number], zoom?: number) => {
+        map.setView(coords, zoom || map.getZoom());
+      },
+      fitBounds: (bounds: [[number, number], [number, number]], options?: any) => {
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, ...options });
+      },
+      zoomIn: () => {
+        map.zoomIn();
+      },
+      zoomOut: () => {
+        map.zoomOut();
+      },
+      resetHeading: () => {
+        // Leaflet 2D is North-aligned
+      },
+    });
 
     // Feature group to hold active catalog markers
     const markersGroup = L.featureGroup().addTo(map);
@@ -250,45 +250,9 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = 
       map.remove();
       mapInstanceRef.current = null;
       setIsMapReady(false);
+      setMapRef(null);
     };
   }, []);
-
-  // When visibility switches to true, immediately re-register setMapRef and invalidate container dimensions to eliminate blank/grey maps
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !isVisible) return;
-
-    setMapRefRef.current?.({
-      setView: (coords: [number, number], zoom?: number) => {
-        mapInstanceRef.current?.setView(coords, zoom || mapInstanceRef.current?.getZoom());
-      },
-      fitBounds: (bounds: [[number, number], [number, number]], options?: any) => {
-        mapInstanceRef.current?.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, ...options });
-      },
-      zoomIn: () => {
-        mapInstanceRef.current?.zoomIn();
-      },
-      zoomOut: () => {
-        mapInstanceRef.current?.zoomOut();
-      },
-      resetHeading: () => {
-        // Leaflet 2D is North-aligned
-      },
-    });
-
-    map.invalidateSize();
-    const timer1 = setTimeout(() => {
-      mapInstanceRef.current?.invalidateSize();
-    }, 50);
-    const timer2 = setTimeout(() => {
-      mapInstanceRef.current?.invalidateSize();
-    }, 200);
-
-    return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-    };
-  }, [isVisible]);
 
   // Dynamic MapStyle tile switcher (Standard, Satellite, Hybrid, 3D)
   useEffect(() => {

@@ -42,7 +42,7 @@ export function useMetroIntelligence(userLocation?: Location) {
 
   const fetchMetroForViewport = useCallback(async () => {
     if (!isMetroVisible) {
-      setMetroStations([]);
+      setMetroStations(prev => (prev.length === 0 ? prev : []));
       return;
     }
 
@@ -102,7 +102,7 @@ export function useMetroIntelligence(userLocation?: Location) {
     isMountedRef.current = true;
 
     if (!isMetroVisible) {
-      setMetroStations([]);
+      setMetroStations(prev => (prev.length === 0 ? prev : []));
       return;
     }
 

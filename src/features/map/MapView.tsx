@@ -27,26 +27,12 @@ export const MapView: React.FC = () => {
 
   return (
     <div id="eclipse-map-viewport" className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-neutral-950">
-      {/* Dynamic Map Component Rendering: Both engines are kept mounted to eliminate blank/grey maps during switching */}
-      <div
-        id="google-engine-layer"
-        className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
-          isGoogleActive ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
-        }`}
-        style={{ visibility: isGoogleActive ? 'visible' : 'hidden' }}
-      >
-        <GoogleMapView isVisible={isGoogleActive} />
-      </div>
-
-      <div
-        id="leaflet-engine-layer"
-        className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
-          !isGoogleActive ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
-        }`}
-        style={{ visibility: !isGoogleActive ? 'visible' : 'hidden' }}
-      >
-        <LeafletMapView isVisible={!isGoogleActive} />
-      </div>
+      {/* Dynamic Map Component Rendering based on Provider State */}
+      {isGoogleActive ? (
+        <GoogleMapView />
+      ) : (
+        <LeafletMapView />
+      )}
 
       {/* 🗺️ MAP HUD CONTROLS (Top-Left: Map Type Switcher + Intelligence Grid HUD - Active when NOT navigating) */}
       {!isNavigating && (

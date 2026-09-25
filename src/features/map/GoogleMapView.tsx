@@ -26,7 +26,7 @@ import { extractLocation } from '../../services/routing/routingService';
 import { getFriendLocationStatus, buildFriendMarkerSvg, buildFriendPopupHtml } from './friendMarkerUtils';
 import { getGoogleMapsApiKey, getGoogleMapsMapId } from '../../services/map/mapsConfig';
 
-export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = true }) => {
+export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const streetViewRef = useRef<HTMLDivElement>(null);
   
@@ -103,9 +103,6 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
     setActiveMetroGateIntelligence,
   } = useAppState();
 
-  const setMapRefRef = useRef(setMapRef);
-  setMapRefRef.current = setMapRef;
-
   const [currentZoom, setCurrentZoom] = useState<number>(14);
   const { isLayerVisible, layerVisibility } = useIntelligenceGrid();
   const {
@@ -126,20 +123,6 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
     isLoading: isMetroLoading,
   } = useMetroIntelligence(currentLocation);
 
-  // Keep intelligence layer item counts synchronized
-  useEffect(() => {
-    intelligenceLayerService.updateItemCount('METRO', metroStations.length);
-  }, [metroStations.length]);
-
-  useEffect(() => {
-    const activeCrowd = crowdIntelligenceService.getAllCrowdItems(pandals, pandalCrowdCounts, pandalCrowdTrends)
-      .filter(c => c.crowdLevel !== 'UNAVAILABLE').length;
-    intelligenceLayerService.updateItemCount('CROWD', activeCrowd);
-  }, [pandals.length, pandalCrowdCounts, pandalCrowdTrends]);
-
-  useEffect(() => {
-    intelligenceLayerService.updateItemCount('TRAFFIC', trafficIntelligenceService.getAllCorridors().length);
-  }, []);
   const [googleLoaded, setGoogleLoaded] = useState<boolean>(() => {
     return typeof window !== 'undefined' && !!(window as any).google?.maps?.Map;
   });
@@ -156,13 +139,11 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
   const apiKey = getGoogleMapsApiKey();
   const mapId = getGoogleMapsMapId();
 
-  // Reset errors when becoming visible
+  // Reset errors when component mounts
   useEffect(() => {
-    if (isVisible) {
-      setLoadError(null);
-      setAuthError(false);
-    }
-  }, [isVisible]);
+    setLoadError(null);
+    setAuthError(false);
+  }, []);
 
   // Load Google Maps Script
   useEffect(() => {
@@ -270,7 +251,14 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
       map.addListener('idle', () => {
         const center = map.getCenter();
         if (center) {
-          setMapCenter({ lat: center.lat(), lng: center.lng() });
+          const lat = center.lat();
+          const lng = center.lng();
+          setMapCenter(prev => {
+            if (prev && Math.abs(prev.lat - lat) < 0.00001 && Math.abs(prev.lng - lng) < 0.00001) {
+              return prev;
+            }
+            return { lat, lng };
+          });
         }
         const bounds = map.getBounds();
         const zoom = map.getZoom() || 14;
@@ -304,45 +292,43 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
         }
       });
 
-      // Inject custom abstraction into the global context if currently visible
-      if (isVisible) {
-        setMapRefRef.current?.({
-          setView: (coords: [number, number], zoom?: number) => {
-            if (mapInstanceRef.current) {
-              mapInstanceRef.current.setCenter({ lat: coords[0], lng: coords[1] });
-              if (zoom !== undefined) {
-                mapInstanceRef.current.setZoom(zoom);
-              }
+      // Inject custom abstraction into the global context
+      setMapRef({
+        setView: (coords: [number, number], zoom?: number) => {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.setCenter({ lat: coords[0], lng: coords[1] });
+            if (zoom !== undefined) {
+              mapInstanceRef.current.setZoom(zoom);
             }
-          },
-          fitBounds: (bounds: [[number, number], [number, number]]) => {
-            if (mapInstanceRef.current && window.google?.maps) {
-              const gBounds = new google.maps.LatLngBounds(
-                { lat: bounds[0][0], lng: bounds[0][1] },
-                { lat: bounds[1][0], lng: bounds[1][1] }
-              );
-              mapInstanceRef.current.fitBounds(gBounds);
-            }
-          },
-          zoomIn: () => {
-            if (mapInstanceRef.current) {
-              const cur = mapInstanceRef.current.getZoom() || 14;
-              mapInstanceRef.current.setZoom(Math.min(21, cur + 1));
-            }
-          },
-          zoomOut: () => {
-            if (mapInstanceRef.current) {
-              const cur = mapInstanceRef.current.getZoom() || 14;
-              mapInstanceRef.current.setZoom(Math.max(3, cur - 1));
-            }
-          },
-          resetHeading: () => {
-            if (mapInstanceRef.current) {
-              mapInstanceRef.current.setHeading(0);
-            }
-          },
-        });
-      }
+          }
+        },
+        fitBounds: (bounds: [[number, number], [number, number]]) => {
+          if (mapInstanceRef.current && window.google?.maps) {
+            const gBounds = new google.maps.LatLngBounds(
+              { lat: bounds[0][0], lng: bounds[0][1] },
+              { lat: bounds[1][0], lng: bounds[1][1] }
+            );
+            mapInstanceRef.current.fitBounds(gBounds);
+          }
+        },
+        zoomIn: () => {
+          if (mapInstanceRef.current) {
+            const cur = mapInstanceRef.current.getZoom() || 14;
+            mapInstanceRef.current.setZoom(Math.min(21, cur + 1));
+          }
+        },
+        zoomOut: () => {
+          if (mapInstanceRef.current) {
+            const cur = mapInstanceRef.current.getZoom() || 14;
+            mapInstanceRef.current.setZoom(Math.max(3, cur - 1));
+          }
+        },
+        resetHeading: () => {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.setHeading(0);
+          }
+        },
+      });
 
       // Bind Traffic Layer by default
       const traffic = new google.maps.TrafficLayer();
@@ -376,56 +362,10 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = ({ isVisible = t
       if (mapInstanceRef.current && window.google?.maps?.event) {
         google.maps.event.clearInstanceListeners(mapInstanceRef.current);
       }
+      setMapRef(null);
       mapInstanceRef.current = null;
     };
   }, [googleLoaded]);
-
-  // When visibility switches to true, immediately re-register setMapRef and trigger resize to eliminate blank/grey maps
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !isVisible) return;
-
-    setMapRefRef.current?.({
-      setView: (coords: [number, number], zoom?: number) => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.setCenter({ lat: coords[0], lng: coords[1] });
-          if (zoom !== undefined) {
-            mapInstanceRef.current.setZoom(zoom);
-          }
-        }
-      },
-      fitBounds: (bounds: [[number, number], [number, number]]) => {
-        if (mapInstanceRef.current && window.google?.maps) {
-          const gBounds = new google.maps.LatLngBounds(
-            { lat: bounds[0][0], lng: bounds[0][1] },
-            { lat: bounds[1][0], lng: bounds[1][1] }
-          );
-          mapInstanceRef.current.fitBounds(gBounds);
-        }
-      },
-      zoomIn: () => {
-        if (mapInstanceRef.current) {
-          const cur = mapInstanceRef.current.getZoom() || 14;
-          mapInstanceRef.current.setZoom(Math.min(21, cur + 1));
-        }
-      },
-      zoomOut: () => {
-        if (mapInstanceRef.current) {
-          const cur = mapInstanceRef.current.getZoom() || 14;
-          mapInstanceRef.current.setZoom(Math.max(3, cur - 1));
-        }
-      },
-      resetHeading: () => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.setHeading(0);
-        }
-      },
-    });
-
-    if (window.google?.maps?.event) {
-      google.maps.event.trigger(map, 'resize');
-    }
-  }, [isVisible]);
 
   // Sync Map Layout Toggles
   useEffect(() => {

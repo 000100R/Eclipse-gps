@@ -22,9 +22,6 @@ export function useIntelligenceGrid() {
   );
 
   useEffect(() => {
-    // Sync initial state
-    setGridState(intelligenceGridStore.getState());
-
     // Subscribe to store updates
     const unsubscribe = intelligenceGridStore.subscribe((newState) => {
       setGridState(newState);

@@ -41,7 +41,7 @@ export function useBonediBariIntelligence(userLocation?: Location) {
 
   const fetchBonediBariForViewport = useCallback(async () => {
     if (!isBonediBariVisible) {
-      setBonediBaris([]);
+      setBonediBaris(prev => (prev.length === 0 ? prev : []));
       setEmptyMessage(undefined);
       return;
     }
@@ -91,7 +91,7 @@ export function useBonediBariIntelligence(userLocation?: Location) {
     isMountedRef.current = true;
 
     if (!isBonediBariVisible) {
-      setBonediBaris([]);
+      setBonediBaris(prev => (prev.length === 0 ? prev : []));
       setEmptyMessage(undefined);
       return;
     }
