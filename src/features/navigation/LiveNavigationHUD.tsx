@@ -182,47 +182,50 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
 
   // Determine if user has arrived at the destination
   const hasArrived = useMemo(() => {
-    // 1. Direct GPS distance within arrival radius (<= 40 meters)
-    if (directDistanceToDestMeters > 0 && directDistanceToDestMeters <= 40) {
+    // 1. Direct GPS distance within arrival radius (<= 45 meters)
+    if (directDistanceToDestMeters > 0 && directDistanceToDestMeters <= 45) {
       return true;
     }
-    // 2. On the final instruction step
+    // 2. On the final instruction step AND within 70 meters of destination
     if (instructions.length > 0 && safeStepIndex >= instructions.length - 1) {
-      const lastText = currentInstruction.text.toLowerCase();
-      if (lastText.includes('arrive') || directDistanceToDestMeters <= 100) {
+      if (directDistanceToDestMeters > 0 && directDistanceToDestMeters <= 70) {
         return true;
       }
     }
     return false;
-  }, [directDistanceToDestMeters, instructions.length, safeStepIndex, currentInstruction.text]);
+  }, [directDistanceToDestMeters, instructions.length, safeStepIndex]);
 
   // Remaining distance in meters along the route steps
   const remainingDistanceMeters = useMemo(() => {
     if (hasArrived) return 0;
     if (safeStepIndex >= instructions.length - 1) {
       return directDistanceToDestMeters > 0
-        ? directDistanceToDestMeters
+        ? Math.round(directDistanceToDestMeters)
         : currentInstruction.distance;
     }
     const remainingSteps = instructions.slice(safeStepIndex);
     const sum = remainingSteps.reduce((acc, inst) => acc + (inst.distance || 0), 0);
-    return sum > 0 ? sum : activeRoute.distance;
+    // If direct GPS distance to destination is closer than step sum, use realistic blended estimate
+    if (directDistanceToDestMeters > 0 && sum > 0) {
+      return Math.round(Math.min(sum, Math.max(directDistanceToDestMeters, sum * 0.75)));
+    }
+    return sum > 0 ? Math.round(sum) : Math.round(activeRoute.distance);
   }, [hasArrived, safeStepIndex, instructions, directDistanceToDestMeters, currentInstruction.distance, activeRoute.distance]);
 
   // Remaining time in seconds along the route
   const remainingDurationSeconds = useMemo(() => {
     if (hasArrived) return 0;
+    const speedMps = travelMode === 'walking' ? 1.3 : 6.9;
+    if (remainingDistanceMeters > 0) {
+      return Math.max(15, Math.round(remainingDistanceMeters / speedMps));
+    }
     if (safeStepIndex >= instructions.length - 1) {
-      if (directDistanceToDestMeters > 0) {
-        const speedMps = travelMode === 'walking' ? 1.3 : 6.9;
-        return Math.round(directDistanceToDestMeters / speedMps);
-      }
       return currentInstruction.duration || 30;
     }
     const remainingSteps = instructions.slice(safeStepIndex);
     const sum = remainingSteps.reduce((acc, inst) => acc + (inst.duration || 0), 0);
     return sum > 0 ? sum : activeRoute.duration;
-  }, [hasArrived, safeStepIndex, instructions, directDistanceToDestMeters, travelMode, currentInstruction.duration, activeRoute.duration]);
+  }, [hasArrived, remainingDistanceMeters, safeStepIndex, instructions, travelMode, currentInstruction.duration, activeRoute.duration]);
 
   // Keep track of current system time, refreshing periodically
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());

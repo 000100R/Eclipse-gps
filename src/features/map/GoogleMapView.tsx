@@ -57,6 +57,7 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
   const trafficPolylinesRef = useRef<google.maps.Polyline[]>([]);
   const trafficMarkersRef = useRef<google.maps.Marker[]>([]);
   const metroGateObjectsRef = useRef<{ markers: google.maps.Marker[]; polylines: google.maps.Polyline[] }>({ markers: [], polylines: [] });
+  const [isMapReady, setIsMapReady] = useState(false);
 
   const {
     currentLocation,
@@ -238,6 +239,7 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
       });
 
       mapInstanceRef.current = map;
+      setIsMapReady(true);
 
       // Ensure canvas resizes smoothly whenever viewport dimensions change
       const resizeObserver = new ResizeObserver(() => {
@@ -246,6 +248,15 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
         }
       });
       resizeObserver.observe(containerRef.current);
+
+      // Handle visibility changes when app returns from background on mobile/Android
+      const handleAppResume = () => {
+        if (document.visibilityState === 'visible' && mapInstanceRef.current && window.google?.maps?.event) {
+          google.maps.event.trigger(mapInstanceRef.current, 'resize');
+        }
+      };
+      document.addEventListener('visibilitychange', handleAppResume);
+      window.addEventListener('resize', handleAppResume);
 
       // Track map center and update intelligence viewport on pan / zoom
       map.addListener('idle', () => {
@@ -364,6 +375,7 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
       }
       setMapRef(null);
       mapInstanceRef.current = null;
+      setIsMapReady(false);
     };
   }, [googleLoaded]);
 
@@ -962,7 +974,7 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
   // Render OSRM Polyline Path and Alternatives on Google Map
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !googleLoaded) return;
+    if (!map || !googleLoaded || !isMapReady) return;
 
     if (!activeRoute || !activeRoute.geometry || activeRoute.geometry.length === 0) {
       if (routePolylineRef.current) {
@@ -1037,18 +1049,20 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
 
     routePolylineRef.current = polyline;
 
-    // Smooth camera boundary fit only when a new route is loaded
+    // Smooth camera boundary fit only when a new route is loaded and NOT actively navigating
     if (activeRoute && activeRoute.id !== lastFittedRouteIdRef.current) {
       lastFittedRouteIdRef.current = activeRoute.id;
-      map.fitBounds(bounds, {
-        top: 100,
-        bottom: 100,
-        left: 60,
-        right: 60,
-      });
+      if (!isNavigating) {
+        map.fitBounds(bounds, {
+          top: 100,
+          bottom: 100,
+          left: 60,
+          right: 60,
+        });
+      }
     }
 
-  }, [activeRoute, selectAlternativeRoute, googleLoaded]);
+  }, [activeRoute, selectAlternativeRoute, googleLoaded, isMapReady, isNavigating]);
 
   // Metro Gate Intelligence Layer: Station, Exit Gates, Recommended Gate, Walking Polyline
   useEffect(() => {

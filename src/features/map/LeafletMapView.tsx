@@ -245,7 +245,18 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = () => {
     });
     resizeObserver.observe(containerRef.current);
 
+    // Handle visibility changes when app returns from background on mobile/Android
+    const handleAppResume = () => {
+      if (document.visibilityState === 'visible' && mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    };
+    document.addEventListener('visibilitychange', handleAppResume);
+    window.addEventListener('resize', handleAppResume);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleAppResume);
+      window.removeEventListener('resize', handleAppResume);
       resizeObserver.disconnect();
       map.remove();
       mapInstanceRef.current = null;
@@ -1134,7 +1145,7 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = () => {
   // Handle activeRoute Polyline Draw and flyBounds
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map) return;
+    if (!map || !isMapReady) return;
 
     if (!activeRoute || !activeRoute.geometry || activeRoute.geometry.length === 0) {
       if (routePolylineRef.current) {
@@ -1230,16 +1241,18 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = () => {
     const routeGroup = L.featureGroup(layers).addTo(map);
     routePolylineRef.current = routeGroup as any;
 
-    // Fit bounds whenever a new route is set
+    // Fit bounds whenever a new route is set and not actively navigating
     if (activeRoute && activeRoute.id !== lastFittedRouteIdRef.current) {
       lastFittedRouteIdRef.current = activeRoute.id;
-      map.fitBounds(routeGroup.getBounds(), {
-        padding: [50, 50],
-        maxZoom: 17,
-      });
+      if (!isNavigating) {
+        map.fitBounds(routeGroup.getBounds(), {
+          padding: [50, 50],
+          maxZoom: 17,
+        });
+      }
     }
 
-  }, [activeRoute, selectAlternativeRoute]);
+  }, [activeRoute, selectAlternativeRoute, isMapReady, isNavigating]);
 
   // Handle selectedItem focus panning
   useEffect(() => {

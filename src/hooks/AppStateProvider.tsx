@@ -2126,12 +2126,13 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Direct simple routing to a place/event
   const calculateRouteToItem = async (item: Pandal | Event | any) => {
-    if (!item || isCalculatingRouteRef.current) return;
+    if (!item) return;
     const destLoc = extractLocation(item);
     if (!destLoc) {
       console.warn('Cannot calculate route: destination location is invalid.');
       setRoutingError('Cannot calculate route: destination location is invalid.');
       setIsCalculatingRoute(false);
+      isCalculatingRouteRef.current = false;
       return;
     }
 
@@ -2148,7 +2149,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setRouteStops([item]);
     setSelectedItem(item);
 
-    const originLoc = extractLocation(currentLocation) || lastValidLocationRef.current;
+    const originLoc = extractLocation(currentLocation) || lastValidLocationRef.current || KOLKATA_CENTER;
     if (!originLoc) {
       setRoutingError('Waiting for GPS position to calculate route.');
       setIsCalculatingRoute(false);
@@ -2199,8 +2200,8 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       if (currentRequestId === routeRequestIdRef.current) {
         setIsCalculatingRoute(false);
+        isCalculatingRouteRef.current = false;
       }
-      isCalculatingRouteRef.current = false;
     }
   };
 

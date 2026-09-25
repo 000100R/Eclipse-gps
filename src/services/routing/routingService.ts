@@ -62,10 +62,24 @@ export class OSRMRoutingProvider implements IRoutingProvider {
     profile: 'driving' | 'foot'
   ): Promise<Route | null> {
     return new Promise((resolve) => {
+      let resolved = false;
+      const safeResolve = (val: Route | null) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeoutId);
+          resolve(val);
+        }
+      };
+
+      // Strict timeout: if Google Directions API does not answer within 3500ms, resolve null to let OSRM proceed
+      const timeoutId = setTimeout(() => {
+        safeResolve(null);
+      }, 3500);
+
       try {
         const googleMaps = (window as any).google?.maps;
         if (!googleMaps || !googleMaps.DirectionsService) {
-          resolve(null);
+          safeResolve(null);
           return;
         }
 
@@ -138,7 +152,7 @@ export class OSRMRoutingProvider implements IRoutingProvider {
                 }
               }
 
-              resolve({
+              safeResolve({
                 id: `google-route-${Date.now()}`,
                 name: waypoints.length > 0 ? `Google Route via ${waypoints.length} stops` : 'Google Primary Route',
                 origin,
@@ -151,12 +165,12 @@ export class OSRMRoutingProvider implements IRoutingProvider {
                 alternatives: altRoutes,
               });
             } else {
-              resolve(null);
+              safeResolve(null);
             }
           }
         );
       } catch (e) {
-        resolve(null);
+        safeResolve(null);
       }
     });
   }
