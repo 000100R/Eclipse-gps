@@ -17,7 +17,7 @@ interface Message {
   metroGateResult?: MetroGateIntelligenceResult;
 }
 
-export const EclipseCopilotUI: React.FC = () => {
+export const EclipseCopilotUI: React.FC = React.memo(() => {
   const { currentLocation, hasValidGps, gpsStatus, executeAIActionOnMap, activeTab, selectedItem, isNavigating } = useAppState();
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
@@ -73,12 +73,12 @@ export const EclipseCopilotUI: React.FC = () => {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to the bottom of the chat panel on new messages
+  // Auto-scroll to the bottom of the chat panel on new messages (only when open)
   useEffect(() => {
-    if (messagesEndRef.current) {
+    if (isOpen && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, isOpen]);
 
   const sendPrompt = async (textToSend: string) => {
     if (!textToSend.trim() || isLoading) return;
@@ -409,6 +409,6 @@ export const EclipseCopilotUI: React.FC = () => {
       </AnimatePresence>
     </>
   );
-};
+});
 
 export default EclipseCopilotUI;

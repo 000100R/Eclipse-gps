@@ -108,9 +108,11 @@ export interface SmartRouteStop {
 export interface SmartRoutePlan {
   id: string;
   name: string;
+  title?: string;
   createdAt: number;
   startLocation: StartLocationOption;
   stops: SmartRouteStop[];
+  legs?: SmartRouteLeg[];
   totalDistanceMeters: number;
   totalTravelTimeMinutes: number;
   totalStayTimeMinutes: number;
@@ -124,6 +126,12 @@ export interface SmartRoutePlan {
   totalWalkingMeters: number;
   fullGeometry: Location[];
   summary: string;
+  startTimeFormatted?: string;
+  config?: {
+    preferredTransport: TransportMode;
+    availableTimeMinutes?: number;
+    priority?: RoutePriority;
+  };
   osrmRoute?: Route;
 }
 

@@ -175,19 +175,21 @@ export const RoutePlanner: React.FC = () => {
   // Construct start location option
   const currentStartLocationOption = useMemo((): StartLocationOption => {
     if (startType === 'METRO') {
-      const station = curatedMetroStations.find(s => s.id === selectedMetroStationId) || curatedMetroStations[0];
-      const gateText = station.entrancesExits?.[0]?.gateNumber || 'Main Gate';
+      const station = (curatedMetroStations && curatedMetroStations.length > 0)
+        ? (curatedMetroStations.find(s => s.id === selectedMetroStationId || s.id === `metro-${selectedMetroStationId}`) || curatedMetroStations[0])
+        : null;
+      const gateText = station?.entrancesExits?.[0]?.gateNumber || 'Main Gate';
       return {
-        id: `metro-${station.id}`,
-        name: `${station.name} Metro`,
-        location: station.location,
+        id: station ? `metro-${station.id}` : 'metro-shyambazar',
+        name: station ? `${station.name} Metro` : 'Metro Station',
+        location: station?.location || { lat: 22.601, lng: 88.371 },
         type: 'METRO',
-        subtitle: `${station.line} • ${gateText}`,
+        subtitle: `${station?.line || 'Blue Line'} • ${gateText}`,
       };
     }
 
-    if (startType === 'FRIEND' && selectedFriendId && friendsLocations[selectedFriendId]) {
-      const friend = friendsList.find(f => f.friendId === selectedFriendId);
+    if (startType === 'FRIEND' && selectedFriendId && friendsLocations && friendsLocations[selectedFriendId]) {
+      const friend = friendsList?.find(f => f.friendId === selectedFriendId);
       const loc = friendsLocations[selectedFriendId];
       return {
         id: `friend-${selectedFriendId}`,
@@ -202,7 +204,7 @@ export const RoutePlanner: React.FC = () => {
     return {
       id: 'gps-current',
       name: 'Current Location (GPS)',
-      location: currentLocation,
+      location: currentLocation || { lat: 22.5726, lng: 88.3639 },
       type: 'GPS',
       subtitle: 'Real-time GPS coordinates',
     };
@@ -542,21 +544,35 @@ export const RoutePlanner: React.FC = () => {
   const handleShareRoute = async () => {
     if (!smartRoutePlan) return;
 
-    const stopList = smartRoutePlan.stops
+    const stopList = (smartRoutePlan.stops || [])
       .map((s, idx) => `${idx + 1}. ${s.name} (${s.type === 'bonedi_bari' ? 'Heritage Bonedi Bari' : 'Pandal'}) - Est. Arrival: ${s.estimatedArrival}`)
       .join('\n');
 
+    const totalDurMinutes = typeof smartRoutePlan.totalDurationMinutes === 'number'
+      ? smartRoutePlan.totalDurationMinutes
+      : (typeof (smartRoutePlan as any).summary?.totalDurationMinutes === 'number'
+        ? (smartRoutePlan as any).summary.totalDurationMinutes
+        : 0);
+
+    const totalDistMeters = typeof smartRoutePlan.totalDistanceMeters === 'number'
+      ? smartRoutePlan.totalDistanceMeters
+      : (typeof (smartRoutePlan as any).summary?.totalDistanceMeters === 'number'
+        ? (smartRoutePlan as any).summary.totalDistanceMeters
+        : 0);
+
+    const transport = smartRoutePlan.transportMode || smartRoutePlan.config?.preferredTransport || 'MIXED';
+
     const shareText = `🌟 Kolkata Durga Puja Tour via Eclipse Smart Route Planner:\n\n` +
-      `🏁 Start: ${smartRoutePlan.startLocation.name}\n\n` +
-      `📍 Route Stops (${smartRoutePlan.stops.length}):\n${stopList}\n\n` +
-      `⏱️ Total Time: ${Math.round(smartRoutePlan.summary.totalDurationMinutes / 60)}h ${smartRoutePlan.summary.totalDurationMinutes % 60}m | 🚶 Distance: ${(smartRoutePlan.summary.totalDistanceMeters / 1000).toFixed(1)} km\n` +
-      `🚇 Mode: ${smartRoutePlan.config.preferredTransport}\n\n` +
+      `🏁 Start: ${smartRoutePlan.startLocation?.name || 'Kolkata'}\n\n` +
+      `📍 Route Stops (${(smartRoutePlan.stops || []).length}):\n${stopList}\n\n` +
+      `⏱️ Total Time: ${Math.round(totalDurMinutes / 60)}h ${totalDurMinutes % 60}m | 🚶 Distance: ${(totalDistMeters / 1000).toFixed(1)} km\n` +
+      `🚇 Mode: ${transport}\n\n` +
       `Planned with Eclipse Smart Puja Route Planner (Authentic Kolkata Live Data)`;
 
     if (navigator.share) {
       try {
         await navigator.share({
-          title: smartRoutePlan.title,
+          title: smartRoutePlan.title || smartRoutePlan.name || 'Puja Route',
           text: shareText,
         });
         return;
@@ -645,7 +661,7 @@ export const RoutePlanner: React.FC = () => {
         </div>
 
         {/* Active Puja Route Session Banner */}
-        {pujaRouteSession?.isActive && (
+        {pujaRouteSession?.isActive && Array.isArray(pujaRouteSession.stops) && pujaRouteSession.stops.length > 0 && (
           <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2 min-w-0">
@@ -655,13 +671,13 @@ export const RoutePlanner: React.FC = () => {
                 </span>
               </div>
               <span className="text-[10px] text-amber-300/80 shrink-0 bg-amber-900/40 px-2 py-0.5 rounded">
-                {pujaRouteSession.stops.length - 1 - pujaRouteSession.currentStopIndex === 0
+                {pujaRouteSession.stops.length - 1 - pujaRouteSession.currentStopIndex <= 0
                   ? 'Final Stop'
                   : `${pujaRouteSession.stops.length - 1 - pujaRouteSession.currentStopIndex} remaining`}
               </span>
             </div>
             <p className="text-[11px] text-neutral-300">
-              Currently navigating to: <strong className="text-white">{pujaRouteSession.stops[pujaRouteSession.currentStopIndex]?.name}</strong>
+              Currently navigating to: <strong className="text-white">{pujaRouteSession.stops[pujaRouteSession.currentStopIndex]?.name || 'Current Stop'}</strong>
             </p>
             <div className="flex items-center space-x-2 pt-1">
               <button
@@ -716,13 +732,15 @@ export const RoutePlanner: React.FC = () => {
           ) : (
             <div className="space-y-1.5">
               {selectedDestinations.map((dest, idx) => {
+                if (!dest) return null;
                 const isOptimized = isPujaRouteStarted && optimizationStatus.status === 'optimized';
+                const prevDest = idx > 0 ? selectedDestinations[idx - 1] : null;
                 const distFromPrev = idx === 0
-                  ? (currentLocation ? smartPujaRoutePlannerService.calculateDistance(currentLocation, dest.location) : null)
-                  : smartPujaRoutePlannerService.calculateDistance(selectedDestinations[idx - 1].location, dest.location);
+                  ? (currentLocation && dest.location ? smartPujaRoutePlannerService.calculateDistance(currentLocation, dest.location) : null)
+                  : (prevDest?.location && dest.location ? smartPujaRoutePlannerService.calculateDistance(prevDest.location, dest.location) : null);
 
-                const isStopCompleted = pujaRouteSession?.isActive && (pujaRouteSession.completedStopIds.includes(dest.id) || idx < pujaRouteSession.currentStopIndex);
-                const isCurrentNavigatingStop = pujaRouteSession?.isActive && idx === pujaRouteSession.currentStopIndex;
+                const isStopCompleted = !!(pujaRouteSession?.isActive && (pujaRouteSession.completedStopIds?.includes(dest.id) || idx < (pujaRouteSession.currentStopIndex || 0)));
+                const isCurrentNavigatingStop = !!(pujaRouteSession?.isActive && idx === pujaRouteSession.currentStopIndex);
 
                 return (
                   <div
@@ -1372,10 +1390,10 @@ export const RoutePlanner: React.FC = () => {
             <p className="font-semibold text-neutral-400">Your route is currently empty</p>
             <p>Select pandals or pick a tour preset above to generate an itinerary.</p>
           </div>
-        ) : smartRoutePlan ? (
+        ) : smartRoutePlan && Array.isArray(smartRoutePlan.stops) && smartRoutePlan.stops.length > 0 ? (
           <div className="space-y-1">
             {smartRoutePlan.stops.map((stop, idx) => {
-              const incomingLeg = smartRoutePlan.legs[idx];
+              const incomingLeg = (smartRoutePlan.legs && smartRoutePlan.legs[idx]) || stop.legFromPrevious;
               return (
                 <SmartRouteStopCard
                   key={stop.id}
@@ -1428,82 +1446,110 @@ export const RoutePlanner: React.FC = () => {
         )}
 
         {/* Route Summary & Navigation Actions */}
-        {smartRoutePlan && (
-          <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-2xl space-y-3 mt-4">
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-neutral-400">Total Distance:</span>
-                <p className="font-bold text-white">
-                  {(smartRoutePlan.summary.totalDistanceMeters / 1000).toFixed(1)} km
-                </p>
+        {smartRoutePlan && (() => {
+          const totalDistMeters = typeof smartRoutePlan.totalDistanceMeters === 'number'
+            ? smartRoutePlan.totalDistanceMeters
+            : (typeof (smartRoutePlan as any).summary?.totalDistanceMeters === 'number'
+              ? (smartRoutePlan as any).summary.totalDistanceMeters
+              : 0);
+          const totalDurMinutes = typeof smartRoutePlan.totalDurationMinutes === 'number'
+            ? smartRoutePlan.totalDurationMinutes
+            : (typeof (smartRoutePlan as any).summary?.totalDurationMinutes === 'number'
+              ? (smartRoutePlan as any).summary.totalDurationMinutes
+              : 0);
+          const travelMinutes = typeof smartRoutePlan.totalTravelTimeMinutes === 'number'
+            ? smartRoutePlan.totalTravelTimeMinutes
+            : (typeof (smartRoutePlan as any).summary?.totalTravelMinutes === 'number'
+              ? (smartRoutePlan as any).summary.totalTravelMinutes
+              : 0);
+          const stayMinutes = typeof smartRoutePlan.totalStayTimeMinutes === 'number'
+            ? smartRoutePlan.totalStayTimeMinutes
+            : (typeof (smartRoutePlan as any).summary?.totalStayMinutes === 'number'
+              ? (smartRoutePlan as any).summary.totalStayMinutes
+              : 0);
+          const isWithin = typeof smartRoutePlan.isWithinBudget === 'boolean'
+            ? smartRoutePlan.isWithinBudget
+            : (typeof (smartRoutePlan as any).summary?.isWithinTimeLimit === 'boolean'
+              ? (smartRoutePlan as any).summary.isWithinTimeLimit
+              : totalDurMinutes <= availableTimeMinutes);
+
+          return (
+            <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-2xl space-y-3 mt-4">
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] text-neutral-400">Total Distance:</span>
+                  <p className="font-bold text-white">
+                    {(totalDistMeters / 1000).toFixed(1)} km
+                  </p>
+                </div>
+
+                <div className="space-y-0.5">
+                  <span className="text-[10px] text-neutral-400">Estimated Duration:</span>
+                  <p className="font-bold text-indigo-400">
+                    {Math.round(totalDurMinutes / 60)}h {totalDurMinutes % 60}m
+                  </p>
+                </div>
+
+                <div className="space-y-0.5">
+                  <span className="text-[10px] text-neutral-400">Travel Transit:</span>
+                  <p className="font-semibold text-neutral-300">
+                    {travelMinutes} mins
+                  </p>
+                </div>
+
+                <div className="space-y-0.5">
+                  <span className="text-[10px] text-neutral-400">Pandal Darshan:</span>
+                  <p className="font-semibold text-neutral-300">
+                    {stayMinutes} mins
+                  </p>
+                </div>
               </div>
 
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-neutral-400">Estimated Duration:</span>
-                <p className="font-bold text-indigo-400">
-                  {Math.round(smartRoutePlan.summary.totalDurationMinutes / 60)}h {smartRoutePlan.summary.totalDurationMinutes % 60}m
-                </p>
+              {/* Time Budget Feasibility Status */}
+              <div className={`p-2.5 rounded-xl text-xs flex items-center space-x-2 border ${
+                isWithin
+                  ? 'bg-emerald-950/30 border-emerald-800/40 text-emerald-300'
+                  : 'bg-amber-950/30 border-amber-800/40 text-amber-300'
+              }`}>
+                {isWithin ? (
+                  <CheckCircle2 size={15} className="flex-shrink-0 text-emerald-400" />
+                ) : (
+                  <AlertTriangle size={15} className="flex-shrink-0 text-amber-400" />
+                )}
+                <span className="text-[11px] leading-tight">
+                  {isWithin
+                    ? `✓ Fits nicely inside your ${Math.round(availableTimeMinutes / 60)}h window (${availableTimeMinutes - totalDurMinutes}m buffer remaining)`
+                    : `⚠️ Exceeds your ${Math.round(availableTimeMinutes / 60)}h window by ${totalDurMinutes - availableTimeMinutes}m. Consider removing a stop.`}
+                </span>
               </div>
 
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-neutral-400">Travel Transit:</span>
-                <p className="font-semibold text-neutral-300">
-                  {smartRoutePlan.summary.totalTravelMinutes} mins
-                </p>
-              </div>
+              {/* Launch Turn-by-Turn Navigation HUD */}
+              <div className="space-y-2 pt-1">
+                <button
+                  id="btn-start-smart-navigation"
+                  onClick={() => {
+                    setIsNavigating(true);
+                    setCurrentStepIndex(0);
+                    setActiveTab('home');
+                  }}
+                  className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center space-x-2 transition-all uppercase tracking-wider cursor-pointer"
+                >
+                  <Play size={13} className="fill-white" />
+                  <span>Start Tour Navigation</span>
+                </button>
 
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-neutral-400">Pandal Darshan:</span>
-                <p className="font-semibold text-neutral-300">
-                  {smartRoutePlan.summary.totalStayMinutes} mins
-                </p>
+                <button
+                  id="btn-recalculate-route"
+                  onClick={handleOptimizeRoute}
+                  className="w-full py-2 bg-neutral-950 hover:bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white font-semibold text-xs rounded-xl flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                >
+                  <RefreshCw size={12} />
+                  <span>Recalculate with Live Telemetry</span>
+                </button>
               </div>
             </div>
-
-            {/* Time Budget Feasibility Status */}
-            <div className={`p-2.5 rounded-xl text-xs flex items-center space-x-2 border ${
-              smartRoutePlan.summary.isWithinTimeLimit
-                ? 'bg-emerald-950/30 border-emerald-800/40 text-emerald-300'
-                : 'bg-amber-950/30 border-amber-800/40 text-amber-300'
-            }`}>
-              {smartRoutePlan.summary.isWithinTimeLimit ? (
-                <CheckCircle2 size={15} className="flex-shrink-0 text-emerald-400" />
-              ) : (
-                <AlertTriangle size={15} className="flex-shrink-0 text-amber-400" />
-              )}
-              <span className="text-[11px] leading-tight">
-                {smartRoutePlan.summary.isWithinTimeLimit
-                  ? `✓ Fits nicely inside your ${Math.round(availableTimeMinutes / 60)}h window (${availableTimeMinutes - smartRoutePlan.summary.totalDurationMinutes}m buffer remaining)`
-                  : `⚠️ Exceeds your ${Math.round(availableTimeMinutes / 60)}h window by ${smartRoutePlan.summary.totalDurationMinutes - availableTimeMinutes}m. Consider removing a stop.`}
-              </span>
-            </div>
-
-            {/* Launch Turn-by-Turn Navigation HUD */}
-            <div className="space-y-2 pt-1">
-              <button
-                id="btn-start-smart-navigation"
-                onClick={() => {
-                  setIsNavigating(true);
-                  setCurrentStepIndex(0);
-                  setActiveTab('home');
-                }}
-                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center space-x-2 transition-all uppercase tracking-wider"
-              >
-                <Play size={13} className="fill-white" />
-                <span>Start Tour Navigation</span>
-              </button>
-
-              <button
-                id="btn-recalculate-route"
-                onClick={handleOptimizeRoute}
-                className="w-full py-2 bg-neutral-950 hover:bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white font-semibold text-xs rounded-xl flex items-center justify-center space-x-1.5 transition-colors"
-              >
-                <RefreshCw size={12} />
-                <span>Recalculate with Live Telemetry</span>
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Modals */}

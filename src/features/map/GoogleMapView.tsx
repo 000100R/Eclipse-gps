@@ -265,7 +265,10 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = React.memo(() =>
           const lat = center.lat();
           const lng = center.lng();
           setMapCenter(prev => {
-            if (prev && Math.abs(prev.lat - lat) < 0.00001 && Math.abs(prev.lng - lng) < 0.00001) {
+            if (!prev) return { lat, lng };
+            // Only update AppState mapCenter if map moved by at least ~70m (0.0006 deg)
+            // to avoid triggering full React AppState context re-renders on minor pans
+            if (Math.abs(prev.lat - lat) < 0.0006 && Math.abs(prev.lng - lng) < 0.0006) {
               return prev;
             }
             return { lat, lng };
@@ -496,7 +499,22 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = React.memo(() =>
       pandalCrowdTrends
     );
 
-    crowdItems.forEach((item) => {
+    const bounds = map.getBounds();
+    // Only create expensive google.maps.Circle overlays for items within/near viewport bounds
+    const visibleCrowdItems = bounds
+      ? crowdItems.filter((item) => {
+          const lat = item.location.lat;
+          const lng = item.location.lng;
+          return (
+            lat >= bounds.getSouthWest().lat() - 0.015 &&
+            lat <= bounds.getNorthEast().lat() + 0.015 &&
+            lng >= bounds.getSouthWest().lng() - 0.015 &&
+            lng <= bounds.getNorthEast().lng() + 0.015
+          );
+        })
+      : crowdItems.slice(0, 30);
+
+    visibleCrowdItems.forEach((item) => {
       if (item.crowdLevel === 'UNAVAILABLE') return;
 
       const radius = item.crowdLevel === 'EXTREME' ? 320 : item.crowdLevel === 'HEAVY' ? 260 : item.crowdLevel === 'HIGH' ? 200 : item.crowdLevel === 'MODERATE' ? 140 : 90;

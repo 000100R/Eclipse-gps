@@ -97,27 +97,44 @@ export const SavedSmartRoutesModal: React.FC<SavedSmartRoutesModalProps> = ({
                 </div>
 
                 {/* Route statistics */}
-                <div className="flex items-center space-x-3 text-[10px] text-neutral-300 pt-2 border-t border-neutral-800/60 flex-wrap gap-y-1">
-                  <span className="flex items-center space-x-1 text-indigo-400">
-                    <MapPin size={10} />
-                    <span className="font-semibold">{route.stops.length} stops</span>
-                  </span>
-                  <span className="flex items-center space-x-1">
-                    <Clock size={10} />
-                    <span>{Math.round(route.summary.totalDurationMinutes / 60)}h {route.summary.totalDurationMinutes % 60}m</span>
-                  </span>
-                  <span>
-                    {(route.summary.totalDistanceMeters / 1000).toFixed(1)} km
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-400 text-[9px] uppercase">
-                    {route.config.preferredTransport}
-                  </span>
-                </div>
+                {(() => {
+                  const totalStops = Array.isArray(route.stops) ? route.stops.length : 0;
+                  const totalDurMinutes = typeof route.totalDurationMinutes === 'number'
+                    ? route.totalDurationMinutes
+                    : (typeof (route as any).summary?.totalDurationMinutes === 'number'
+                      ? (route as any).summary.totalDurationMinutes
+                      : 0);
+                  const totalDistMeters = typeof route.totalDistanceMeters === 'number'
+                    ? route.totalDistanceMeters
+                    : (typeof (route as any).summary?.totalDistanceMeters === 'number'
+                      ? (route as any).summary.totalDistanceMeters
+                      : 0);
+                  const transport = route.transportMode || route.config?.preferredTransport || 'MIXED';
+
+                  return (
+                    <div className="flex items-center space-x-3 text-[10px] text-neutral-300 pt-2 border-t border-neutral-800/60 flex-wrap gap-y-1">
+                      <span className="flex items-center space-x-1 text-indigo-400">
+                        <MapPin size={10} />
+                        <span className="font-semibold">{totalStops} stops</span>
+                      </span>
+                      <span className="flex items-center space-x-1">
+                        <Clock size={10} />
+                        <span>{Math.round(totalDurMinutes / 60)}h {totalDurMinutes % 60}m</span>
+                      </span>
+                      <span>
+                        {(totalDistMeters / 1000).toFixed(1)} km
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-400 text-[9px] uppercase">
+                        {transport}
+                      </span>
+                    </div>
+                  );
+                })()}
 
                 {/* Preview of first 3 stops */}
                 <div className="text-[10px] text-neutral-400 truncate">
-                  {route.stops.map(s => s.name).slice(0, 3).join(' → ')}
-                  {route.stops.length > 3 ? ` + ${route.stops.length - 3} more` : ''}
+                  {(route.stops || []).map(s => s.name).slice(0, 3).join(' → ')}
+                  {(route.stops || []).length > 3 ? ` + ${(route.stops || []).length - 3} more` : ''}
                 </div>
               </div>
             ))

@@ -18,12 +18,12 @@ export const EclipseAIChat: React.FC = () => {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto scroll to bottom
+  // Auto scroll to bottom only when open
   useEffect(() => {
-    if (messagesEndRef.current) {
+    if (isAiSheetOpen && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isAiLoading]);
+  }, [messages, isAiLoading, isAiSheetOpen]);
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -90,9 +90,10 @@ export const EclipseAIChat: React.FC = () => {
       title="Eclipse AI Co-pilot"
       id="eclipse-ai-chat-drawer"
     >
-      <div className="flex flex-col h-[60vh] md:h-[65vh]">
-        {/* Messages Log Panel */}
-        <div className="flex-1 overflow-y-auto space-y-4 pr-1 custom-scrollbar pb-4">
+      {isAiSheetOpen ? (
+        <div className="flex flex-col h-[60vh] md:h-[65vh]">
+          {/* Messages Log Panel */}
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1 custom-scrollbar pb-4">
           {messages.map((msg) => {
             const isAI = msg.role === 'assistant';
             return (
@@ -214,7 +215,8 @@ export const EclipseAIChat: React.FC = () => {
           </button>
         </form>
       </div>
-    </BottomSheet>
+    ) : null}
+  </BottomSheet>
   );
 };
 export default EclipseAIChat;

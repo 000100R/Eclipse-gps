@@ -270,9 +270,11 @@ export class SmartPujaRoutePlannerService {
       return {
         id: `plan-${Date.now()}`,
         name: 'Empty Puja Route',
+        title: 'Empty Puja Route',
         createdAt: Date.now(),
         startLocation,
         stops: [],
+        legs: [],
         totalDistanceMeters: 0,
         totalTravelTimeMinutes: 0,
         totalStayTimeMinutes: 0,
@@ -286,6 +288,12 @@ export class SmartPujaRoutePlannerService {
         totalWalkingMeters: 0,
         fullGeometry: [startLocation.location],
         summary: 'No destinations selected. Add pandals or Bonedi Baris to build your itinerary.',
+        startTimeFormatted: formatClockTime(startTime),
+        config: {
+          preferredTransport,
+          availableTimeMinutes,
+          priority,
+        },
       };
     }
 
@@ -518,9 +526,11 @@ export class SmartPujaRoutePlannerService {
     return {
       id: `plan-${Date.now()}`,
       name: `${orderedDestinations.length}-Stop Puja Hop (${preferredTransport})`,
+      title: `${orderedDestinations.length}-Stop Puja Hop (${preferredTransport})`,
       createdAt: Date.now(),
       startLocation,
       stops,
+      legs: stops.map((s) => s.legFromPrevious),
       totalDistanceMeters,
       totalTravelTimeMinutes,
       totalStayTimeMinutes,
@@ -534,6 +544,12 @@ export class SmartPujaRoutePlannerService {
       totalWalkingMeters,
       fullGeometry: osrmRoute?.geometry || geometryPoints,
       summary,
+      startTimeFormatted: formatClockTime(startTime),
+      config: {
+        preferredTransport,
+        availableTimeMinutes,
+        priority,
+      },
       osrmRoute,
     };
   }

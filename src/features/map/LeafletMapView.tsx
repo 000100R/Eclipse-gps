@@ -183,7 +183,10 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = React.memo(() =
     map.on('moveend', () => {
       const center = map.getCenter();
       setMapCenter(prev => {
-        if (prev && Math.abs(prev.lat - center.lat) < 0.00001 && Math.abs(prev.lng - center.lng) < 0.00001) {
+        if (!prev) return { lat: center.lat, lng: center.lng };
+        // Only update AppState mapCenter if map moved by at least ~70m (0.0006 deg)
+        // to avoid triggering full React AppState context re-renders on minor pans
+        if (Math.abs(prev.lat - center.lat) < 0.0006 && Math.abs(prev.lng - center.lng) < 0.0006) {
           return prev;
         }
         return { lat: center.lat, lng: center.lng };
@@ -860,7 +863,20 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = React.memo(() =
       pandalCrowdTrends
     );
 
-    crowdItems.forEach((item) => {
+    const bounds = map.getBounds();
+    const pad = 0.02; // generous padding around current view
+    const north = bounds.getNorth() + pad;
+    const south = bounds.getSouth() - pad;
+    const east = bounds.getEast() + pad;
+    const west = bounds.getWest() - pad;
+
+    const visibleCrowdItems = crowdItems.filter(item => {
+      const lat = item.location.lat;
+      const lng = item.location.lng;
+      return lat >= south && lat <= north && lng >= west && lng <= east;
+    });
+
+    visibleCrowdItems.forEach((item) => {
       if (item.crowdLevel === 'UNAVAILABLE') return;
 
       const radius = item.crowdLevel === 'EXTREME' ? 320 : item.crowdLevel === 'HEAVY' ? 260 : item.crowdLevel === 'HIGH' ? 200 : item.crowdLevel === 'MODERATE' ? 140 : 90;

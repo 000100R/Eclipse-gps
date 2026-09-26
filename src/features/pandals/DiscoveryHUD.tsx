@@ -71,8 +71,9 @@ export const DiscoveryHUD: React.FC = () => {
     return 'Current Destination';
   }, [routeStops, activeRoute]);
 
-  // Filtered pandals for the navigation companion
+  // Filtered pandals for the navigation companion (only calculated when companion is actually open)
   const navFilteredPandals = useMemo(() => {
+    if (!isNavCompanionOpen) return [];
     let list = [...pandals].filter(p => p.zone !== 'EVENTS');
     if (navSearchQuery.trim()) {
       const q = navSearchQuery.toLowerCase();
@@ -89,7 +90,7 @@ export const DiscoveryHUD: React.FC = () => {
       list.sort((a, b) => (crowdScore[a.crowdLevel || 'MODERATE'] ?? 2) - (crowdScore[b.crowdLevel || 'MODERATE'] ?? 2));
     }
     return list;
-  }, [pandals, navSearchQuery, navSortMethod]);
+  }, [pandals, navSearchQuery, navSortMethod, isNavCompanionOpen]);
 
   // Automatically open replacement prompt if user taps a pandal marker on the map during active navigation
   useEffect(() => {
@@ -133,8 +134,8 @@ export const DiscoveryHUD: React.FC = () => {
     return R * c;
   };
 
-  const mapMovedDistance = (mapCenter && discoveryCenter) ? getDistance(discoveryCenter, mapCenter) : 0;
-  const showSearchAreaBtn = mapMovedDistance > 150; // map panned more than 150m
+  const mapMovedDistance = (isVisible && mapCenter && discoveryCenter) ? getDistance(discoveryCenter, mapCenter) : 0;
+  const showSearchAreaBtn = isVisible && mapMovedDistance > 150; // map panned more than 150m
 
   const handleSearchThisArea = () => {
     if (mapCenter) {
@@ -176,6 +177,7 @@ export const DiscoveryHUD: React.FC = () => {
   const lastHudLocRef = useRef<Location | null>(currentLocation);
 
   useEffect(() => {
+    if (!isVisible && !isNavCompanionOpen) return;
     if (!currentLocation) return;
     if (!lastHudLocRef.current) {
       lastHudLocRef.current = currentLocation;
@@ -187,11 +189,11 @@ export const DiscoveryHUD: React.FC = () => {
       lastHudLocRef.current = currentLocation;
       setHudLocation(currentLocation);
     }
-  }, [currentLocation]);
+  }, [currentLocation, isVisible, isNavCompanionOpen]);
 
-  // When collapsed, calculate only what is needed for the nearest-pandal display (fast single pass)
+  // When collapsed or hidden, calculate only what is needed (or skip completely if hidden)
   const nearestPandal = useMemo(() => {
-    if (!hudLocation || pandals.length === 0) return null;
+    if ((!isVisible && !isNavCompanionOpen) || !hudLocation || pandals.length === 0) return null;
     let best: Pandal | null = null;
     let minD = Infinity;
     for (let i = 0; i < pandals.length; i++) {
@@ -204,11 +206,14 @@ export const DiscoveryHUD: React.FC = () => {
       }
     }
     return best;
-  }, [pandals, hudLocation]);
+  }, [pandals, hudLocation, isVisible, isNavCompanionOpen]);
 
   // Discovered pandals sorted by live GPS distance and strictly deduplicated
-  // When collapsed, skip heavy string formatting, set deduplication, and full array sort
+  // When hidden or collapsed, skip heavy string formatting, set deduplication, and full array sort
   const livePandals = useMemo(() => {
+    if (!isVisible && !isNavCompanionOpen) {
+      return [];
+    }
     if (!isExpanded && !isNavCompanionOpen) {
       return nearestPandal ? [nearestPandal] : [];
     }
