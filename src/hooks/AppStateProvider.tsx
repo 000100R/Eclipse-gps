@@ -82,6 +82,7 @@ interface AppStateContextType {
   // GPS State
   currentLocation: Location | null;
   hasValidGps: boolean;
+  hasLocationFix: boolean;
   gpsAccuracy: number | null;
   gpsStatus: 'idle' | 'prompt' | 'requesting' | 'tracking' | 'error' | 'denied';
   gpsErrorMsg: string | null;
@@ -1063,17 +1064,18 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Listen to active group members and active group locations
   useEffect(() => {
-    if (!isFirebaseConfigured() || !activeGroup) {
+    if (!isFirebaseConfigured() || !activeGroup?.id) {
       setGroupMembers([]);
       setGroupLocations({});
       return;
     }
 
-    const unsubMembers = listenToGroupMembers(activeGroup.id, (members) => {
+    const groupId = activeGroup.id;
+    const unsubMembers = listenToGroupMembers(groupId, (members) => {
       setGroupMembers(members);
     });
 
-    const unsubLocations = listenToGroupLocations(activeGroup.id, (locs) => {
+    const unsubLocations = listenToGroupLocations(groupId, (locs) => {
       setGroupLocations(locs);
     });
 
@@ -1081,7 +1083,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       unsubMembers();
       unsubLocations();
     };
-  }, [activeGroup]);
+  }, [activeGroup?.id]);
 
   // Keep route updated if navigating to a moving group member in Lost-in-Crowd mode
   const lastMemberRerouteTimeRef = useRef<number>(0);
@@ -1176,27 +1178,37 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   }, [userId]);
 
-  // Listen to live locations of friends (Phase 9 Part 3C)
+  // Listen to live locations of friends (Phase 9 Part 3C) with persistent reconciliation
+  const friendLocationUnsubsRef = useRef<Map<string, () => void>>(new Map());
+
   useEffect(() => {
     if (!userId || friendsList.length === 0) {
+      friendLocationUnsubsRef.current.forEach((unsub) => unsub());
+      friendLocationUnsubsRef.current.clear();
       setFriendsLocations({});
       return;
     }
-
-    const unsubscribes: (() => void)[] = [];
 
     // Filter out blocked users
     const activeFriends = friendsList.filter(
       (friend) => !blockedUsers.some((b) => b.blockedId === friend.friendId)
     );
+    const activeFriendIds = new Set(activeFriends.map((f) => f.friendId));
 
-    // Prune locations for any friends who were removed or blocked
+    // 1. Unsubscribe from friends who are no longer active/friends or now blocked
+    for (const [friendId, unsub] of friendLocationUnsubsRef.current.entries()) {
+      if (!activeFriendIds.has(friendId)) {
+        unsub();
+        friendLocationUnsubsRef.current.delete(friendId);
+      }
+    }
+
+    // 2. Prune locations for any friends who were removed or blocked
     setFriendsLocations((prev) => {
-      const allowedIds = new Set(activeFriends.map((f) => f.friendId));
       let changed = false;
       const copy: Record<string, FriendLocation> = { ...prev };
       for (const id of Object.keys(copy)) {
-        if (!allowedIds.has(id)) {
+        if (!activeFriendIds.has(id)) {
           delete copy[id];
           changed = true;
         }
@@ -1204,7 +1216,12 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return changed ? copy : prev;
     });
 
+    // 3. Subscribe only to newly added friends that don't already have an active listener
     activeFriends.forEach((friend) => {
+      if (friendLocationUnsubsRef.current.has(friend.friendId)) {
+        return; // Already listening, keep existing subscription active
+      }
+
       const unsub = listenToFriendLocation(
         friend.friendId,
         (loc) => {
@@ -1223,13 +1240,17 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         },
         userId
       );
-      unsubscribes.push(unsub);
+      friendLocationUnsubsRef.current.set(friend.friendId, unsub);
     });
-
-    return () => {
-      unsubscribes.forEach((unsub) => unsub());
-    };
   }, [friendsList, blockedUsers, userId]);
+
+  // Clean up all friend location listeners on unmount
+  useEffect(() => {
+    return () => {
+      friendLocationUnsubsRef.current.forEach((unsub) => unsub());
+      friendLocationUnsubsRef.current.clear();
+    };
+  }, []);
 
   // Throttling references for Firebase live location updates (Phase 9 Part 3B)
   const lastPublishedFriendLocRef = useRef<Location | null>(null);

@@ -1441,7 +1441,10 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
 
       {/* 6. Selected Item Drawer HUD */}
       {selectedItem && !isNavigating && (
-        <div className="absolute bottom-20 sm:bottom-24 left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto">
+        <div
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 4.25rem)' }}
+          className="absolute left-3 right-3 sm:left-4 sm:right-4 z-30 max-w-md mx-auto pointer-events-auto md:bottom-24"
+        >
           {Boolean((selectedItem as any).line || (selectedItem as any).nearbyPandalIds) ? (
             <MetroIntelligenceCard
               metroStation={selectedItem as any}

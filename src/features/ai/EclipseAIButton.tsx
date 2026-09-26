@@ -35,9 +35,7 @@ export const EclipseAIButton: React.FC = () => {
       id="btn-trigger-eclipse-ai"
       onClick={() => setIsAiSheetOpen(!isAiSheetOpen)}
       style={{
-        bottom: isNavigating
-          ? 'calc(env(safe-area-inset-bottom, 0px) + 4.75rem)'
-          : 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)',
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)',
         left: 'calc(env(safe-area-inset-left, 0px) + 0.875rem)',
       }}
       className="fixed z-30 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 text-white shadow-2xl hover:scale-105 active:scale-95 transition-all duration-300 ring-2 ring-indigo-500/25 touch-manipulation cursor-pointer flex items-center justify-center md:left-[416px] md:bottom-24"

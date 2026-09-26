@@ -213,9 +213,7 @@ export const EclipseCopilotUI: React.FC = () => {
           id="btn-trigger-eclipse-copilot"
           onClick={() => setIsOpen(!isOpen)}
           style={{
-            bottom: isNavigating
-              ? 'calc(env(safe-area-inset-bottom, 0px) + 4.75rem)'
-              : 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)',
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)',
             left: 'calc(env(safe-area-inset-left, 0px) + 4.5rem)',
           }}
           className="fixed z-30 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-2xl hover:scale-105 active:scale-95 transition-all duration-300 ring-2 ring-emerald-500/20 animate-bounce md:left-[476px] md:bottom-24"

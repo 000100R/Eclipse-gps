@@ -230,7 +230,7 @@ export const DiscoveryHUD: React.FC = () => {
   }, [pandals, currentLocation, discoverySort]);
 
   return (
-    <div className="fixed inset-0 pointer-events-none z-30">
+    <div className={`fixed inset-0 pointer-events-none ${isExpanded ? 'z-40' : 'z-30'}`}>
       {/* 1. Map-Based Search Overlay Button ("Search this area") */}
       <AnimatePresence>
         {isVisible && showSearchAreaBtn && (
@@ -728,7 +728,7 @@ export const DiscoveryHUD: React.FC = () => {
                 bottom: 'calc(env(safe-area-inset-bottom, 0px) + 4.5rem)',
                 left: '0.75rem',
               }}
-              className="fixed z-35 pointer-events-auto w-[calc(100vw-1.5rem)] sm:w-96 max-w-sm"
+              className="fixed z-40 pointer-events-auto w-[calc(100vw-1.5rem)] sm:w-96 max-w-sm"
             >
               <div className="bg-neutral-950/95 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden p-3.5 sm:p-4 space-y-3 backdrop-blur-md max-h-[calc(100vh-14rem)] sm:max-h-[60vh] flex flex-col">
                 {/* Header */}

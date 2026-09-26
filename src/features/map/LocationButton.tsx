@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { Locate, Compass, Plus, Minus, Navigation } from 'lucide-react';
 
@@ -17,8 +17,28 @@ export const LocationButton: React.FC = () => {
     mapProvider,
   } = useAppState();
 
-  // Hide in secondary full-page tabs (routes, explore, events, saved, visited, journey, group)
-  if (activeTab !== 'home') {
+  const [isExplorerExpanded, setIsExplorerExpanded] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('eclipse_pandal_explorer_expanded');
+      if (saved !== null) return saved === 'true';
+      return window.innerWidth >= 768;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleToggle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ expanded: boolean }>;
+      if (customEvent.detail && typeof customEvent.detail.expanded === 'boolean') {
+        setIsExplorerExpanded(customEvent.detail.expanded);
+      }
+    };
+    window.addEventListener('eclipse-pandal-explorer-toggle', handleToggle);
+    return () => window.removeEventListener('eclipse-pandal-explorer-toggle', handleToggle);
+  }, []);
+
+  // Hide in secondary full-page tabs or when Pandal Explorer is expanded on mobile
+  if (activeTab !== 'home' || (isExplorerExpanded && typeof window !== 'undefined' && window.innerWidth < 768)) {
     return null;
   }
 
