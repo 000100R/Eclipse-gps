@@ -26,11 +26,11 @@ export const LocationButton: React.FC = () => {
   // - When navigating: sits safely above the turn instructions and alternatives HUD
   // - When inspecting a card: sits above the pandal detail drawer
   // - Default: sits comfortably above the bottom navigation and explorer deck
-  const bottomPosClass = isNavigating
-    ? 'bottom-48 sm:bottom-44'
+  const bottomStyle = isNavigating
+    ? 'calc(env(safe-area-inset-bottom, 0px) + 12rem)'
     : selectedItem
-    ? 'bottom-[20rem] sm:bottom-[18rem]'
-    : 'bottom-36 sm:bottom-32 md:bottom-28';
+    ? 'calc(env(safe-area-inset-bottom, 0px) + 20rem)'
+    : 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)';
 
   const handleZoomIn = () => {
     if (mapRef?.zoomIn) {
@@ -53,7 +53,8 @@ export const LocationButton: React.FC = () => {
   return (
     <div
       id="gps-floating-dock"
-      className={`fixed ${bottomPosClass} right-3 sm:right-4 z-20 flex flex-col items-center space-y-1.5 pointer-events-auto transition-all duration-300 select-none`}
+      style={{ bottom: bottomStyle }}
+      className="fixed right-3 sm:right-4 z-20 flex flex-col items-center space-y-1.5 pointer-events-auto transition-all duration-300 select-none md:bottom-24"
     >
       {/* Accuracy Bubble (when GPS tracking is active and accuracy estimate is valid) */}
       {gpsAccuracy && gpsStatus === 'tracking' && (

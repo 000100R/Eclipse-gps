@@ -176,7 +176,7 @@ export const TopBar: React.FC = () => {
         {showAlertsDropdown && (
           <div
             id="alerts-dropdown-panel"
-            className="absolute right-0 mt-2 w-80 bg-neutral-950 border border-neutral-800 rounded-xl shadow-2xl overflow-hidden z-50 divide-y divide-neutral-900"
+            className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-80 max-w-sm bg-neutral-950 border border-neutral-800 rounded-xl shadow-2xl overflow-hidden z-50 divide-y divide-neutral-900"
           >
             <div className="px-4 py-3 bg-neutral-900/40 flex items-center justify-between">
               <span className="text-xs font-bold text-neutral-300 tracking-wider uppercase">Active Alerts</span>

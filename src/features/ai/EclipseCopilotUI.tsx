@@ -18,11 +18,38 @@ interface Message {
 }
 
 export const EclipseCopilotUI: React.FC = () => {
-  const { currentLocation, hasValidGps, gpsStatus, executeAIActionOnMap } = useAppState();
+  const { currentLocation, hasValidGps, gpsStatus, executeAIActionOnMap, activeTab, selectedItem, isNavigating } = useAppState();
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [isExplorerExpanded, setIsExplorerExpanded] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('eclipse_pandal_explorer_expanded');
+      if (saved !== null) return saved === 'true';
+      return window.innerWidth >= 768;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleToggle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ expanded: boolean }>;
+      if (customEvent.detail && typeof customEvent.detail.expanded === 'boolean') {
+        setIsExplorerExpanded(customEvent.detail.expanded);
+      }
+    };
+    window.addEventListener('eclipse-pandal-explorer-toggle', handleToggle);
+    return () => window.removeEventListener('eclipse-pandal-explorer-toggle', handleToggle);
+  }, []);
+
+  const shouldShowFloatingButton =
+    activeTab === 'home' &&
+    !selectedItem &&
+    !isOpen &&
+    !(isExplorerExpanded && typeof window !== 'undefined' && window.innerWidth < 768);
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -181,14 +208,22 @@ export const EclipseCopilotUI: React.FC = () => {
   return (
     <>
       {/* Floating Eclipse Copilot Launch Button */}
-      <button
-        id="btn-trigger-eclipse-copilot"
-        onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-24 right-20 md:right-auto md:left-20 z-40 p-3.5 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-2xl hover:scale-105 active:scale-95 transition-all duration-300 ring-2 ring-emerald-500/20 animate-bounce"
-        title="Eclipse Copilot"
-      >
-        <Bot size={20} className="animate-pulse" />
-      </button>
+      {shouldShowFloatingButton && (
+        <button
+          id="btn-trigger-eclipse-copilot"
+          onClick={() => setIsOpen(!isOpen)}
+          style={{
+            bottom: isNavigating
+              ? 'calc(env(safe-area-inset-bottom, 0px) + 4.75rem)'
+              : 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)',
+            left: 'calc(env(safe-area-inset-left, 0px) + 4.5rem)',
+          }}
+          className="fixed z-30 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-2xl hover:scale-105 active:scale-95 transition-all duration-300 ring-2 ring-emerald-500/20 animate-bounce md:left-[476px] md:bottom-24"
+          title="Eclipse Copilot"
+        >
+          <Bot size={20} className="animate-pulse" />
+        </button>
+      )}
 
       {/* Slide-Up Chat Panel / Modal */}
       <AnimatePresence>

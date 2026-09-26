@@ -144,7 +144,8 @@ export const IntelligenceGridControl: React.FC<IntelligenceGridControlProps> = (
           ⚡
         </span>
         <span className="tracking-wider uppercase font-mono text-[11px] sm:text-xs">
-          INTELLIGENCE
+          <span className="hidden sm:inline">INTELLIGENCE</span>
+          <span className="sm:hidden">LAYERS</span>
         </span>
         <span
           className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono border ${

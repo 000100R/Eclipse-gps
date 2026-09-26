@@ -103,10 +103,17 @@ export const DiscoveryHUD: React.FC = () => {
       const next = !prev;
       if (typeof window !== 'undefined') {
         localStorage.setItem('eclipse_pandal_explorer_expanded', String(next));
+        window.dispatchEvent(new CustomEvent('eclipse-pandal-explorer-toggle', { detail: { expanded: next } }));
       }
       return next;
     });
   };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('eclipse-pandal-explorer-toggle', { detail: { expanded: isExpanded } }));
+    }
+  }, [isExpanded]);
 
   // Only visible on home tab when not actively navigating and not inspecting an individual item card
   const isVisible = activeTab === 'home' && !isNavigating && !selectedItem;
@@ -233,7 +240,10 @@ export const DiscoveryHUD: React.FC = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -12, scale: 0.95 }}
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute top-24 left-1/2 -translate-x-1/2 pointer-events-auto"
+            style={{
+              top: 'calc(env(safe-area-inset-top, 0px) + 8rem)',
+            }}
+            className="absolute left-1/2 -translate-x-1/2 pointer-events-auto z-20"
           >
             <button
               id="btn-search-this-area"
@@ -258,9 +268,12 @@ export const DiscoveryHUD: React.FC = () => {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 12, scale: 0.98 }}
               transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute bottom-20 left-3 right-3 sm:left-4 sm:right-4 pointer-events-auto md:w-96 md:bottom-24 z-30"
+              style={{
+                bottom: 'calc(env(safe-area-inset-bottom, 0px) + 4.25rem)',
+              }}
+              className="absolute left-3 right-3 sm:left-4 sm:right-4 pointer-events-auto md:w-96 md:bottom-24 z-40"
             >
-              <div className="bg-neutral-950/95 border border-neutral-850 rounded-2xl shadow-2xl overflow-hidden p-3.5 sm:p-4 space-y-3.5 backdrop-blur-md max-h-[calc(100vh-140px)] sm:max-h-[75vh] flex flex-col">
+              <div className="bg-neutral-950/95 border border-neutral-850 rounded-2xl shadow-2xl overflow-hidden p-3.5 sm:p-4 backdrop-blur-md max-h-[calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-9.5rem)] sm:max-h-[68vh] md:max-h-[72vh] flex flex-col">
                 
                 {/* Header & Status Indicator + Show/Hide Toggle */}
                 <div className="flex items-center justify-between border-b border-neutral-900/90 pb-2.5 shrink-0">
@@ -316,7 +329,7 @@ export const DiscoveryHUD: React.FC = () => {
                 </div>
 
                 {/* Scrollable Body for small screens */}
-                <div className="space-y-3.5 overflow-y-auto custom-scrollbar pr-0.5 overscroll-contain">
+                <div className="space-y-3 overflow-y-auto custom-scrollbar pr-0.5 overscroll-contain flex-1 min-h-0 py-2">
                   {/* Discovery Settings Panel */}
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     {/* Radius Control */}
@@ -452,13 +465,15 @@ export const DiscoveryHUD: React.FC = () => {
                       </div>
                     </div>
                   )}
+                </div>
 
-                  {/* Explore Button */}
+                {/* Fixed Footer: Explore Button — always visible and never cut off */}
+                <div className="pt-2.5 border-t border-neutral-900/90 shrink-0">
                   <button
                     type="button"
                     id="btn-hud-explore-mode"
                     onClick={() => setActiveTab('explore')}
-                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-xs rounded-xl uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 shadow-lg shadow-indigo-600/20 cursor-pointer shrink-0"
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-xs rounded-xl uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 shadow-lg shadow-indigo-600/20 cursor-pointer"
                   >
                     <Sparkles size={13} />
                     <span>Open Pandal Explorer 2.0</span>
@@ -474,7 +489,10 @@ export const DiscoveryHUD: React.FC = () => {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.98 }}
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute bottom-20 left-3 right-3 sm:left-4 sm:right-4 pointer-events-auto md:w-96 md:bottom-24 z-20"
+              style={{
+                bottom: 'calc(env(safe-area-inset-bottom, 0px) + 4.25rem)',
+              }}
+              className="absolute left-3 right-3 sm:left-4 sm:right-4 pointer-events-auto md:w-96 md:bottom-24 z-20"
             >
               <div
                 id="pandal-explorer-collapsed-bar"
