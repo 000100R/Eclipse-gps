@@ -2607,16 +2607,44 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }),
       });
 
+      const rawContentType = response.headers.get('content-type') || '';
+      const isJson = rawContentType.toLowerCase().includes('application/json');
+
       if (!response.ok) {
         let errDetail = `Server returned status ${response.status}`;
-        try {
-          const errData = await response.json();
-          if (errData.error) errDetail = errData.error;
-        } catch (_) {}
+        if (isJson) {
+          try {
+            const errData = await response.json();
+            if (errData.error) errDetail = errData.error;
+          } catch (_) {}
+        } else {
+          try {
+            const textBody = await response.text();
+            if (textBody.trim().startsWith('<') || rawContentType.toLowerCase().includes('text/html')) {
+              errDetail = `Copilot server returned an unexpected HTML page (HTTP ${response.status}).`;
+            }
+          } catch (_) {}
+        }
         throw new Error(errDetail);
       }
 
-      const data = await response.json();
+      if (!isJson) {
+        let textPreview = '';
+        try {
+          textPreview = await response.text();
+        } catch (_) {}
+        if (textPreview.trim().startsWith('<') || rawContentType.toLowerCase().includes('text/html')) {
+          throw new Error('Copilot server returned an unexpected HTML response instead of JSON.');
+        }
+        throw new Error(`Copilot server returned non-JSON content type: ${rawContentType || 'unknown'}`);
+      }
+
+      let data: any;
+      try {
+        data = await response.json();
+      } catch (_) {
+        throw new Error('Copilot server returned an invalid JSON response payload.');
+      }
       
       let discoveredPandals: any[] | undefined = undefined;
       let discoveredBonediBaris: any[] | undefined = undefined;

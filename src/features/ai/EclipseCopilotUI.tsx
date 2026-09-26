@@ -54,7 +54,7 @@ export const EclipseCopilotUI: React.FC = () => {
     {
       id: 'welcome',
       sender: 'gemini',
-      text: 'Hello! I am your Eclipse GPS Copilot. I can search Durga Puja pandals, calculate real-time road routes, and help you navigate Kolkata. Ask me "Show nearby pandals" or search for a specific puja!',
+      text: 'Hello! I am your উমা এলো Copilot. I can search Durga Puja pandals, calculate real-time road routes, and help you navigate Kolkata. Ask me "Show nearby pandals" or search for a specific puja!',
       timestamp: Date.now(),
     },
   ]);
@@ -217,7 +217,7 @@ export const EclipseCopilotUI: React.FC = () => {
             left: 'calc(env(safe-area-inset-left, 0px) + 4.5rem)',
           }}
           className="fixed z-30 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-2xl hover:scale-105 active:scale-95 transition-all duration-300 ring-2 ring-emerald-500/20 animate-bounce md:left-[476px] md:bottom-24"
-          title="Eclipse Copilot"
+          title="উমা এলো Copilot"
         >
           <Bot size={20} className="animate-pulse" />
         </button>
@@ -251,7 +251,7 @@ export const EclipseCopilotUI: React.FC = () => {
                   <div className="w-1.5 h-6 rounded-full bg-emerald-500 animate-pulse" />
                   <Bot size={18} className="text-emerald-400" />
                   <h3 className="font-semibold text-neutral-100 text-sm tracking-wide">
-                    Eclipse Copilot
+                    উমা এলো Copilot
                   </h3>
                 </div>
                 <div className="flex items-center space-x-1">
@@ -305,7 +305,7 @@ export const EclipseCopilotUI: React.FC = () => {
                           {isCopilot ? (
                             <>
                               <Sparkles size={9} className="text-emerald-400 animate-pulse" />
-                              <span className="text-emerald-500">Eclipse Copilot</span>
+                              <span className="text-emerald-500">উমা এলো Copilot</span>
                             </>
                           ) : (
                             <>
@@ -355,7 +355,7 @@ export const EclipseCopilotUI: React.FC = () => {
                       <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce [animation-delay:0.4s]" />
                     </div>
                     <span className="text-[11px] text-neutral-500 italic">
-                      Eclipse Copilot is discovering pandals & routing...
+                      উমা এলো Copilot is discovering pandals & routing...
                     </span>
                   </div>
                 )}
@@ -389,7 +389,7 @@ export const EclipseCopilotUI: React.FC = () => {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask Eclipse Copilot..."
+                  placeholder="Ask উমা এলো Copilot..."
                   disabled={isLoading}
                   autoComplete="off"
                   className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-2 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-emerald-500/50 disabled:opacity-50 transition-colors"
