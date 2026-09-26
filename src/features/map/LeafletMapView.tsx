@@ -25,7 +25,7 @@ import { extractLocation } from '../../services/routing/routingService';
 import { getFriendLocationStatus, buildFriendMarkerSvg, buildFriendPopupHtml } from './friendMarkerUtils';
 import L from 'leaflet';
 
-export const LeafletMapView: React.FC<{ isVisible?: boolean }> = () => {
+export const LeafletMapView: React.FC<{ isVisible?: boolean }> = React.memo(() => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const [isMapReady, setIsMapReady] = useState<boolean>(false);
@@ -370,16 +370,49 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = () => {
       const detail = customEvent.detail;
       if (!detail || !detail.lat || !detail.lng) return;
       const latLng: [number, number] = [detail.lat, detail.lng];
+      const map = mapInstanceRef.current;
 
       if (gpsAccuracyCircleRef.current) {
         gpsAccuracyCircleRef.current.setLatLng(latLng);
         if (detail.accuracy && detail.accuracy < 1500) {
           gpsAccuracyCircleRef.current.setRadius(detail.accuracy);
         }
+      } else if (map && detail.accuracy && detail.accuracy < 1500) {
+        const circle = L.circle(latLng, {
+          radius: detail.accuracy,
+          color: '#3b82f6',
+          fillColor: '#3b82f6',
+          fillOpacity: 0.12,
+          weight: 1,
+        }).addTo(map);
+        gpsAccuracyCircleRef.current = circle;
       }
 
       if (gpsMarkerRef.current) {
         gpsMarkerRef.current.setLatLng(latLng);
+        if (map && !map.hasLayer(gpsMarkerRef.current)) {
+          gpsMarkerRef.current.addTo(map);
+        }
+      } else if (map) {
+        const gpsHtml = `
+          <div class="relative flex items-center justify-center w-6 h-6">
+            <div class="absolute w-5 h-5 bg-blue-500/30 rounded-full animate-ping"></div>
+            <div class="absolute w-3.5 h-3.5 bg-blue-500 border-2 border-white rounded-full shadow-lg shadow-blue-500/50"></div>
+          </div>
+        `;
+
+        const gpsIcon = L.divIcon({
+          html: gpsHtml,
+          className: '',
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        });
+
+        const marker = L.marker(latLng, {
+          icon: gpsIcon,
+          zIndexOffset: 1000,
+        }).addTo(map);
+        gpsMarkerRef.current = marker;
       }
     };
 
@@ -387,25 +420,14 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = () => {
     return () => window.removeEventListener('eclipse-gps-tick', handleGpsTick);
   }, []);
 
-  // Update User GPS Marker and Accuracy Circle (in-place updates to avoid flicker and re-renders)
+  // Initialize GPS Marker once if initial location is already available before first tick
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !currentLocation) return;
+    if (!map || !currentLocation || gpsMarkerRef.current) return;
 
     const latLng: [number, number] = [currentLocation.lat, currentLocation.lng];
 
-    // 1. Accuracy Circle (update in-place)
-    if (gpsAccuracyCircleRef.current) {
-      gpsAccuracyCircleRef.current.setLatLng(latLng);
-      if (gpsAccuracy && gpsAccuracy < 1500) {
-        gpsAccuracyCircleRef.current.setRadius(gpsAccuracy);
-        if (!map.hasLayer(gpsAccuracyCircleRef.current)) {
-          gpsAccuracyCircleRef.current.addTo(map);
-        }
-      } else if (map.hasLayer(gpsAccuracyCircleRef.current)) {
-        map.removeLayer(gpsAccuracyCircleRef.current);
-      }
-    } else if (gpsAccuracy && gpsAccuracy < 1500) {
+    if (!gpsAccuracyCircleRef.current && gpsAccuracy && gpsAccuracy < 1500) {
       const circle = L.circle(latLng, {
         radius: gpsAccuracy,
         color: '#3b82f6',
@@ -416,13 +438,7 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = () => {
       gpsAccuracyCircleRef.current = circle;
     }
 
-    // 2. Pulse GPS marker (update in-place using hardware-accelerated transforms)
-    if (gpsMarkerRef.current) {
-      gpsMarkerRef.current.setLatLng(latLng);
-      if (!map.hasLayer(gpsMarkerRef.current)) {
-        gpsMarkerRef.current.addTo(map);
-      }
-    } else {
+    if (!gpsMarkerRef.current) {
       const gpsHtml = `
         <div class="relative flex items-center justify-center w-6 h-6">
           <div class="absolute w-5 h-5 bg-blue-500/30 rounded-full animate-ping"></div>
@@ -443,7 +459,7 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = () => {
       }).addTo(map);
       gpsMarkerRef.current = marker;
     }
-  }, [currentLocation, gpsAccuracy]);
+  }, [!gpsMarkerRef.current]);
 
   // Update Markers for Catalog items with Reconciliation
   useEffect(() => {
@@ -1462,4 +1478,4 @@ export const LeafletMapView: React.FC<{ isVisible?: boolean }> = () => {
       )}
     </div>
   );
-};
+});

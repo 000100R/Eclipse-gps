@@ -26,7 +26,7 @@ import { extractLocation } from '../../services/routing/routingService';
 import { getFriendLocationStatus, buildFriendMarkerSvg, buildFriendPopupHtml } from './friendMarkerUtils';
 import { getGoogleMapsApiKey, getGoogleMapsMapId } from '../../services/map/mapsConfig';
 
-export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
+export const GoogleMapView: React.FC<{ isVisible?: boolean }> = React.memo(() => {
   const containerRef = useRef<HTMLDivElement>(null);
   const streetViewRef = useRef<HTMLDivElement>(null);
   
@@ -522,7 +522,7 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
   const markerMapRef = useRef<Map<string, google.maps.Marker>>(new Map());
   const lastNavHeadingRef = useRef<number>(0);
 
-  // Sync GPS Marker & Accuracy Circle (in-place updates + direct event listener to avoid re-renders)
+  // Sync GPS Marker & Accuracy Circle (direct hardware-accelerated event listener to avoid re-renders)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !googleLoaded) return;
@@ -541,10 +541,33 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
         } else {
           gpsAccuracyCircleRef.current.setVisible(false);
         }
+      } else if (detail.accuracy && detail.accuracy < 1500) {
+        gpsAccuracyCircleRef.current = new google.maps.Circle({
+          strokeColor: '#3b82f6',
+          strokeOpacity: 0.8,
+          strokeWeight: 1,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.12,
+          map,
+          center: latLng,
+          radius: detail.accuracy,
+        });
       }
 
       if (gpsMarkerRef.current) {
         gpsMarkerRef.current.setPosition(latLng);
+      } else {
+        const pinAnchor = new google.maps.Point(12, 12);
+        gpsMarkerRef.current = new google.maps.Marker({
+          position: latLng,
+          map,
+          zIndex: 1000,
+          icon: {
+            url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="%233b82f6" fill-opacity="0.3"/><circle cx="12" cy="12" r="4" fill="%233b82f6" stroke="white" stroke-width="2"/></svg>',
+            size: new google.maps.Size(24, 24),
+            anchor: pinAnchor,
+          },
+        });
       }
     };
 
@@ -552,22 +575,13 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
     return () => window.removeEventListener('eclipse-gps-tick', handleGpsTick);
   }, [googleLoaded]);
 
+  // Initialize GPS Marker once if initial location is already available before first tick
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !currentLocation || !googleLoaded) return;
+    if (!map || !currentLocation || !googleLoaded || gpsMarkerRef.current) return;
 
     const latLng = { lat: currentLocation.lat, lng: currentLocation.lng };
-
-    // 1. Accuracy Circle (update in-place to avoid recreation & flickering)
-    if (gpsAccuracyCircleRef.current) {
-      gpsAccuracyCircleRef.current.setCenter(latLng);
-      if (gpsAccuracy && gpsAccuracy < 1500) {
-        gpsAccuracyCircleRef.current.setRadius(gpsAccuracy);
-        gpsAccuracyCircleRef.current.setVisible(true);
-      } else {
-        gpsAccuracyCircleRef.current.setVisible(false);
-      }
-    } else if (gpsAccuracy && gpsAccuracy < 1500) {
+    if (!gpsAccuracyCircleRef.current && gpsAccuracy && gpsAccuracy < 1500) {
       gpsAccuracyCircleRef.current = new google.maps.Circle({
         strokeColor: '#3b82f6',
         strokeOpacity: 0.8,
@@ -580,10 +594,7 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
       });
     }
 
-    // 2. Pulse GPS marker (update in-place to prevent animation stutter and memory leaks)
-    if (gpsMarkerRef.current) {
-      gpsMarkerRef.current.setPosition(latLng);
-    } else {
+    if (!gpsMarkerRef.current) {
       const pinAnchor = new google.maps.Point(12, 12);
       gpsMarkerRef.current = new google.maps.Marker({
         position: latLng,
@@ -593,10 +604,10 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
           url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="%233b82f6" fill-opacity="0.3"/><circle cx="12" cy="12" r="4" fill="%233b82f6" stroke="white" stroke-width="2"/></svg>',
           size: new google.maps.Size(24, 24),
           anchor: pinAnchor,
-        }
+        },
       });
     }
-  }, [currentLocation, gpsAccuracy, googleLoaded]);
+  }, [googleLoaded, !gpsMarkerRef.current]);
 
   // Sync Catalog Markers with Reconciliation (Preserves existing markers, eliminates marker thrashing)
   useEffect(() => {
@@ -1572,4 +1583,4 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = () => {
       )}
     </div>
   );
-};
+});

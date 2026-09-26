@@ -1,4 +1,4 @@
-import { ref, set, remove, onValue, off, serverTimestamp, onDisconnect, push } from 'firebase/database';
+import { ref, set, remove, get, onValue, off, serverTimestamp, onDisconnect, push } from 'firebase/database';
 import { getFirebaseDatabase, isFirebaseConfigured } from '../firebase';
 
 export interface PujaGroup {
@@ -259,22 +259,21 @@ export const respondToGroupInvite = async (
   await remove(inviteRef);
 
   if (accept) {
-    // Read group name first to ensure group exists
+    // Read group name first to ensure group exists via a true one-time read
     const groupRef = ref(db, `groups/${groupId}`);
-    onValue(groupRef, async (snapshot) => {
-      const groupVal = snapshot.val();
-      if (!groupVal) return;
+    const snapshot = await get(groupRef);
+    const groupVal = snapshot.val();
+    if (!groupVal) return;
 
-      const memberRef = ref(db, `groupMembers/${groupId}/${userId}`);
-      const memberData: GroupMember = {
-        userId,
-        userName,
-        role: 'member',
-        joinedAt: Date.now(),
-        sharingEnabled: false, // OFF by default
-      };
-      await set(memberRef, memberData);
-    }, { onlyOnce: true });
+    const memberRef = ref(db, `groupMembers/${groupId}/${userId}`);
+    const memberData: GroupMember = {
+      userId,
+      userName,
+      role: 'member',
+      joinedAt: Date.now(),
+      sharingEnabled: false, // OFF by default
+    };
+    await set(memberRef, memberData);
   }
 };
 

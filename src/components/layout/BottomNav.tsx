@@ -2,7 +2,7 @@ import React from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { Map, Compass, Route, Calendar, Heart, Users, Footprints } from 'lucide-react';
 
-export const BottomNav: React.FC = () => {
+export const BottomNav: React.FC = React.memo(() => {
   const { activeTab, setActiveTab } = useAppState();
 
   const navItems = [
@@ -43,4 +43,4 @@ export const BottomNav: React.FC = () => {
       })}
     </nav>
   );
-};
+});

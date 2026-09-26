@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { MapPin, Sliders, Navigation, Users, Eye, Sparkles, RefreshCw, Plus, Check, ChevronUp, ChevronDown, Search, ArrowRight, X } from 'lucide-react';
@@ -171,13 +171,53 @@ export const DiscoveryHUD: React.FC = () => {
     });
   };
 
+  // Throttled reference position: recalculate pandal distances only after meaningful movement (>= 25 meters)
+  const [hudLocation, setHudLocation] = useState<Location | null>(currentLocation);
+  const lastHudLocRef = useRef<Location | null>(currentLocation);
+
+  useEffect(() => {
+    if (!currentLocation) return;
+    if (!lastHudLocRef.current) {
+      lastHudLocRef.current = currentLocation;
+      setHudLocation(currentLocation);
+      return;
+    }
+    const dist = getDistance(currentLocation, lastHudLocRef.current);
+    if (dist >= 25) {
+      lastHudLocRef.current = currentLocation;
+      setHudLocation(currentLocation);
+    }
+  }, [currentLocation]);
+
+  // When collapsed, calculate only what is needed for the nearest-pandal display (fast single pass)
+  const nearestPandal = useMemo(() => {
+    if (!hudLocation || pandals.length === 0) return null;
+    let best: Pandal | null = null;
+    let minD = Infinity;
+    for (let i = 0; i < pandals.length; i++) {
+      const p = pandals[i];
+      if (!p || p.zone === 'EVENTS' || !p.location) continue;
+      const d = Math.round(getDistance(hudLocation, p.location));
+      if (d < minD) {
+        minD = d;
+        best = { ...p, distance: d };
+      }
+    }
+    return best;
+  }, [pandals, hudLocation]);
+
   // Discovered pandals sorted by live GPS distance and strictly deduplicated
+  // When collapsed, skip heavy string formatting, set deduplication, and full array sort
   const livePandals = useMemo(() => {
+    if (!isExpanded && !isNavCompanionOpen) {
+      return nearestPandal ? [nearestPandal] : [];
+    }
+
     const list = [...pandals].filter(p => p && p.zone !== 'EVENTS');
 
     // Always compute accurate live distance to user's real GPS location when available
     const withLiveDist = list.map(p => {
-      const d = currentLocation ? Math.round(getDistance(currentLocation, p.location)) : p.distance;
+      const d = hudLocation ? Math.round(getDistance(hudLocation, p.location)) : p.distance;
       const durationMins = d ? Math.ceil((d / 8.33) / 60) : 0;
       const travelInfo = d !== undefined
         ? d < 1200
@@ -227,7 +267,18 @@ export const DiscoveryHUD: React.FC = () => {
     }
 
     return deduplicated;
-  }, [pandals, currentLocation, discoverySort]);
+  }, [pandals, hudLocation, discoverySort, isExpanded, isNavCompanionOpen, nearestPandal]);
+
+  // Windowed rendering to prevent creating hundreds of DOM elements simultaneously
+  const [displayedCount, setDisplayedCount] = useState<number>(30);
+  const visiblePandals = useMemo(() => {
+    return livePandals.slice(0, displayedCount);
+  }, [livePandals, displayedCount]);
+
+  const [navDisplayedCount, setNavDisplayedCount] = useState<number>(30);
+  const visibleNavPandals = useMemo(() => {
+    return navFilteredPandals.slice(0, navDisplayedCount);
+  }, [navFilteredPandals, navDisplayedCount]);
 
   return (
     <div className={`fixed inset-0 pointer-events-none ${isExpanded ? 'z-40' : 'z-30'}`}>
@@ -389,7 +440,7 @@ export const DiscoveryHUD: React.FC = () => {
                         <span className="text-[9px] text-indigo-400 font-mono font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">{livePandals.length} discovered</span>
                       </div>
                       <div className="space-y-1.5 max-h-48 sm:max-h-56 overflow-y-auto custom-scrollbar overscroll-contain">
-                        {livePandals.map((pandal) => {
+                        {visiblePandals.map((pandal) => {
                           const distFormatted = pandal.distance !== undefined
                             ? pandal.distance < 1000
                               ? `${pandal.distance} m`
@@ -462,6 +513,16 @@ export const DiscoveryHUD: React.FC = () => {
                             </div>
                           );
                         })}
+
+                        {livePandals.length > displayedCount && (
+                          <button
+                            type="button"
+                            onClick={() => setDisplayedCount(prev => prev + 25)}
+                            className="w-full py-2 bg-neutral-900/80 hover:bg-neutral-850 text-neutral-300 hover:text-white rounded-xl text-xs font-semibold border border-neutral-800 transition-colors mt-1"
+                          >
+                            Show more ({livePandals.length - displayedCount} remaining)
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -515,15 +576,15 @@ export const DiscoveryHUD: React.FC = () => {
                         Pandal Explorer 2.0
                       </span>
                       <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 shrink-0">
-                        {livePandals.length}
+                        {pandals.length}
                       </span>
                     </div>
                     <p className="text-[10px] text-neutral-400 truncate mt-0.5">
-                      {livePandals.length > 0 && livePandals[0].distance !== undefined
-                        ? `Nearest: ${livePandals[0].name} (${livePandals[0].distance < 1000 ? `${livePandals[0].distance} m` : `${(livePandals[0].distance / 1000).toFixed(1)} km`})`
+                      {nearestPandal && nearestPandal.distance !== undefined
+                        ? `Nearest: ${nearestPandal.name} (${nearestPandal.distance < 1000 ? `${nearestPandal.distance} m` : `${(nearestPandal.distance / 1000).toFixed(1)} km`})`
                         : isDiscovering
                         ? 'Scanning nearby pandals...'
-                        : `${livePandals.length} pandals discovered`}
+                        : `${pandals.length} pandals discovered`}
                     </p>
                   </div>
                 </div>
@@ -701,8 +762,8 @@ export const DiscoveryHUD: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-[10px] text-neutral-400 truncate mt-0.5">
-                      {livePandals.length > 0 && livePandals[0].distance !== undefined
-                        ? `Nearby: ${livePandals[0].name} (${livePandals[0].distance < 1000 ? `${livePandals[0].distance} m` : `${(livePandals[0].distance / 1000).toFixed(1)} km`})`
+                      {nearestPandal && nearestPandal.distance !== undefined
+                        ? `Nearby: ${nearestPandal.name} (${nearestPandal.distance < 1000 ? `${nearestPandal.distance} m` : `${(nearestPandal.distance / 1000).toFixed(1)} km`})`
                         : 'Tap to browse pandals & switch'}
                     </p>
                   </div>
@@ -815,49 +876,61 @@ export const DiscoveryHUD: React.FC = () => {
                       No matching pandals found.
                     </div>
                   ) : (
-                    navFilteredPandals.map((pandal) => {
-                      const distKm = pandal.distance ? (pandal.distance / 1000).toFixed(2) : '0';
-                      return (
-                        <div
-                          key={pandal.id}
-                          id={`nav-companion-item-${pandal.id}`}
-                          className="flex items-center justify-between p-2 rounded-xl bg-neutral-900/60 hover:bg-neutral-900 transition-colors border border-neutral-900/40 gap-2"
-                        >
+                    <>
+                      {visibleNavPandals.map((pandal) => {
+                        const distKm = pandal.distance ? (pandal.distance / 1000).toFixed(2) : '0';
+                        return (
                           <div
-                            className="flex-1 cursor-pointer min-w-0"
-                            onClick={() => setPandalToReplace(pandal)}
+                            key={pandal.id}
+                            id={`nav-companion-item-${pandal.id}`}
+                            className="flex items-center justify-between p-2 rounded-xl bg-neutral-900/60 hover:bg-neutral-900 transition-colors border border-neutral-900/40 gap-2"
                           >
-                            <p className="text-xs font-semibold text-neutral-200 truncate">{pandal.name}</p>
-                            <p className="text-[10px] text-neutral-400 truncate mt-0.5">
-                              {distKm} km away • {pandal.area || 'Kolkata'}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center space-x-1.5 shrink-0">
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                              pandal.crowdLevel === 'LOW' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                              pandal.crowdLevel === 'MODERATE' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                              pandal.crowdLevel === 'HIGH' || pandal.crowdLevel === 'HEAVY' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
-                              pandal.crowdLevel === 'EXTREME' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                              'bg-neutral-800 text-neutral-400 border-neutral-700'
-                            }`}>
-                              {pandal.crowdLevel || 'Normal'}
-                            </span>
-
-                            <button
-                              type="button"
-                              id={`btn-nav-switch-to-${pandal.id}`}
+                            <div
+                              className="flex-1 cursor-pointer min-w-0"
                               onClick={() => setPandalToReplace(pandal)}
-                              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm cursor-pointer touch-manipulation flex items-center space-x-1"
-                              title="Switch navigation to this pandal"
                             >
-                              <span>Switch</span>
-                              <ArrowRight size={11} />
-                            </button>
+                              <p className="text-xs font-semibold text-neutral-200 truncate">{pandal.name}</p>
+                              <p className="text-[10px] text-neutral-400 truncate mt-0.5">
+                                {distKm} km away • {pandal.area || 'Kolkata'}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center space-x-1.5 shrink-0">
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                pandal.crowdLevel === 'LOW' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                                pandal.crowdLevel === 'MODERATE' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                                pandal.crowdLevel === 'HIGH' || pandal.crowdLevel === 'HEAVY' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                                pandal.crowdLevel === 'EXTREME' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                'bg-neutral-800 text-neutral-400 border-neutral-700'
+                              }`}>
+                                {pandal.crowdLevel || 'Normal'}
+                              </span>
+
+                              <button
+                                type="button"
+                                id={`btn-nav-switch-to-${pandal.id}`}
+                                onClick={() => setPandalToReplace(pandal)}
+                                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-[10px] uppercase tracking-wider transition-all shadow-sm cursor-pointer touch-manipulation flex items-center space-x-1"
+                                title="Switch navigation to this pandal"
+                              >
+                                <span>Switch</span>
+                                <ArrowRight size={11} />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })
+                        );
+                      })}
+
+                      {navFilteredPandals.length > navDisplayedCount && (
+                        <button
+                          type="button"
+                          onClick={() => setNavDisplayedCount(prev => prev + 25)}
+                          className="w-full py-2 bg-neutral-900/80 hover:bg-neutral-850 text-neutral-300 hover:text-white rounded-xl text-xs font-semibold border border-neutral-800 transition-colors mt-1"
+                        >
+                          Show more ({navFilteredPandals.length - navDisplayedCount} remaining)
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

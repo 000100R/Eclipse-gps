@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppState } from '../../hooks/AppStateProvider';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import { CrowdBadge } from '../../components/ui/CrowdBadge';
@@ -35,6 +35,25 @@ export const ExplorePandals: React.FC = () => {
   const [reportText, setReportText] = useState('');
   const [reportStatusMsg, setReportStatusMsg] = useState<{ success?: boolean; text?: string } | null>(null);
 
+  // Throttled reference location: avoid recalculating all distances and re-sorting on micro GPS jitter
+  const [exploreReferenceLocation, setExploreReferenceLocation] = useState<Location | null>(currentLocation);
+  const lastExploreLocRef = useRef<Location | null>(currentLocation);
+
+  useEffect(() => {
+    if (!currentLocation) return;
+    if (!lastExploreLocRef.current) {
+      lastExploreLocRef.current = currentLocation;
+      setExploreReferenceLocation(currentLocation);
+      return;
+    }
+    const dist = calculateHaversineDistanceMeters(currentLocation, lastExploreLocRef.current);
+    // Recalculate distance and re-sort only after user moves at least 25 meters
+    if (dist >= 25) {
+      lastExploreLocRef.current = currentLocation;
+      setExploreReferenceLocation(currentLocation);
+    }
+  }, [currentLocation]);
+
   const formatDistance = (meters?: number) => {
     if (meters === undefined || meters === null || isNaN(meters)) return null;
     if (meters < 1000) return `${Math.round(meters)} m`;
@@ -50,9 +69,9 @@ export const ExplorePandals: React.FC = () => {
       return matchesZone && matchesCrowd;
     });
 
-    if (currentLocation) {
+    if (exploreReferenceLocation) {
       list = list.map(p => {
-        const d = Math.round(calculateHaversineDistanceMeters(currentLocation, p.location));
+        const d = Math.round(calculateHaversineDistanceMeters(exploreReferenceLocation, p.location));
         return {
           ...p,
           distance: d,
@@ -83,7 +102,7 @@ export const ExplorePandals: React.FC = () => {
 
     deduped.sort((a, b) => (a.distance ?? 999999) - (b.distance ?? 999999));
     return deduped;
-  }, [pandals, filterZone, filterCrowd, currentLocation]);
+  }, [pandals, filterZone, filterCrowd, exploreReferenceLocation]);
 
   const handleToggleFav = (pandal: any) => {
     if (isSaved(pandal.id)) {

@@ -7,7 +7,7 @@ import { GlassPanel } from '../../components/ui/GlassPanel';
 import { Layers, Globe, Compass, Cpu, Check } from 'lucide-react';
 import { getGoogleMapsApiKey, getGoogleMapsMapId, hasValidGoogleMapsKey } from '../../services/map/mapsConfig';
 
-export const MapView: React.FC = () => {
+export const MapView: React.FC = React.memo(() => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { mapProvider, setMapProvider, mapStyle, setMapStyle, isNavigating } = useAppState();
   
@@ -211,6 +211,6 @@ export const MapView: React.FC = () => {
       )}
     </div>
   );
-};
+});
 
 export default MapView;

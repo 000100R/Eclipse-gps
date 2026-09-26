@@ -276,6 +276,8 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
   const consecutiveOffRouteCountRef = useRef<number>(0);
   const lastAutoRerouteTimeRef = useRef<number>(0);
   const isAutoReroutingRef = useRef<boolean>(false);
+  const lastClosestPointIndexRef = useRef<number>(0);
+  const lastActiveRouteIdRef = useRef<string>('');
 
   // Auto-advance turn-by-turn steps as user moves along route & trigger reroute on sustained deviation
   useEffect(() => {
@@ -283,15 +285,41 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
 
     const geom = activeRoute.geometry;
     if (geom && geom.length > 0) {
+      // If route changed, reset localized search position to 0
+      const routeId = activeRoute.id || `${activeRoute.origin?.lat}_${activeRoute.destination?.lat}`;
+      if (lastActiveRouteIdRef.current !== routeId) {
+        lastActiveRouteIdRef.current = routeId;
+        lastClosestPointIndexRef.current = 0;
+      }
+
       let minDistance = Infinity;
-      let closestPointIndex = 0;
-      for (let i = 0; i < geom.length; i++) {
+      let closestPointIndex = lastClosestPointIndexRef.current;
+
+      // Localized search around last known route position (searches a narrow window instead of thousands of points)
+      const lastIdx = lastClosestPointIndexRef.current;
+      const searchStart = Math.max(0, lastIdx - 15);
+      const searchEnd = Math.min(geom.length, lastIdx + 50);
+
+      for (let i = searchStart; i < searchEnd; i++) {
         const d = getHaversineDistanceMeters(currentLocation, geom[i]);
         if (d < minDistance) {
           minDistance = d;
           closestPointIndex = i;
         }
       }
+
+      // Fallback: only if user drifted outside the localized window (> 60m), perform coarse/full check
+      if (minDistance > 60 && geom.length > 60) {
+        for (let i = 0; i < geom.length; i++) {
+          const d = getHaversineDistanceMeters(currentLocation, geom[i]);
+          if (d < minDistance) {
+            minDistance = d;
+            closestPointIndex = i;
+          }
+        }
+      }
+
+      lastClosestPointIndexRef.current = closestPointIndex;
 
       // If user is reasonably close to route (< 50m), correlate progress
       if (minDistance < 50) {

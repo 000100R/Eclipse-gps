@@ -33,7 +33,6 @@ const AppContent: React.FC = () => {
 
   const {
     hasValidGps,
-    currentLocation,
     gpsStatus,
     activeTab,
     isCalculatingRoute,
@@ -47,7 +46,7 @@ const AppContent: React.FC = () => {
   } = useAppState();
 
   // If valid GPS position is not acquired or permission is not granted, enforce full-screen Location Required state
-  if (!hasValidGps || !currentLocation || gpsStatus === 'prompt' || gpsStatus === 'requesting' || gpsStatus === 'denied') {
+  if (!hasValidGps || gpsStatus === 'prompt' || gpsStatus === 'requesting' || gpsStatus === 'denied') {
     return <LocationRequiredScreen />;
   }
 
