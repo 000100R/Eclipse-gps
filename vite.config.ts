@@ -28,6 +28,13 @@ export default defineConfig(() => {
   // Only expose client-safe VITE_ prefixed environment variables into the frontend bundle
   const mapsApiKey = cleanEnvVar(process.env.VITE_GOOGLE_MAPS_API_KEY);
   const mapsMapId = cleanEnvVar(process.env.VITE_GOOGLE_MAPS_MAP_ID);
+  const defaultApiUrl = cleanEnvVar(
+    process.env.VITE_COPILOT_API_URL ||
+    process.env.VITE_API_URL ||
+    process.env.SHARED_APP_URL ||
+    process.env.APP_URL ||
+    'https://ais-pre-sko4oskwxy2u2kvbkptz37-300412495421.asia-southeast1.run.app'
+  );
 
   return {
     plugins: [react(), tailwindcss()],
@@ -40,6 +47,8 @@ export default defineConfig(() => {
       'import.meta.env.VITE_GOOGLE_MAPS_API_KEY': JSON.stringify(mapsApiKey),
       'import.meta.env.VITE_GOOGLE_MAPS_API_KEY_ANDROID': JSON.stringify(cleanEnvVar(process.env.VITE_GOOGLE_MAPS_API_KEY_ANDROID) || mapsApiKey),
       'import.meta.env.VITE_GOOGLE_MAPS_MAP_ID': JSON.stringify(mapsMapId),
+      'import.meta.env.VITE_API_URL': JSON.stringify(defaultApiUrl),
+      'import.meta.env.VITE_COPILOT_API_URL': JSON.stringify(cleanEnvVar(process.env.VITE_COPILOT_API_URL) || (defaultApiUrl.endsWith('/api/ai') ? defaultApiUrl : `${defaultApiUrl}/api/ai`)),
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

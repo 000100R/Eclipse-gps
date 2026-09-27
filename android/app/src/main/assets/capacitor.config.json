@@ -15,7 +15,8 @@
 			"*.cartocdn.com",
 			"*.arcgisonline.com",
 			"server.arcgisonline.com",
-			"router.project-osrm.org"
+			"router.project-osrm.org",
+			"*.run.app"
 		]
 	}
 }

@@ -18,6 +18,7 @@ const config: CapacitorConfig = {
       '*.arcgisonline.com',
       'server.arcgisonline.com',
       'router.project-osrm.org',
+      '*.run.app',
     ],
   },
 };

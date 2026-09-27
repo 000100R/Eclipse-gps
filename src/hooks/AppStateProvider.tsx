@@ -21,6 +21,9 @@ import { MetroGateIntelligenceResult, MetroGateRouteOption } from '../types/metr
 import { smartPujaRoutePlannerService } from '../services/routing/smartPujaRoutePlannerService';
 import { travelDistanceService } from '../services/gps/travelDistanceService';
 import { hasValidGoogleMapsKey } from '../services/map/mapsConfig';
+import { resolveCopilotEndpoint } from '../services/gemini/copilotService';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 import { ref, set, remove, onDisconnect, serverTimestamp, onValue, off } from 'firebase/database';
 import { isFirebaseConfigured, getFirebaseDatabase } from '../services/firebase';
 import {
@@ -1434,15 +1437,126 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const isRequestingLocationRef = useRef<boolean>(false);
+  const isRequestingNativePermissionRef = useRef<boolean>(false);
+  const hasAutoRequestedPermissionRef = useRef<boolean>(false);
+
+  // Helper to check location permission across Capacitor native and web
+  const checkLocationPermission = useCallback(async (): Promise<'granted' | 'denied' | 'prompt'> => {
+    if (typeof window === 'undefined') return 'prompt';
+
+    // 1. Check AndroidNative interface if available
+    if ((window as any).AndroidNative?.isLocationPermissionGranted) {
+      try {
+        if ((window as any).AndroidNative.isLocationPermissionGranted()) {
+          return 'granted';
+        }
+      } catch (err) {
+        console.warn('AndroidNative.isLocationPermissionGranted check error:', err);
+      }
+    }
+
+    // 2. Check Capacitor Geolocation Plugin if on native platform
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const status = await Geolocation.checkPermissions();
+        if (status.location === 'granted' || status.coarseLocation === 'granted') {
+          return 'granted';
+        }
+        if (status.location === 'denied') {
+          return 'denied';
+        }
+        return 'prompt';
+      } catch (err) {
+        console.warn('Capacitor Geolocation checkPermissions error:', err);
+      }
+    }
+
+    // 3. Web navigator.permissions fallback
+    if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+      try {
+        const status = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+        return status.state as 'granted' | 'denied' | 'prompt';
+      } catch (err) {
+        console.warn('Web navigator.permissions query error:', err);
+      }
+    }
+
+    return 'prompt';
+  }, []);
+
+  // Helper to request native Android or web location permission
+  const requestLocationPermission = useCallback(async (): Promise<'granted' | 'denied'> => {
+    if (typeof window === 'undefined') return 'denied';
+
+    if (isRequestingNativePermissionRef.current) {
+      return 'denied';
+    }
+    isRequestingNativePermissionRef.current = true;
+
+    try {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const result = await Geolocation.requestPermissions();
+          if (result.location === 'granted' || result.coarseLocation === 'granted') {
+            return 'granted';
+          }
+          return 'denied';
+        } catch (capErr) {
+          console.warn('Capacitor Geolocation requestPermissions error:', capErr);
+          if ((window as any).AndroidNative?.requestLocationPermission) {
+            (window as any).AndroidNative.requestLocationPermission();
+          }
+          return 'denied';
+        }
+      }
+
+      if ((window as any).AndroidNative?.requestLocationPermission) {
+        (window as any).AndroidNative.requestLocationPermission();
+        return 'prompt' as any;
+      }
+
+      return 'prompt' as any;
+    } finally {
+      isRequestingNativePermissionRef.current = false;
+    }
+  }, []);
 
   // Request location from browser/device with fallback for Android 12+ Approximate location & indoor delays
-  const requestLocation = useCallback(() => {
+  const requestLocation = useCallback(async (shouldRequestNativePermissionIfPrompt: boolean = false) => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
       setHasValidGps(false);
       setCurrentLocation(null);
       setGpsStatus('error');
       setGpsErrorMsg('HTML5 Geolocation is not supported by your browser or device.');
       return;
+    }
+
+    // If native platform and permission is not granted yet, request native permission
+    if (Capacitor.isNativePlatform() || (window as any).AndroidNative) {
+      const currentPerm = await checkLocationPermission();
+      if (currentPerm === 'denied') {
+        setHasValidGps(false);
+        setCurrentLocation(null);
+        setPermissionState('denied');
+        setGpsStatus('denied');
+        setGpsErrorMsg('Location access is blocked. Please allow location access in your device settings.');
+        return;
+      }
+
+      if (currentPerm === 'prompt' && shouldRequestNativePermissionIfPrompt) {
+        setGpsStatus('requesting');
+        const reqResult = await requestLocationPermission();
+        if (reqResult === 'granted') {
+          setPermissionState('granted');
+        } else {
+          setHasValidGps(false);
+          setCurrentLocation(null);
+          setPermissionState('denied');
+          setGpsStatus('denied');
+          setGpsErrorMsg('Location access was denied. Eclipse GPS requires your real location to navigate.');
+          return;
+        }
+      }
     }
 
     if (isRequestingLocationRef.current) {
@@ -1493,8 +1607,38 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // fall back to standard/low accuracy to obtain position immediately.
         navigator.geolocation.getCurrentPosition(
           onLocationSuccess,
-          (fallbackErr) => {
+          async (fallbackErr) => {
             console.warn('Fallback low-accuracy location error:', fallbackErr);
+
+            // If Capacitor native is active, attempt native Geolocation plugin fallback
+            if (Capacitor.isNativePlatform()) {
+              try {
+                const capPos = await Geolocation.getCurrentPosition({
+                  enableHighAccuracy: false,
+                  timeout: 10000,
+                  maximumAge: 60000,
+                });
+                if (capPos && capPos.coords) {
+                  const synthPos = {
+                    coords: {
+                      latitude: capPos.coords.latitude,
+                      longitude: capPos.coords.longitude,
+                      accuracy: capPos.coords.accuracy,
+                      altitude: capPos.coords.altitude,
+                      altitudeAccuracy: capPos.coords.altitudeAccuracy,
+                      heading: capPos.coords.heading,
+                      speed: capPos.coords.speed,
+                    },
+                    timestamp: capPos.timestamp,
+                  } as GeolocationPosition;
+                  onLocationSuccess(synthPos);
+                  return;
+                }
+              } catch (capPosErr) {
+                console.warn('Native Capacitor getCurrentPosition fallback failed:', capPosErr);
+              }
+            }
+
             isRequestingLocationRef.current = false;
             setHasValidGps(false);
             setCurrentLocation(null);
@@ -1528,33 +1672,81 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         maximumAge: 10000,
       }
     );
-  }, []);
+  }, [checkLocationPermission, requestLocationPermission]);
 
-  const retryLocation = useCallback(() => {
-    requestLocation();
+  const retryLocation = useCallback(async () => {
+    await requestLocation(true);
   }, [requestLocation]);
 
-  // Check initial permission status on app startup
+  // Check initial permission status and auto-request on app startup
   useEffect(() => {
-    if (typeof window === 'undefined' || !navigator.geolocation) {
-      setPermissionState('denied');
-      setGpsStatus('error');
-      setGpsErrorMsg('HTML5 Geolocation is not supported by your device.');
-      return;
-    }
+    let isCancelled = false;
 
+    const initLocationFlow = async () => {
+      if (typeof window === 'undefined' || !navigator.geolocation) {
+        if (!isCancelled) {
+          setPermissionState('denied');
+          setGpsStatus('error');
+          setGpsErrorMsg('HTML5 Geolocation is not supported by your device.');
+        }
+        return;
+      }
+
+      // Check current permission status
+      const currentPerm = await checkLocationPermission();
+      if (isCancelled) return;
+
+      if (currentPerm === 'granted') {
+        setPermissionState('granted');
+        requestLocation(false);
+      } else if (currentPerm === 'denied') {
+        // Previously denied: show Location Required screen without endless prompt loop
+        setPermissionState('denied');
+        setGpsStatus('denied');
+        setGpsErrorMsg('Location access is blocked. Please allow location access in your device settings.');
+      } else {
+        // 'prompt' (fresh install / not yet requested)
+        setPermissionState('prompt');
+        // On first launch, automatically trigger native permission request!
+        if (!hasAutoRequestedPermissionRef.current) {
+          hasAutoRequestedPermissionRef.current = true;
+          setGpsStatus('requesting');
+          if (Capacitor.isNativePlatform() || (window as any).AndroidNative) {
+            const result = await requestLocationPermission();
+            if (isCancelled) return;
+            if (result === 'granted') {
+              setPermissionState('granted');
+              requestLocation(false);
+            } else {
+              setPermissionState('denied');
+              setGpsStatus('denied');
+              setGpsErrorMsg('Location access was denied. Please allow location access in your device settings.');
+            }
+          } else {
+            // Web browser prompt
+            requestLocation(false);
+          }
+        } else {
+          setGpsStatus('prompt');
+        }
+      }
+    };
+
+    initLocationFlow();
+
+    // Listen to permission changes if supported
     let permissionObj: PermissionStatus | null = null;
-
-    if (typeof navigator.permissions !== 'undefined' && navigator.permissions.query) {
+    if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
       navigator.permissions
         .query({ name: 'geolocation' as PermissionName })
         .then((status) => {
+          if (isCancelled) return;
           permissionObj = status;
-          setPermissionState(status.state as 'prompt' | 'granted' | 'denied');
-
           const handlePermissionChange = () => {
             setPermissionState(status.state as 'prompt' | 'granted' | 'denied');
-            if (status.state === 'denied') {
+            if (status.state === 'granted') {
+              requestLocation(false);
+            } else if (status.state === 'denied') {
               setHasValidGps(false);
               setCurrentLocation(null);
               setGpsStatus('denied');
@@ -1563,60 +1755,31 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               setHasValidGps(false);
               setCurrentLocation(null);
               setGpsStatus('prompt');
-              setGpsErrorMsg(null);
-            } else if (status.state === 'granted') {
-              // Permission was granted, request position fix immediately
-              requestLocation();
             }
           };
-
           status.addEventListener('change', handlePermissionChange);
-
-          if (status.state === 'granted') {
-            requestLocation();
-          } else if (status.state === 'denied') {
-            setHasValidGps(false);
-            setCurrentLocation(null);
-            setGpsStatus('denied');
-            setGpsErrorMsg('Location access was denied. Please allow location access in your device settings.');
-          } else {
-            // 'prompt': Show Location Required screen with Enable Location button
-            setHasValidGps(false);
-            setCurrentLocation(null);
-            setGpsStatus('prompt');
-          }
         })
         .catch((err) => {
           console.warn('Error querying geolocation permission:', err);
-          setPermissionState('prompt');
-          setGpsStatus('prompt');
         });
-    } else {
-      setPermissionState('prompt');
-      setGpsStatus('prompt');
     }
 
     return () => {
+      isCancelled = true;
       if (permissionObj) {
         permissionObj.onchange = null;
       }
     };
-  }, [requestLocation]);
+  }, [checkLocationPermission, requestLocationPermission, requestLocation]);
 
   // When app returns to foreground (e.g. user returns from device Settings after granting permission)
   useEffect(() => {
-    const handleResume = () => {
+    const handleResume = async () => {
       if (document.visibilityState === 'visible' && (!hasValidGps || gpsStatus !== 'tracking')) {
-        if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
-          navigator.permissions
-            .query({ name: 'geolocation' as PermissionName })
-            .then((status) => {
-              if (status.state === 'granted') {
-                setPermissionState('granted');
-                requestLocation();
-              }
-            })
-            .catch(() => {});
+        const perm = await checkLocationPermission();
+        if (perm === 'granted') {
+          setPermissionState('granted');
+          requestLocation(false);
         }
       }
     };
@@ -1627,7 +1790,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       document.removeEventListener('visibilitychange', handleResume);
       window.removeEventListener('focus', handleResume);
     };
-  }, [hasValidGps, gpsStatus, requestLocation]);
+  }, [hasValidGps, gpsStatus, checkLocationPermission, requestLocation]);
 
   // Coordinate significant movement and automatic discovery trigger (250m threshold)
   useEffect(() => {
@@ -2598,9 +2761,13 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setIsAiLoading(true);
 
     try {
-      const response = await fetch('/api/ai', {
+      const endpoint = resolveCopilotEndpoint();
+      const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
         body: JSON.stringify({
           messages: [...messages, userMsg],
           userLocation: currentLocation,
@@ -2611,17 +2778,20 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const isJson = rawContentType.toLowerCase().includes('application/json');
 
       if (!response.ok) {
-        let errDetail = `Server returned status ${response.status}`;
+        let errDetail = `Copilot server route failure (HTTP ${response.status})`;
         if (isJson) {
           try {
             const errData = await response.json();
             if (errData.error) errDetail = errData.error;
+            else if (errData.text) errDetail = errData.text;
           } catch (_) {}
         } else {
           try {
             const textBody = await response.text();
             if (textBody.trim().startsWith('<') || rawContentType.toLowerCase().includes('text/html')) {
-              errDetail = `Copilot server returned an unexpected HTML page (HTTP ${response.status}).`;
+              errDetail = 'Copilot server connection error: received HTML instead of JSON. The backend AI endpoint is unreachable.';
+            } else if (textBody.trim().length > 0) {
+              errDetail = `Copilot server error (HTTP ${response.status}): ${textBody.slice(0, 100)}`;
             }
           } catch (_) {}
         }
@@ -2634,7 +2804,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           textPreview = await response.text();
         } catch (_) {}
         if (textPreview.trim().startsWith('<') || rawContentType.toLowerCase().includes('text/html')) {
-          throw new Error('Copilot server returned an unexpected HTML response instead of JSON.');
+          throw new Error('Copilot server connection error: received unexpected HTML response instead of JSON. The backend AI endpoint is unreachable.');
         }
         throw new Error(`Copilot server returned non-JSON content type: ${rawContentType || 'unknown'}`);
       }

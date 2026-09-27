@@ -32,6 +32,10 @@ export const LocationRequiredScreen: React.FC = () => {
 
   const openAppSettings = () => {
     try {
+      if (typeof window !== 'undefined' && (window as any).AndroidNative?.openSettings) {
+        (window as any).AndroidNative.openSettings();
+        return;
+      }
       window.location.href = 'intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;package=com.eclipsegps.app;end';
     } catch (err) {
       console.warn('Unable to trigger settings intent:', err);

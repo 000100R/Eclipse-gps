@@ -25,6 +25,17 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Enable CORS for Android Capacitor APK (https://localhost, capacitor://localhost) and Web clients
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Initialize Google Gen AI securely on the server
 const apiKey = process.env.GEMINI_API_KEY;
 const rawModelName = process.env.GEMINI_MODEL || '';
