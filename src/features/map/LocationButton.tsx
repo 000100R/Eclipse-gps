@@ -44,13 +44,13 @@ export const LocationButton: React.FC = () => {
 
   // Dynamic positioning that prevents any overlap on Android APK and mobile browsers:
   // - When navigating: sits safely above the turn instructions and alternatives HUD
-  // - When inspecting a card: sits above the pandal detail drawer
+  // - When inspecting a card: sits above the pandal detail drawer with generous top clearance
   // - Default: sits comfortably above the bottom navigation and explorer deck
   const bottomStyle = isNavigating
-    ? 'calc(env(safe-area-inset-bottom, 0px) + 12rem)'
+    ? 'calc(env(safe-area-inset-bottom, 0px) + 11.5rem)'
     : selectedItem
-    ? 'calc(env(safe-area-inset-bottom, 0px) + 20rem)'
-    : 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)';
+    ? 'calc(env(safe-area-inset-bottom, 0px) + 15.5rem)'
+    : 'calc(env(safe-area-inset-bottom, 0px) + 7.5rem)';
 
   const handleZoomIn = () => {
     if (mapRef?.zoomIn) {

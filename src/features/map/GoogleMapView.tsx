@@ -1394,9 +1394,12 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = React.memo(() =>
         />
       )}
 
-      {/* 3. Layer / Map Settings Controller HUD (Cleanly stacked at top-36 to eliminate any overlap with Map Style HUD) */}
+      {/* 3. Layer / Map Settings Controller HUD (Stacked below Map Controls row with safe-area support) */}
       {!isNavigating && (
-        <div className="absolute top-36 left-3 sm:left-4 z-10 flex items-center space-x-2">
+        <div
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 7.5rem)' }}
+          className="absolute left-3 sm:left-4 z-20 flex items-center space-x-2 pointer-events-auto"
+        >
           <GlassPanel className="p-1.5 flex items-center space-x-1.5 border border-neutral-800/80 shadow-2xl rounded-xl">
             {/* Traffic Switcher */}
             <button
@@ -1426,7 +1429,10 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = React.memo(() =>
 
       {/* 4. Heading Lock Toggle (Visible when navigating) */}
       {isNavigating && (
-        <div className="fixed top-24 right-3 sm:right-4 z-20">
+        <div
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 7.5rem)' }}
+          className="fixed right-3 sm:right-4 z-20 pointer-events-auto"
+        >
           <button
             onClick={() => setLockToHeading(!lockToHeading)}
             className={`w-10 h-10 flex flex-col items-center justify-center backdrop-blur-md border rounded-xl shadow-xl transition-all duration-300 touch-manipulation cursor-pointer ${

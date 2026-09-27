@@ -297,7 +297,7 @@ export const DiscoveryHUD: React.FC = () => {
             exit={{ opacity: 0, y: -12, scale: 0.95 }}
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             style={{
-              top: 'calc(env(safe-area-inset-top, 0px) + 8rem)',
+              top: 'calc(env(safe-area-inset-top, 0px) + 10.5rem)',
             }}
             className="absolute left-1/2 -translate-x-1/2 pointer-events-auto z-20"
           >
@@ -329,7 +329,7 @@ export const DiscoveryHUD: React.FC = () => {
               }}
               className="absolute left-3 right-3 sm:left-4 sm:right-4 pointer-events-auto md:w-96 md:bottom-24 z-40"
             >
-              <div className="bg-neutral-950/95 border border-neutral-850 rounded-2xl shadow-2xl overflow-hidden p-3.5 sm:p-4 backdrop-blur-md max-h-[calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-9.5rem)] sm:max-h-[68vh] md:max-h-[72vh] flex flex-col">
+              <div className="bg-neutral-950/95 border border-neutral-850 rounded-2xl shadow-2xl overflow-hidden p-3.5 sm:p-4 backdrop-blur-md max-h-[calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-14.5rem)] sm:max-h-[64vh] md:max-h-[70vh] flex flex-col">
                 
                 {/* Header & Status Indicator + Show/Hide Toggle */}
                 <div className="flex items-center justify-between border-b border-neutral-900/90 pb-2.5 shrink-0">
