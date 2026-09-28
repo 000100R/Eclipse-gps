@@ -36,6 +36,7 @@ export interface DiscoveredPandal {
   area: string;
   city?: string;
   category?: EclipsePandalClassification | string;
+  pandalType?: 'Puja Pandal' | 'Bonedi Bari / Rajbari' | string;
   classificationConfidence?: number;
   classificationReason?: string;
   isUncertain?: boolean;

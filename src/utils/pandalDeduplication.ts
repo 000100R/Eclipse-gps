@@ -266,13 +266,103 @@ export function isDuplicatePandal(
     return { isDuplicate: true, matchReason: 'PLACE_ID' };
   }
 
+  // Extract distinct numerical or block identifier (e.g. "64", "68", "41", "76", "AA Block", "AB Block")
+  const extractDistinctIdentifier = (name: string): string | null => {
+    if (!name) return null;
+    const blockMatch = name.match(/\b([a-z]{1,2})\s*[-_]?\s*block\b/i) || name.match(/\bblock\s*[-_]?\s*([a-z]{1,2})\b/i);
+    if (blockMatch) {
+      return `block_${blockMatch[1].toLowerCase()}`;
+    }
+    const numPallyMatch = name.match(/\b(\d{1,3})\s*[-_]?\s*(?:pally|palli|ward|er\s*palli)\b/i);
+    if (numPallyMatch) {
+      return `pally_${numPallyMatch[1]}`;
+    }
+    return null;
+  };
+
+  const id1 = extractDistinctIdentifier(existing.name || '');
+  const id2 = extractDistinctIdentifier(candidate.name || '');
+  if (id1 && id2 && id1 !== id2) {
+    return { isDuplicate: false };
+  }
+
+  // Strict Category Partition: Never merge a Bonedi Bari with a community Puja Pandal
+  const isBonediExisting =
+    existing.category === 'BONEDI_BARI' ||
+    (existing.name && /\b(?:rajbari|bonedi\s*bari)\b/i.test(existing.name));
+  const isBonediCandidate =
+    candidate.category === 'BONEDI_BARI' ||
+    (candidate.name && /\b(?:rajbari|bonedi\s*bari)\b/i.test(candidate.name));
+
+  if (isBonediExisting !== isBonediCandidate) {
+    const normE = normalizePandalName(existing.name).normalized;
+    const normC = normalizePandalName(candidate.name).normalized;
+    const dist = calculateHaversineDistanceMeters(existing.location, candidate.location);
+    if (!(normE === normC && dist < 15)) {
+      return { isDuplicate: false };
+    }
+  }
+
+  // Distinct branch identifiers (e.g. Boro vs Chhoto vs Mejo vs Majher vs Benaki vs Kalikingkar vs Aatchala)
+  const branchPattern = /\b(boro|baro|chhoto|choto|mejo|sejo|majher|benaki|kalikingkar|aatchala)\b/i;
+  const b1 = (existing.name || '').match(branchPattern);
+  const b2 = (candidate.name || '').match(branchPattern);
+  if (b1 && b2) {
+    const k1 = b1[1].toLowerCase().replace('baro', 'boro').replace('choto', 'chhoto');
+    const k2 = b2[1].toLowerCase().replace('baro', 'boro').replace('choto', 'chhoto');
+    if (k1 !== k2) {
+      return { isDuplicate: false };
+    }
+  } else if ((b1 && !b2) || (!b1 && b2)) {
+    const dist = calculateHaversineDistanceMeters(existing.location, candidate.location);
+    if (dist > 30) {
+      return { isDuplicate: false };
+    }
+  }
+
+  // Distinct family surnames and historical personal names in Bonedi Baris
+  if (isBonediExisting && isBonediCandidate) {
+    const familyPattern = /\b(mitra|chatterjee|seal|dutta|ghosh|daw|saha|sen|dey|mallick|haldar|mukherjee|banerjee|chandra|dhar|motilal|kundu|sardar|boral|dev|singhabahini|pal|chunder|bhaduri|pathak)\b/i;
+    const f1 = (existing.name || '').match(familyPattern);
+    const f2 = (candidate.name || '').match(familyPattern);
+    if (f1 && f2 && f1[1].toLowerCase() !== f2[1].toLowerCase()) {
+      return { isDuplicate: false };
+    }
+
+    const personalPattern = /\b(shib\s*krishna|narsingha|madan\s*mohan|haatkhola|chhatu\s*babu|khelat\s*ghosh|rani\s*rashmoni|gokul|akrur|girish|sisir|bipradas|jagat\s*ram|amarendra|baidyanath|badan\s*chand|durga\s*charan)\b/i;
+    const p1 = (existing.name || '').match(personalPattern);
+    const p2 = (candidate.name || '').match(personalPattern);
+    if (p1 && p2 && p1[1].toLowerCase().replace(/\s+/g, '') !== p2[1].toLowerCase().replace(/\s+/g, '')) {
+      return { isDuplicate: false };
+    }
+  }
+
   // Calculate Haversine distance
   const distance = calculateHaversineDistanceMeters(existing.location, candidate.location);
 
+  // Generic Kolkata center fallback coords (22.5726, 88.3639) should not match by proximity alone
+  const isGenericCoord = (loc: Location) =>
+    Math.abs(loc.lat - 22.5726) < 0.001 && Math.abs(loc.lng - 88.3639) < 0.001;
+
   // 2. COORDINATE PROXIMITY (< 40 meters)
-  // In urban Kolkata, two pandal pins within 40m represent the exact same pandal or Bonedi Bari gate/mandap
   if (distance < 40) {
-    return { isDuplicate: true, matchReason: 'COORDINATE_PROXIMITY' };
+    if (isGenericCoord(existing.location) || isGenericCoord(candidate.location)) {
+      const rawE = (existing.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const rawC = (candidate.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (rawE.length >= 4 && rawC.length >= 4 && (rawE === rawC || rawE.includes(rawC) || rawC.includes(rawE))) {
+        return { isDuplicate: true, matchReason: 'COORDINATE_PROXIMITY' };
+      }
+    } else {
+      if (distance < 12) {
+        return { isDuplicate: true, matchReason: 'COORDINATE_PROXIMITY' };
+      }
+      const normE = normalizePandalName(existing.name);
+      const normC = normalizePandalName(candidate.name);
+      const shared = normE.tokens.filter((t) => normC.tokens.includes(t));
+      if (shared.length > 0 || stringSimilarityRatio(normE.normalized, normC.normalized) >= 0.55) {
+        return { isDuplicate: true, matchReason: 'COORDINATE_PROXIMITY' };
+      }
+    }
   }
 
   // Raw cleaned alphanumeric comparison (strips punctuation and spaces)
@@ -288,7 +378,7 @@ export function isDuplicatePandal(
       s.replace(/(durgapuja|durgopujo|durgotsav|durgotsab|pandal|puja|pujo|club|sangha|samiti|samity|association|committee|sarbojanin|sarbajanin)/g, '');
     const core1 = stripFestive(rawCleanExisting);
     const core2 = stripFestive(rawCleanCandidate);
-    if (core1.length >= 4 && core2.length >= 4 && core1 === core2 && distance < 1800) {
+    if (core1.length >= 5 && core2.length >= 5 && core1 === core2 && distance < 1500) {
       return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };
     }
   }
@@ -300,52 +390,34 @@ export function isDuplicatePandal(
   // If within 90 meters and share any significant token (length >= 3)
   if (distance < 90) {
     const shared = normExisting.tokens.filter((t) => normCandidate.tokens.includes(t));
-    if (shared.length > 0) {
+    if (shared.length > 0 && stringSimilarityRatio(normExisting.normalized, normCandidate.normalized) >= 0.5) {
       return { isDuplicate: true, matchReason: 'COORDINATE_PROXIMITY' };
     }
   }
 
   // 3. NAME & ADDRESS SIMILARITY (Within reasonable geographic neighborhood)
   if (distance < 1500) {
-    // Exact or substring compact name match (e.g. "naktalaudayan" === "naktalaudayan")
+    // Exact or high-fidelity compact name match
     if (normExisting.compact.length >= 4 && normCandidate.compact.length >= 4) {
+      if (normExisting.compact === normCandidate.compact) {
+        return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };
+      }
+      const minLen = Math.min(normExisting.compact.length, normCandidate.compact.length);
+      const maxLen = Math.max(normExisting.compact.length, normCandidate.compact.length);
       if (
-        normExisting.compact === normCandidate.compact ||
-        normExisting.compact.includes(normCandidate.compact) ||
-        normCandidate.compact.includes(normExisting.compact)
+        minLen / maxLen >= 0.82 &&
+        (normExisting.compact.includes(normCandidate.compact) || normCandidate.compact.includes(normExisting.compact))
       ) {
         return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };
       }
     }
   }
 
-  if (distance < 1200) {
-    // Token set intersection: 2 or more distinct tokens match
-    const sharedTokens = normExisting.tokens.filter((t) => normCandidate.tokens.includes(t));
-    if (sharedTokens.length >= 2) {
-      return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };
-    }
-  }
-
-  if (distance < 1000) {
-    // If 1 key token matches AND address localities match
-    const sharedTokens = normExisting.tokens.filter((t) => normCandidate.tokens.includes(t));
-    if (sharedTokens.length >= 1) {
-      const addressMatch = checkAddressLocalityMatch(
-        existing.address,
-        candidate.address,
-        existing.area,
-        candidate.area
-      );
-      if (addressMatch) {
-        return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };
-      }
-    }
-
-    // Levenshtein similarity on normalized string >= 0.78 within 600 meters
-    if (distance < 600 && normExisting.normalized.length >= 5 && normCandidate.normalized.length >= 5) {
+  if (distance < 800) {
+    // High normalized string similarity within neighborhood
+    if (normExisting.normalized.length >= 5 && normCandidate.normalized.length >= 5) {
       const similarity = stringSimilarityRatio(normExisting.normalized, normCandidate.normalized);
-      if (similarity >= 0.78) {
+      if (similarity >= 0.82) {
         return { isDuplicate: true, matchReason: 'NAME_AND_ADDRESS_SIMILARITY' };
       }
     }
@@ -419,7 +491,20 @@ export function mergeDuplicatePandals(
         : base.verificationStatus,
     verified: base.verified || secondary.verified,
 
-    category: base.category || secondary.category || 'PANDAL',
+    category:
+      base.category === 'BONEDI_BARI' ||
+      secondary.category === 'BONEDI_BARI' ||
+      /\b(?:rajbari|bonedi\s*bari)\b/i.test(base.name) ||
+      /\b(?:rajbari|bonedi\s*bari)\b/i.test(secondary.name)
+        ? 'BONEDI_BARI'
+        : base.category || secondary.category || 'PANDAL',
+    pandalType:
+      base.category === 'BONEDI_BARI' ||
+      secondary.category === 'BONEDI_BARI' ||
+      /\b(?:rajbari|bonedi\s*bari)\b/i.test(base.name) ||
+      /\b(?:rajbari|bonedi\s*bari)\b/i.test(secondary.name)
+        ? 'Bonedi Bari / Rajbari'
+        : 'Puja Pandal',
     theme: base.theme || secondary.theme,
     description: base.description || secondary.description,
 

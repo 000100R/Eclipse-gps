@@ -43,6 +43,8 @@ export interface Pandal {
   area: string;
   zone: string; // Keep for backwards compatibility
   city: string;
+  category?: 'PANDAL' | 'BONEDI_BARI' | string;
+  pandalType?: 'Puja Pandal' | 'Bonedi Bari / Rajbari';
   theme: string;
   themeDescription?: string;
   establishedYear?: number;

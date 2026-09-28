@@ -278,6 +278,7 @@ export class PandalDiscoveryService {
       sourceId: b.id,
       verificationStatus: 'VERIFIED' as const,
       category: 'BONEDI_BARI',
+      pandalType: 'Bonedi Bari / Rajbari',
       theme: 'Traditional Bonedi Bari Heritage Puja',
       description: b.heritageDescription,
       rating: 4.9,
@@ -295,10 +296,18 @@ export class PandalDiscoveryService {
     }));
 
     const rawCandidates: DiscoveredPandal[] = [
-      ...curatedEclipsePandals.map((p) => ({ ...p, category: p.category || 'PANDAL' })),
-      ...googleEarthCandidates.map((p) => ({ ...p, category: p.category || 'PANDAL' })),
-      ...agamoniCandidates,
       ...bonediCandidates,
+      ...curatedEclipsePandals.map((p) => ({
+        ...p,
+        category: p.category || 'PANDAL',
+        pandalType: (p.category === 'BONEDI_BARI' ? 'Bonedi Bari / Rajbari' : 'Puja Pandal') as any,
+      })),
+      ...googleEarthCandidates.map((p) => ({
+        ...p,
+        category: p.category || 'PANDAL',
+        pandalType: (p.category === 'BONEDI_BARI' ? 'Bonedi Bari / Rajbari' : 'Puja Pandal') as any,
+      })),
+      ...agamoniCandidates,
     ];
 
     const deduplicatedCandidates: DiscoveredPandal[] = [];

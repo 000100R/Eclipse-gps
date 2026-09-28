@@ -1,0 +1,634 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Background Gradient: deep navy midnight blue to warm atmospheric upper glow -->
+    <radialGradient id="skyAtmosphere" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#21102b"/>
+      <stop offset="35%" stop-color="#141438"/>
+      <stop offset="70%" stop-color="#090d22"/>
+      <stop offset="100%" stop-color="#050714"/>
+    </radialGradient>
+
+    <!-- Warm Pandal Glow (Top Left) -->
+    <radialGradient id="pandalGlow" cx="20%" cy="22%" r="35%">
+      <stop offset="0%" stop-color="#ff9933" stop-opacity="0.85"/>
+      <stop offset="40%" stop-color="#cc3300" stop-opacity="0.45"/>
+      <stop offset="80%" stop-color="#800020" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#090d22" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Pratima Halo Glow (Top Right) -->
+    <radialGradient id="pratimaGlow" cx="80%" cy="22%" r="35%">
+      <stop offset="0%" stop-color="#ffbb33" stop-opacity="0.85"/>
+      <stop offset="40%" stop-color="#d62222" stop-opacity="0.45"/>
+      <stop offset="80%" stop-color="#800020" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#090d22" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Gold Gradients for Crown, Jewelry, and Typography -->
+    <linearGradient id="goldLight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fff5c0"/>
+      <stop offset="25%" stop-color="#f5d061"/>
+      <stop offset="60%" stop-color="#d49b25"/>
+      <stop offset="85%" stop-color="#9e6911"/>
+      <stop offset="100%" stop-color="#694105"/>
+    </linearGradient>
+
+    <linearGradient id="goldHorizontal" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#9e6911"/>
+      <stop offset="20%" stop-color="#fce788"/>
+      <stop offset="50%" stop-color="#ffeebb"/>
+      <stop offset="80%" stop-color="#d49b25"/>
+      <stop offset="100%" stop-color="#8a5308"/>
+    </linearGradient>
+
+    <linearGradient id="textGold" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="20%" stop-color="#fff0aa"/>
+      <stop offset="50%" stop-color="#eec253"/>
+      <stop offset="80%" stop-color="#bd851a"/>
+      <stop offset="100%" stop-color="#734905"/>
+    </linearGradient>
+
+    <!-- Clay Face Skin Tone Gradient -->
+    <radialGradient id="clayFace" cx="50%" cy="50%" r="48%">
+      <stop offset="0%" stop-color="#fae0be"/>
+      <stop offset="45%" stop-color="#e8b984"/>
+      <stop offset="80%" stop-color="#c98c52"/>
+      <stop offset="100%" stop-color="#965c2a"/>
+    </radialGradient>
+
+    <!-- Clay Shading for Nose/Cheeks -->
+    <radialGradient id="cheekGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e06950" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#e8b984" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Eye Pupil Gradient -->
+    <radialGradient id="irisGrad" cx="42%" cy="42%" r="55%">
+      <stop offset="0%" stop-color="#4a2612"/>
+      <stop offset="60%" stop-color="#220e05"/>
+      <stop offset="100%" stop-color="#0a0401"/>
+    </radialGradient>
+
+    <!-- Crimson Lips Gradient -->
+    <linearGradient id="lipsGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#e63946"/>
+      <stop offset="50%" stop-color="#c1121f"/>
+      <stop offset="100%" stop-color="#780000"/>
+    </linearGradient>
+
+    <!-- Dhak Wood Gradient -->
+    <linearGradient id="dhakWood" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a3471f"/>
+      <stop offset="35%" stop-color="#7a2e0e"/>
+      <stop offset="70%" stop-color="#541b05"/>
+      <stop offset="100%" stop-color="#2e0d02"/>
+    </linearGradient>
+
+    <!-- Rickshaw Red Cushion Gradient -->
+    <linearGradient id="rickshawCushion" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#d90429"/>
+      <stop offset="70%" stop-color="#940018"/>
+      <stop offset="100%" stop-color="#59000a"/>
+    </linearGradient>
+
+    <!-- Drop Shadow Filter for Typography and Elements -->
+    <filter id="goldGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComponentTransfer in="blur" result="glow">
+        <feFuncA type="linear" slope="0.8"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dx="0" dy="4" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.7"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 1. BASE BACKGROUND: Deep midnight blue squircle canvas -->
+  <rect width="1024" height="1024" rx="200" fill="#050714"/>
+  <rect width="1024" height="1024" rx="200" fill="url(#skyAtmosphere)"/>
+
+  <!-- 2. TOP-LEFT: ILLUMINATED DURGA PUJA PANDAL PALACE -->
+  <g id="pandalPalace" opacity="0.9">
+    <!-- Pandal ambient halo -->
+    <circle cx="210" cy="230" r="220" fill="url(#pandalGlow)"/>
+
+    <!-- Pandal Architecture: Tiered Temple/Palace Silhouettes & Glowing Arches -->
+    <g fill="#2d1117" stroke="#e67e22" stroke-width="1.5">
+      <!-- Base Pavilion -->
+      <rect x="30" y="240" width="320" height="90" fill="#381318" stroke="#ffaa33" stroke-width="1.5"/>
+      <!-- Columns and glowing entryways -->
+      <rect x="50" y="260" width="30" height="70" fill="#f39c12"/>
+      <rect x="100" y="260" width="35" height="70" fill="#e67e22"/>
+      <rect x="160" y="250" width="60" height="80" fill="#f1c40f"/>
+      <rect x="245" y="260" width="35" height="70" fill="#e67e22"/>
+      <rect x="300" y="260" width="30" height="70" fill="#f39c12"/>
+
+      <!-- Middle Tier with Arches -->
+      <rect x="60" y="160" width="260" height="80" fill="#4a151b"/>
+      <path d="M 80 230 C 80 180, 140 180, 140 230 Z" fill="#f39c12"/>
+      <path d="M 160 220 C 160 160, 220 160, 220 220 Z" fill="#ffeaa7"/>
+      <path d="M 240 230 C 240 180, 300 180, 300 230 Z" fill="#f39c12"/>
+
+      <!-- Tier 3: Classical Domes and Spires -->
+      <path d="M 110 160 C 110 110, 150 90, 150 70 C 150 90, 190 110, 190 160 Z" fill="#d35400" stroke="#f1c40f" stroke-width="2"/>
+      <!-- Grand Central Golden Dome -->
+      <path d="M 140 160 C 140 80, 190 50, 190 25 C 190 50, 240 80, 240 160 Z" fill="#e67e22" stroke="#ffeaa7" stroke-width="2.5"/>
+      <circle cx="190" cy="22" r="6" fill="#f1c40f"/>
+      <!-- Small Spires -->
+      <path d="M 50 160 L 65 110 L 80 160 Z" fill="#b03a2e" stroke="#f39c12"/>
+      <path d="M 300 160 L 315 110 L 330 160 Z" fill="#b03a2e" stroke="#f39c12"/>
+
+      <!-- Decorative Lights / Festoon Dots on Pandal -->
+      <g fill="#ffeaa7">
+        <circle cx="45" cy="240" r="3.5"/><circle cx="75" cy="240" r="3.5"/><circle cx="105" cy="240" r="3.5"/>
+        <circle cx="135" cy="240" r="3.5"/><circle cx="165" cy="240" r="3.5"/><circle cx="195" cy="240" r="3.5"/>
+        <circle cx="225" cy="240" r="3.5"/><circle cx="255" cy="240" r="3.5"/><circle cx="285" cy="240" r="3.5"/>
+        <circle cx="315" cy="240" r="3.5"/><circle cx="335" cy="240" r="3.5"/>
+        <circle cx="190" cy="90" r="4"/><circle cx="190" cy="120" r="4"/><circle cx="190" cy="140" r="4"/>
+      </g>
+    </g>
+
+    <!-- Silhouettes of Crowds of Devotees -->
+    <g fill="#0c0712">
+      <ellipse cx="60" cy="335" rx="8" ry="12"/><ellipse cx="80" cy="330" rx="9" ry="14"/><ellipse cx="105" cy="335" rx="8" ry="12"/>
+      <ellipse cx="130" cy="330" rx="9" ry="15"/><ellipse cx="160" cy="332" rx="10" ry="16"/><ellipse cx="190" cy="328" rx="11" ry="18"/>
+      <ellipse cx="220" cy="332" rx="10" ry="16"/><ellipse cx="250" cy="330" rx="9" ry="15"/><ellipse cx="280" cy="334" rx="8" ry="13"/>
+      <ellipse cx="310" cy="332" rx="9" ry="14"/><ellipse cx="335" cy="336" rx="8" ry="12"/>
+    </g>
+  </g>
+
+  <!-- 3. TOP-RIGHT: 10-ARMED DURGA PRATIMA SLAYING MAHISHASURA -->
+  <g id="durgaPratima" opacity="0.92">
+    <!-- Pratima ambient aura -->
+    <circle cx="810" cy="230" r="220" fill="url(#pratimaGlow)"/>
+
+    <!-- Chaalchitra (Arch halo behind the Goddess) -->
+    <path d="M 640 330 C 640 120, 980 120, 980 330 Z" fill="#4d1017" stroke="#d49b25" stroke-width="4"/>
+    <path d="M 665 330 C 665 145, 955 145, 955 330 Z" fill="#2d0a0d" stroke="#f1c40f" stroke-width="2" stroke-dasharray="6,4"/>
+
+    <!-- Pratima 10 radiating arms holding divine weapons -->
+    <g stroke="#f5d061" stroke-width="4" stroke-linecap="round">
+      <!-- Left side arms -->
+      <line x1="770" y1="210" x2="680" y2="150"/> <!-- Trishula upper -->
+      <line x1="770" y1="220" x2="670" y2="185"/> <!-- Sword -->
+      <line x1="770" y1="230" x2="665" y2="225"/> <!-- Discus / Chakra -->
+      <line x1="770" y1="240" x2="675" y2="265"/> <!-- Arrow -->
+      <line x1="770" y1="250" x2="700" y2="295"/> <!-- Spear -->
+      <!-- Right side arms -->
+      <line x1="840" y1="210" x2="930" y2="150"/> <!-- Conch shell -->
+      <line x1="840" y1="220" x2="940" y2="185"/> <!-- Bow -->
+      <line x1="840" y1="230" x2="945" y2="225"/> <!-- Lotus -->
+      <line x1="840" y1="240" x2="935" y2="265"/> <!-- Mace / Gada -->
+      <line x1="840" y1="250" x2="910" y2="295"/> <!-- Thunderbolt / Vajra -->
+    </g>
+
+    <!-- Trishula (Trident) angled piercing the demon -->
+    <line x1="680" y1="140" x2="840" y2="330" stroke="#ffeaa7" stroke-width="4.5"/>
+    <polygon points="680,140 660,115 675,110 680,125 685,110 700,115" fill="#f1c40f"/>
+
+    <!-- Idol Body (Red & Gold Banarasi Saree) -->
+    <path d="M 780 200 Q 805 180 830 200 L 845 320 L 765 320 Z" fill="#c0392b" stroke="#f1c40f" stroke-width="2"/>
+    <!-- Idol Clay Face & Crown -->
+    <ellipse cx="805" cy="180" rx="20" ry="24" fill="#e8b984"/>
+    <path d="M 785 165 Q 805 130 825 165 Z" fill="#f1c40f"/>
+    <!-- Lion Mount & Demon base silhouettes -->
+    <ellipse cx="750" cy="320" rx="35" ry="22" fill="#d35400"/>
+    <ellipse cx="855" cy="325" rx="30" ry="18" fill="#27ae60"/>
+  </g>
+
+  <!-- 4. MIDDLE SIDES: KOLKATA HAND-PULLED RICKSHAWS -->
+  <!-- Left Hand-Pulled Rickshaw -->
+  <g id="leftRickshaw" transform="translate(10, 390)">
+    <!-- Spoked Wheel -->
+    <circle cx="110" cy="310" r="105" fill="none" stroke="#222" stroke-width="12"/>
+    <circle cx="110" cy="310" r="100" fill="none" stroke="#cf9c3b" stroke-width="4"/>
+    <circle cx="110" cy="310" r="18" fill="#111" stroke="#cf9c3b" stroke-width="3"/>
+    <!-- Spokes (16 spokes) -->
+    <g stroke="#966d1f" stroke-width="2.5">
+      <line x1="110" y1="210" x2="110" y2="410"/>
+      <line x1="10" y1="310" x2="210" y2="310"/>
+      <line x1="39" y1="239" x2="181" y2="381"/>
+      <line x1="39" y1="381" x2="181" y2="239"/>
+      <line x1="18" y1="272" x2="202" y2="348"/>
+      <line x1="18" y1="348" x2="202" y2="272"/>
+      <line x1="72" y1="218" x2="148" y2="402"/>
+      <line x1="148" y1="218" x2="72" y2="402"/>
+    </g>
+
+    <!-- Rickshaw Wooden Chassis & Mudguard -->
+    <path d="M 40 270 C 60 190, 160 190, 180 270" fill="none" stroke="#1a252f" stroke-width="10"/>
+    <rect x="75" y="240" width="85" height="15" fill="#2c3e50" rx="3"/>
+
+    <!-- Rickshaw Bright Red Cushioned Seat -->
+    <rect x="80" y="165" width="75" height="45" fill="url(#rickshawCushion)" rx="6" stroke="#4a0505" stroke-width="2"/>
+    <rect x="80" y="205" width="85" height="30" fill="url(#rickshawCushion)" rx="5" stroke="#4a0505" stroke-width="2"/>
+
+    <!-- High Arched Collapsible Canopy (Navy/Black Carriage Hood) -->
+    <path d="M 45 160 C 40 40, 180 40, 185 160 Z" fill="#1c2833" stroke="#2c3e50" stroke-width="4"/>
+    <path d="M 60 155 C 65 60, 165 60, 170 155" fill="#243342"/>
+    <!-- Canopy ribs & folds -->
+    <path d="M 50 160 C 70 80, 150 80, 175 160" fill="none" stroke="#34495e" stroke-width="3"/>
+    <path d="M 115 50 L 115 150" stroke="#1a252f" stroke-width="3"/>
+
+    <!-- Pulling Shafts angled toward bottom center -->
+    <line x1="130" y1="270" x2="250" y2="355" stroke="#a0522d" stroke-width="7" stroke-linecap="round"/>
+    <line x1="135" y1="290" x2="255" y2="375" stroke="#8b4513" stroke-width="7" stroke-linecap="round"/>
+    <rect x="245" y="350" width="15" height="30" fill="#222" rx="3"/>
+  </g>
+
+  <!-- Right Hand-Pulled Rickshaw -->
+  <g id="rightRickshaw" transform="translate(805, 390)">
+    <!-- Spoked Wheel -->
+    <circle cx="110" cy="310" r="105" fill="none" stroke="#222" stroke-width="12"/>
+    <circle cx="110" cy="310" r="100" fill="none" stroke="#cf9c3b" stroke-width="4"/>
+    <circle cx="110" cy="310" r="18" fill="#111" stroke="#cf9c3b" stroke-width="3"/>
+    <!-- Spokes -->
+    <g stroke="#966d1f" stroke-width="2.5">
+      <line x1="110" y1="210" x2="110" y2="410"/>
+      <line x1="10" y1="310" x2="210" y2="310"/>
+      <line x1="39" y1="239" x2="181" y2="381"/>
+      <line x1="39" y1="381" x2="181" y2="239"/>
+      <line x1="18" y1="272" x2="202" y2="348"/>
+      <line x1="18" y1="348" x2="202" y2="272"/>
+      <line x1="72" y1="218" x2="148" y2="402"/>
+      <line x1="148" y1="218" x2="72" y2="402"/>
+    </g>
+
+    <!-- Rickshaw Wooden Chassis & Mudguard -->
+    <path d="M 40 270 C 60 190, 160 190, 180 270" fill="none" stroke="#1a252f" stroke-width="10"/>
+    <rect x="60" y="240" width="85" height="15" fill="#2c3e50" rx="3"/>
+
+    <!-- Rickshaw Bright Red Cushioned Seat -->
+    <rect x="65" y="165" width="75" height="45" fill="url(#rickshawCushion)" rx="6" stroke="#4a0505" stroke-width="2"/>
+    <rect x="55" y="205" width="85" height="30" fill="url(#rickshawCushion)" rx="5" stroke="#4a0505" stroke-width="2"/>
+
+    <!-- High Arched Collapsible Canopy (Navy/Black Carriage Hood) -->
+    <path d="M 35 160 C 35 40, 175 40, 175 160 Z" fill="#1c2833" stroke="#2c3e50" stroke-width="4"/>
+    <path d="M 50 155 C 55 60, 155 60, 160 155" fill="#243342"/>
+    <path d="M 45 160 C 65 80, 145 80, 165 160" fill="none" stroke="#34495e" stroke-width="3"/>
+    <line x1="105" y1="50" x2="105" y2="150" stroke="#1a252f" stroke-width="3"/>
+
+    <!-- Pulling Shafts angled toward bottom center -->
+    <line x1="90" y1="270" x2="-30" y2="355" stroke="#a0522d" stroke-width="7" stroke-linecap="round"/>
+    <line x1="85" y1="290" x2="-35" y2="375" stroke="#8b4513" stroke-width="7" stroke-linecap="round"/>
+    <rect x="-40" y="350" width="15" height="30" fill="#222" rx="3"/>
+  </g>
+
+  <!-- 5. BOTTOM CORNERS: BENGALI DHAKIS & TRADITIONAL DHAKS (DRUMS) -->
+  <!-- Left Dhak & Dhaki -->
+  <g id="leftDhak" transform="translate(15, 680)">
+    <!-- Dhaki Drummer Silhouette -->
+    <ellipse cx="40" cy="60" rx="22" ry="26" fill="#0f0c18"/>
+    <circle cx="42" cy="18" r="14" fill="#0f0c18"/>
+    <path d="M 35 50 Q 80 80 110 95" stroke="#d49b25" stroke-width="5" stroke-linecap="round"/> <!-- Drumstick arm -->
+
+    <!-- Large Barrel Dhak Drum Body -->
+    <g transform="rotate(22 140 130)">
+      <ellipse cx="140" cy="130" rx="100" ry="60" fill="url(#dhakWood)" stroke="#1a0a04" stroke-width="4"/>
+      <!-- Drumheads -->
+      <ellipse cx="45" cy="130" rx="18" ry="58" fill="#f5deb3" stroke="#8b4513" stroke-width="3"/>
+      <ellipse cx="235" cy="130" rx="18" ry="58" fill="#e6c280" stroke="#8b4513" stroke-width="3"/>
+
+      <!-- Tension Cords (White Zigzag Ropes) -->
+      <g stroke="#ffffff" stroke-width="2.5" opacity="0.9">
+        <line x1="45" y1="80" x2="235" y2="100"/>
+        <line x1="45" y1="100" x2="235" y2="120"/>
+        <line x1="45" y1="120" x2="235" y2="140"/>
+        <line x1="45" y1="140" x2="235" y2="160"/>
+        <line x1="45" y1="160" x2="235" y2="180"/>
+        <line x1="45" y1="180" x2="235" y2="80"/>
+      </g>
+
+      <!-- Feathers / Kashtur (White plumes decorating the Dhak) -->
+      <g fill="#ffffff" opacity="0.88">
+        <path d="M 235 90 C 265 60, 290 80, 275 110 C 295 95, 310 120, 280 135 C 300 135, 305 160, 275 165 C 290 175, 275 195, 245 180 Z"/>
+        <path d="M 230 75 C 255 45, 270 65, 255 90 Z"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- Right Dhak & Dhaki -->
+  <g id="rightDhak" transform="translate(685, 680)">
+    <!-- Dhaki Drummer Silhouette -->
+    <ellipse cx="280" cy="60" rx="22" ry="26" fill="#0f0c18"/>
+    <circle cx="278" cy="18" r="14" fill="#0f0c18"/>
+    <path d="M 285 50 Q 240 80 210 95" stroke="#d49b25" stroke-width="5" stroke-linecap="round"/>
+
+    <!-- Large Barrel Dhak Drum Body -->
+    <g transform="rotate(-22 180 130)">
+      <ellipse cx="180" cy="130" rx="100" ry="60" fill="url(#dhakWood)" stroke="#1a0a04" stroke-width="4"/>
+      <!-- Drumheads -->
+      <ellipse cx="85" cy="130" rx="18" ry="58" fill="#e6c280" stroke="#8b4513" stroke-width="3"/>
+      <ellipse cx="275" cy="130" rx="18" ry="58" fill="#f5deb3" stroke="#8b4513" stroke-width="3"/>
+
+      <!-- Tension Cords -->
+      <g stroke="#ffffff" stroke-width="2.5" opacity="0.9">
+        <line x1="85" y1="80" x2="275" y2="100"/>
+        <line x1="85" y1="100" x2="275" y2="120"/>
+        <line x1="85" y1="120" x2="275" y2="140"/>
+        <line x1="85" y1="140" x2="275" y2="160"/>
+        <line x1="85" y1="160" x2="275" y2="180"/>
+        <line x1="85" y1="180" x2="275" y2="80"/>
+      </g>
+
+      <!-- Feathers / Kashtur -->
+      <g fill="#ffffff" opacity="0.88">
+        <path d="M 85 90 C 55 60, 30 80, 45 110 C 25 95, 10 120, 40 135 C 20 135, 15 160, 45 165 C 30 175, 45 195, 75 180 Z"/>
+        <path d="M 90 75 C 65 45, 50 65, 65 90 Z"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- 6. CENTERPIECE: MAA DURGA CLAY FACE & ORNATE GOLDEN CROWN (MUKUT) -->
+  <g id="centerMaaDurga" filter="url(#softShadow)">
+    <!-- Halo glow behind Durga's crown -->
+    <circle cx="512" cy="400" r="280" fill="#f39c12" opacity="0.25"/>
+    <circle cx="512" cy="400" r="220" fill="#f1c40f" opacity="0.18"/>
+
+    <!-- Tiered Golden Crown (Mukut) Base & Petals -->
+    <!-- Outer Filigree Tier -->
+    <path d="M 280 340 
+             C 290 240, 360 140, 512 80 
+             C 664 140, 734 240, 744 340 
+             C 710 390, 680 430, 660 480 
+             C 620 450, 580 420, 512 410 
+             C 444 420, 404 450, 364 480 
+             C 344 430, 314 390, 280 340 Z" 
+          fill="url(#goldHorizontal)" stroke="#7d4e05" stroke-width="3"/>
+
+    <!-- Intricate Crown Rays / Peaks -->
+    <g fill="url(#goldLight)" stroke="#9e6911" stroke-width="2">
+      <!-- Central Top Finial Peak -->
+      <path d="M 512 40 L 495 100 L 529 100 Z"/>
+      <circle cx="512" cy="38" r="8" fill="#fff5c0"/>
+
+      <!-- Radiating Crown Spikes -->
+      <polygon points="460,95 475,65 485,100"/>
+      <polygon points="564,95 549,65 539,100"/>
+      <polygon points="420,120 440,85 450,125"/>
+      <polygon points="604,120 584,85 574,125"/>
+      <polygon points="375,155 395,120 410,165"/>
+      <polygon points="649,155 629,120 614,165"/>
+      <polygon points="335,200 355,165 375,210"/>
+      <polygon points="689,200 669,165 649,210"/>
+      <polygon points="305,255 325,220 345,265"/>
+      <polygon points="719,255 699,220 679,265"/>
+      <polygon points="285,315 305,280 325,325"/>
+      <polygon points="739,315 719,280 699,325"/>
+    </g>
+
+    <!-- Crown Filigree Details: Engraved Pearls, Floral Beads -->
+    <g fill="#ffffff" opacity="0.9">
+      <circle cx="512" cy="120" r="5"/><circle cx="475" cy="130" r="4.5"/><circle cx="549" cy="130" r="4.5"/>
+      <circle cx="440" cy="150" r="4.5"/><circle cx="584" cy="150" r="4.5"/><circle cx="405" cy="180" r="4.5"/>
+      <circle cx="619" cy="180" r="4.5"/><circle cx="375" cy="220" r="4.5"/><circle cx="649" cy="220" r="4.5"/>
+      <circle cx="350" cy="265" r="4.5"/><circle cx="674" cy="265" r="4.5"/><circle cx="330" cy="315" r="4.5"/>
+      <circle cx="694" cy="315" r="4.5"/>
+    </g>
+
+    <!-- Ruby / Gem Insets in Crown -->
+    <circle cx="512" cy="165" r="9" fill="#c0392b" stroke="#f1c40f" stroke-width="2"/>
+    <circle cx="460" cy="185" r="7" fill="#c0392b" stroke="#f1c40f" stroke-width="1.5"/>
+    <circle cx="564" cy="185" r="7" fill="#c0392b" stroke="#f1c40f" stroke-width="1.5"/>
+    <circle cx="415" cy="220" r="7" fill="#c0392b" stroke="#f1c40f" stroke-width="1.5"/>
+    <circle cx="609" cy="220" r="7" fill="#c0392b" stroke="#f1c40f" stroke-width="1.5"/>
+
+    <!-- Ear Ornaments / Side Scrolls (Kaan-pasha / Curving gold ear cuffs) -->
+    <!-- Left Ear Cuff Scroll -->
+    <path d="M 330 400 
+             C 240 400, 220 500, 300 520 
+             C 330 530, 350 500, 340 470 
+             C 330 440, 290 450, 290 480 
+             C 290 500, 315 505, 320 495" 
+          fill="none" stroke="url(#goldHorizontal)" stroke-width="16" stroke-linecap="round"/>
+    <!-- Left Jhumka / Drop Earring -->
+    <g transform="translate(365, 605)">
+      <circle cx="0" cy="0" r="14" fill="url(#goldLight)" stroke="#87550C" stroke-width="2"/>
+      <path d="M -12 12 Q 0 32 12 12 Z" fill="url(#goldLight)" stroke="#87550C" stroke-width="1.5"/>
+      <circle cx="0" cy="36" r="3.5" fill="#fff5c0"/>
+    </g>
+
+    <!-- Right Ear Cuff Scroll -->
+    <path d="M 694 400 
+             C 784 400, 804 500, 724 520 
+             C 694 530, 674 500, 684 470 
+             C 694 440, 734 450, 734 480 
+             C 734 500, 709 505, 704 495" 
+          fill="none" stroke="url(#goldHorizontal)" stroke-width="16" stroke-linecap="round"/>
+    <!-- Right Jhumka / Drop Earring -->
+    <g transform="translate(659, 605)">
+      <circle cx="0" cy="0" r="14" fill="url(#goldLight)" stroke="#87550C" stroke-width="2"/>
+      <path d="M -12 12 Q 0 32 12 12 Z" fill="url(#goldLight)" stroke="#87550C" stroke-width="1.5"/>
+      <circle cx="0" cy="36" r="3.5" fill="#fff5c0"/>
+    </g>
+
+    <!-- Traditional Serene Clay Face (Warm Ochre Skin Tone) -->
+    <path d="M 512 370 
+             C 410 370, 345 440, 355 550 
+             C 365 640, 430 705, 512 735 
+             C 594 705, 659 640, 669 550 
+             C 679 440, 614 370, 512 370 Z" 
+          fill="url(#clayFace)" stroke="#7a481e" stroke-width="2.5"/>
+
+    <!-- Warm Blush Shading on Cheeks -->
+    <ellipse cx="425" cy="585" rx="45" ry="30" fill="url(#cheekGlow)"/>
+    <ellipse cx="599" cy="585" rx="45" ry="30" fill="url(#cheekGlow)"/>
+
+    <!-- Forehead Sandalwood (Chandan) Decorative White Motifs -->
+    <g fill="#ffffff" opacity="0.92">
+      <!-- Chandan arc above eyebrows -->
+      <circle cx="430" cy="460" r="2.5"/><circle cx="445" cy="455" r="2.5"/><circle cx="460" cy="452" r="2.5"/>
+      <circle cx="475" cy="451" r="2.5"/><circle cx="490" cy="453" r="2.5"/>
+      <circle cx="534" cy="453" r="2.5"/><circle cx="549" cy="451" r="2.5"/><circle cx="564" cy="452" r="2.5"/>
+      <circle cx="579" cy="455" r="2.5"/><circle cx="594" cy="460" r="2.5"/>
+    </g>
+
+    <!-- Sacred Third Eye (Trinayana) on Forehead -->
+    <g id="thirdEye">
+      <!-- Outer Kohl Curve -->
+      <path d="M 512 400 
+               C 500 425, 500 445, 512 465 
+               C 524 445, 524 425, 512 400 Z" 
+            fill="#ffffff" stroke="#111118" stroke-width="3"/>
+      <!-- Inner Pupil -->
+      <circle cx="512" cy="432" r="6" fill="#150a04"/>
+      <circle cx="510" cy="430" r="2" fill="#ffffff"/>
+      <!-- Golden aura accent -->
+      <path d="M 512 395 C 496 425, 496 445, 512 470" fill="none" stroke="#d49b25" stroke-width="1.5"/>
+      <path d="M 512 395 C 528 425, 528 445, 512 470" fill="none" stroke="#d49b25" stroke-width="1.5"/>
+    </g>
+
+    <!-- Vermilion Round Bindi (Sindoor Tip) -->
+    <circle cx="512" cy="490" r="13" fill="#c0392b" stroke="#7a1010" stroke-width="2"/>
+    <circle cx="512" cy="490" r="6" fill="#e74c3c"/>
+
+    <!-- Eyebrows (Graceful dark arches) -->
+    <path d="M 390 485 C 430 455, 480 465, 498 488 C 475 475, 430 470, 390 485 Z" fill="#100b12"/>
+    <path d="M 634 485 C 594 455, 544 465, 526 488 C 549 475, 594 470, 634 485 Z" fill="#100b12"/>
+
+    <!-- Left Almond Eye (Viewer's Left) -->
+    <g id="maaLeftEye">
+      <!-- White Sclera with Almond Contour -->
+      <path d="M 375 525 
+               C 410 495, 470 500, 500 535 
+               C 465 565, 405 560, 375 525 Z" 
+            fill="#fcfaf2" stroke="#663311" stroke-width="1.5"/>
+      <!-- Dark Brown/Black Iris -->
+      <circle cx="442" cy="528" r="19" fill="url(#irisGrad)"/>
+      <circle cx="442" cy="528" r="10" fill="#080402"/>
+      <!-- Light Reflection Highlights -->
+      <circle cx="437" cy="522" r="4.5" fill="#ffffff"/>
+      <circle cx="446" cy="533" r="2" fill="#ffffff" opacity="0.75"/>
+      <!-- Thick Upper Kohl / Kajal Eyeliner & Wing -->
+      <path d="M 360 520 
+               C 405 482, 470 488, 505 532 
+               C 515 526, 522 516, 526 508 
+               C 518 522, 506 534, 495 538 
+               C 460 510, 405 505, 360 520 Z" 
+            fill="#090a12"/>
+      <!-- Lower Kohl Eyeliner -->
+      <path d="M 370 524 C 405 568, 465 568, 498 535" fill="none" stroke="#090a12" stroke-width="3.5" stroke-linecap="round"/>
+    </g>
+
+    <!-- Right Almond Eye (Viewer's Right) -->
+    <g id="maaRightEye">
+      <!-- White Sclera with Almond Contour -->
+      <path d="M 649 525 
+               C 614 495, 554 500, 524 535 
+               C 559 565, 619 560, 649 525 Z" 
+            fill="#fcfaf2" stroke="#663311" stroke-width="1.5"/>
+      <!-- Dark Brown/Black Iris -->
+      <circle cx="582" cy="528" r="19" fill="url(#irisGrad)"/>
+      <circle cx="582" cy="528" r="10" fill="#080402"/>
+      <!-- Light Reflection Highlights -->
+      <circle cx="577" cy="522" r="4.5" fill="#ffffff"/>
+      <circle cx="586" cy="533" r="2" fill="#ffffff" opacity="0.75"/>
+      <!-- Thick Upper Kohl / Kajal Eyeliner & Wing -->
+      <path d="M 664 520 
+               C 619 482, 554 488, 519 532 
+               C 509 526, 502 516, 498 508 
+               C 506 522, 518 534, 529 538 
+               C 564 510, 619 505, 664 520 Z" 
+            fill="#090a12"/>
+      <!-- Lower Kohl Eyeliner -->
+      <path d="M 654 524 C 619 568, 559 568, 526 535" fill="none" stroke="#090a12" stroke-width="3.5" stroke-linecap="round"/>
+    </g>
+
+    <!-- Sculpted Nose with Subtle Shading -->
+    <path d="M 508 495 C 506 545, 502 585, 496 605 C 502 612, 522 612, 528 605 C 522 585, 518 545, 516 495 Z" fill="#d99960" opacity="0.55"/>
+    <ellipse cx="512" cy="605" rx="7" ry="4" fill="#d99960" opacity="0.75"/>
+    <!-- Nostril curves -->
+    <path d="M 494 606 C 498 600, 506 603, 508 607" fill="none" stroke="#633112" stroke-width="2.5"/>
+    <path d="M 530 606 C 526 600, 518 603, 516 607" fill="none" stroke="#633112" stroke-width="2.5"/>
+
+    <!-- Golden Nath (Nose Ring with Pearl Chain) -->
+    <circle cx="542" cy="615" r="28" fill="none" stroke="url(#goldLight)" stroke-width="3.5"/>
+    <circle cx="538" cy="643" r="5" fill="#ffffff" stroke="#c58e2a" stroke-width="1.5"/>
+    <circle cx="546" cy="643" r="4.5" fill="#c0392b"/>
+    <!-- Delicate Pearl Chain connecting to ear -->
+    <path d="M 568 623 C 600 632, 630 642, 650 655" fill="none" stroke="#f5d061" stroke-width="2" stroke-dasharray="3,2.5"/>
+
+    <!-- Serene Divine Lips (Warm Crimson Red with Golden Smile) -->
+    <!-- Upper Lip -->
+    <path d="M 475 645 
+             C 490 640, 502 635, 512 638 
+             C 522 635, 534 640, 549 645 
+             C 536 652, 524 654, 512 654 
+             C 500 654, 488 652, 475 645 Z" 
+          fill="url(#lipsGrad)" stroke="#52070e" stroke-width="1.5"/>
+    <!-- Lower Lip -->
+    <path d="M 478 647 
+             C 494 662, 530 662, 546 647 
+             C 538 668, 486 668, 478 647 Z" 
+          fill="url(#lipsGrad)" stroke="#52070e" stroke-width="1.2"/>
+    <ellipse cx="512" cy="656" rx="10" ry="3.5" fill="#ff7675" opacity="0.65"/>
+
+    <!-- Layered Golden Hasli / Choker Necklaces -->
+    <g id="necklaces">
+      <!-- Neck curves -->
+      <path d="M 465 720 C 475 750, 480 770, 480 790 L 544 790 C 544 770, 549 750, 559 720 Z" fill="#c98c52" opacity="0.75"/>
+      <!-- Top Choker Tier -->
+      <path d="M 425 725 C 470 760, 554 760, 599 725" fill="none" stroke="url(#goldHorizontal)" stroke-width="14" stroke-linecap="round"/>
+      <path d="M 430 725 C 472 758, 552 758, 594 725" fill="none" stroke="#694105" stroke-width="2" stroke-dasharray="4,4"/>
+
+      <!-- Second Tier Hasli with Hanging Golden Beads -->
+      <path d="M 405 755 C 460 798, 564 798, 619 755" fill="none" stroke="url(#goldHorizontal)" stroke-width="12" stroke-linecap="round"/>
+      <!-- Hanging beads -->
+      <g fill="#fff5c0" stroke="#87550C" stroke-width="1">
+        <circle cx="435" cy="762" r="5"/><circle cx="455" cy="775" r="5"/><circle cx="475" cy="784" r="5.5"/>
+        <circle cx="495" cy="789" r="6"/><circle cx="512" cy="791" r="6.5"/><circle cx="529" cy="789" r="6"/>
+        <circle cx="549" cy="784" r="5.5"/><circle cx="569" cy="775" r="5"/><circle cx="589" cy="762" r="5"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- 7. BOTTOM CENTER: BENGALI CALLIGRAPHY "উমা এলো" (UMA ELO) -->
+  <!-- Ambient backdrop glow for text -->
+  <ellipse cx="512" cy="890" rx="330" ry="75" fill="#091b42" opacity="0.95" filter="url(#goldGlow)"/>
+  <ellipse cx="512" cy="890" rx="270" ry="50" fill="#102554" opacity="0.8"/>
+
+  <!-- High-Relief 3D Embossed Gold Typography -->
+  <g id="umaEloText" filter="url(#goldGlow)">
+    <!-- Drop shadow layer 1 (Black/Navy) -->
+    <text x="512" y="922" 
+          font-family="'Lohit Bengali', 'FreeSerif', 'Noto Serif Bengali', serif" 
+          font-size="118" 
+          font-weight="900" 
+          text-anchor="middle" 
+          fill="#02040a" 
+          letter-spacing="4">
+      উমা এলো
+    </text>
+
+    <!-- Drop shadow layer 2 (Deep Bronze/Brown) -->
+    <text x="512" y="918" 
+          font-family="'Lohit Bengali', 'FreeSerif', 'Noto Serif Bengali', serif" 
+          font-size="118" 
+          font-weight="900" 
+          text-anchor="middle" 
+          fill="#543003" 
+          stroke="#3d2100" 
+          stroke-width="8" 
+          letter-spacing="4">
+      উমা এলো
+    </text>
+
+    <!-- Gold Outer Stroke/Bevel -->
+    <text x="512" y="914" 
+          font-family="'Lohit Bengali', 'FreeSerif', 'Noto Serif Bengali', serif" 
+          font-size="118" 
+          font-weight="900" 
+          text-anchor="middle" 
+          fill="url(#textGold)" 
+          stroke="#9e6911" 
+          stroke-width="5" 
+          letter-spacing="4">
+      উমা এলো
+    </text>
+
+    <!-- Gold Highlight Core Surface -->
+    <text x="512" y="912" 
+          font-family="'Lohit Bengali', 'FreeSerif', 'Noto Serif Bengali', serif" 
+          font-size="118" 
+          font-weight="900" 
+          text-anchor="middle" 
+          fill="url(#textGold)" 
+          letter-spacing="4">
+      উমা এলো
+    </text>
+  </g>
+</svg>

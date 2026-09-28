@@ -18,6 +18,10 @@ export function loadAgamoniPandals(): DiscoveredPandal[] {
     const areaCheck = verifyPandalAreaMatch(item.name, item.area || item.locality || '', coords.lat, coords.lng);
     const finalCoords = (!areaCheck.valid && areaCheck.correctedCoords) ? areaCheck.correctedCoords : coords;
 
+    const isAgamoniBonedi =
+      /\b(?:rajbari|thakurbari)\b/i.test(item.name) ||
+      (/\bbari\b/i.test(item.name) && !/\b(?:sarbojanin|club|sangha|samiti|samity|committee|association|pally)\b/i.test(item.name));
+
     list.push({
       id: item.id,
       name: item.name,
@@ -29,7 +33,8 @@ export function loadAgamoniPandals(): DiscoveredPandal[] {
       city: 'Kolkata',
       source: 'AGAMONI',
       sourceId: item.id,
-      category: 'PANDAL',
+      category: isAgamoniBonedi ? 'BONEDI_BARI' : 'PANDAL',
+      pandalType: isAgamoniBonedi ? 'Bonedi Bari / Rajbari' : 'Puja Pandal',
       verificationStatus: 'VERIFIED',
       rating: 4.8,
       userRatingCount: 500,

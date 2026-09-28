@@ -30,6 +30,7 @@ export const ExplorePandals: React.FC = () => {
 
   const [filterZone, setFilterZone] = useState('ALL');
   const [filterCrowd, setFilterCrowd] = useState('ALL');
+  const [filterType, setFilterType] = useState('ALL');
   const [reportingItemId, setReportingItemId] = useState<string | null>(null);
   const [reportLevel, setReportLevel] = useState<CrowdLevel>('MODERATE');
   const [reportText, setReportText] = useState('');
@@ -66,7 +67,9 @@ export const ExplorePandals: React.FC = () => {
       if (!p || !p.id) return false;
       const matchesZone = filterZone === 'ALL' || (p.zone && p.zone.toUpperCase() === filterZone) || (p.area && p.area.toUpperCase().includes(filterZone));
       const matchesCrowd = filterCrowd === 'ALL' || p.crowdLevel === filterCrowd;
-      return matchesZone && matchesCrowd;
+      const isBonedi = p.category === 'BONEDI_BARI' || p.pandalType === 'Bonedi Bari / Rajbari';
+      const matchesType = filterType === 'ALL' || (filterType === 'BONEDI_BARI' ? isBonedi : !isBonedi);
+      return matchesZone && matchesCrowd && matchesType;
     });
 
     if (exploreReferenceLocation) {
@@ -102,7 +105,7 @@ export const ExplorePandals: React.FC = () => {
 
     deduped.sort((a, b) => (a.distance ?? 999999) - (b.distance ?? 999999));
     return deduped;
-  }, [pandals, filterZone, filterCrowd, exploreReferenceLocation]);
+  }, [pandals, filterZone, filterCrowd, filterType, exploreReferenceLocation]);
 
   const handleToggleFav = (pandal: any) => {
     if (isSaved(pandal.id)) {
@@ -139,6 +142,9 @@ export const ExplorePandals: React.FC = () => {
         <div className="flex items-center space-x-2">
           <div className="w-1.5 h-6 rounded-full bg-indigo-500" />
           <h2 className="text-lg font-bold text-neutral-100 tracking-wide uppercase">Durga Puja Pandals</h2>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-neutral-900 border border-neutral-800 text-neutral-400">
+            {filteredPandals.length}
+          </span>
         </div>
         {visitedIds.length > 0 && (
           <button
@@ -186,6 +192,20 @@ export const ExplorePandals: React.FC = () => {
             <option value="UNAVAILABLE">Data Unavailable</option>
           </select>
         </div>
+
+        <div className="flex-1 min-w-[120px] space-y-1">
+          <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Category / Type</label>
+          <select
+            id="pandal-filter-type"
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="w-full bg-neutral-950 border border-neutral-900 rounded-lg px-2 py-1 text-xs text-neutral-300 focus:outline-none"
+          >
+            <option value="ALL">All Categories</option>
+            <option value="PANDAL">Puja Pandals</option>
+            <option value="BONEDI_BARI">Bonedi Bari / Rajbari</option>
+          </select>
+        </div>
       </GlassPanel>
 
       {/* List items */}
@@ -222,6 +242,15 @@ export const ExplorePandals: React.FC = () => {
                   >
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">{pandal.zone} Kolkata</span>
+                      {pandal.category === 'BONEDI_BARI' || pandal.pandalType === 'Bonedi Bari / Rajbari' ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-amber-500/15 text-amber-400 border border-amber-500/25">
+                          🏛️ Bonedi Bari / Rajbari
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-neutral-800 text-neutral-300 border border-neutral-700">
+                          🪔 Puja Pandal
+                        </span>
+                      )}
                       {pandal.distance !== undefined && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-indigo-500/15 text-indigo-400 border border-indigo-500/25">
                           📍 {formatDistance(pandal.distance)} {pandal.estimatedTravelTime ? `• ${pandal.estimatedTravelTime}` : ''}
