@@ -1444,34 +1444,32 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const checkLocationPermission = useCallback(async (): Promise<'granted' | 'denied' | 'prompt'> => {
     if (typeof window === 'undefined') return 'prompt';
 
-    // 1. Check AndroidNative interface if available
-    if ((window as any).AndroidNative?.isLocationPermissionGranted) {
-      try {
-        if ((window as any).AndroidNative.isLocationPermissionGranted()) {
-          return 'granted';
-        }
-      } catch (err) {
-        console.warn('AndroidNative.isLocationPermissionGranted check error:', err);
-      }
-    }
-
-    // 2. Check Capacitor Geolocation Plugin if on native platform
+    // 1. On Capacitor native platform: strictly use @capacitor/geolocation
     if (Capacitor.isNativePlatform()) {
       try {
         const status = await Geolocation.checkPermissions();
         if (status.location === 'granted' || status.coarseLocation === 'granted') {
           return 'granted';
         }
-        if (status.location === 'denied') {
+        if (status.location === 'denied' && status.coarseLocation === 'denied') {
           return 'denied';
         }
         return 'prompt';
       } catch (err) {
         console.warn('Capacitor Geolocation checkPermissions error:', err);
+        // Fallback to AndroidNative bridge if available
+        if ((window as any).AndroidNative?.isLocationPermissionGranted) {
+          try {
+            if ((window as any).AndroidNative.isLocationPermissionGranted()) {
+              return 'granted';
+            }
+          } catch (_) {}
+        }
+        return 'prompt';
       }
     }
 
-    // 3. Web navigator.permissions fallback
+    // 2. Web browser fallback (only on non-native web)
     if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
       try {
         const status = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
@@ -1496,23 +1494,29 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       if (Capacitor.isNativePlatform()) {
         try {
-          const result = await Geolocation.requestPermissions();
+          const result = await Geolocation.requestPermissions({
+            permissions: ['location', 'coarseLocation'],
+          });
           if (result.location === 'granted' || result.coarseLocation === 'granted') {
             return 'granted';
           }
           return 'denied';
         } catch (capErr) {
           console.warn('Capacitor Geolocation requestPermissions error:', capErr);
+          // If Geolocation throws, verify if permission was actually granted
+          try {
+            const check = await Geolocation.checkPermissions();
+            if (check.location === 'granted' || check.coarseLocation === 'granted') {
+              return 'granted';
+            }
+          } catch (_) {}
+
+          // Fallback to AndroidNative bridge if available
           if ((window as any).AndroidNative?.requestLocationPermission) {
             (window as any).AndroidNative.requestLocationPermission();
           }
           return 'denied';
         }
-      }
-
-      if ((window as any).AndroidNative?.requestLocationPermission) {
-        (window as any).AndroidNative.requestLocationPermission();
-        return 'prompt' as any;
       }
 
       return 'prompt' as any;
@@ -1543,17 +1547,23 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return;
       }
 
-      if (currentPerm === 'prompt' && shouldRequestNativePermissionIfPrompt) {
-        setGpsStatus('requesting');
-        const reqResult = await requestLocationPermission();
-        if (reqResult === 'granted') {
-          setPermissionState('granted');
+      if (currentPerm === 'prompt') {
+        if (shouldRequestNativePermissionIfPrompt) {
+          setGpsStatus('requesting');
+          const reqResult = await requestLocationPermission();
+          if (reqResult === 'granted') {
+            setPermissionState('granted');
+          } else {
+            setHasValidGps(false);
+            setCurrentLocation(null);
+            setPermissionState('denied');
+            setGpsStatus('denied');
+            setGpsErrorMsg('Location access was denied. Eclipse GPS requires your real location to navigate.');
+            return;
+          }
         } else {
-          setHasValidGps(false);
-          setCurrentLocation(null);
-          setPermissionState('denied');
-          setGpsStatus('denied');
-          setGpsErrorMsg('Location access was denied. Eclipse GPS requires your real location to navigate.');
+          setPermissionState('prompt');
+          setGpsStatus('prompt');
           return;
         }
       }
@@ -1675,8 +1685,27 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [checkLocationPermission, requestLocationPermission]);
 
   const retryLocation = useCallback(async () => {
+    // If on native platform, re-check permission status first (in case user granted it in Settings)
+    if (Capacitor.isNativePlatform()) {
+      const perm = await checkLocationPermission();
+      if (perm === 'granted') {
+        setPermissionState('granted');
+        await requestLocation(false);
+        return;
+      }
+      if (perm === 'prompt') {
+        await requestLocation(true);
+        return;
+      }
+      // If still denied, retain denied screen with Open Settings
+      setPermissionState('denied');
+      setGpsStatus('denied');
+      setGpsErrorMsg('Location access is blocked. Please allow location access in your device settings.');
+      return;
+    }
+
     await requestLocation(true);
-  }, [requestLocation]);
+  }, [checkLocationPermission, requestLocation]);
 
   // Check initial permission status and auto-request on app startup
   useEffect(() => {
@@ -1692,30 +1721,37 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return;
       }
 
-      // Check current permission status
+      // 1. Check current permission status
       const currentPerm = await checkLocationPermission();
       if (isCancelled) return;
 
       if (currentPerm === 'granted') {
+        // Permission is already granted: proceed to location acquisition
         setPermissionState('granted');
         requestLocation(false);
       } else if (currentPerm === 'denied') {
-        // Previously denied: show Location Required screen without endless prompt loop
+        // Previously denied: do NOT repeatedly request it. Show Location Required screen with Settings button.
         setPermissionState('denied');
         setGpsStatus('denied');
         setGpsErrorMsg('Location access is blocked. Please allow location access in your device settings.');
       } else {
-        // 'prompt' (fresh install / not yet requested)
+        // 'prompt' (fresh install / permission not yet granted):
         setPermissionState('prompt');
+        setGpsStatus('prompt');
+
         // On first launch, automatically trigger native permission request!
         if (!hasAutoRequestedPermissionRef.current) {
           hasAutoRequestedPermissionRef.current = true;
-          setGpsStatus('requesting');
-          if (Capacitor.isNativePlatform() || (window as any).AndroidNative) {
+
+          if (Capacitor.isNativePlatform()) {
+            setGpsStatus('requesting');
+            // Call Geolocation.requestPermissions() and wait for returned status
             const result = await requestLocationPermission();
             if (isCancelled) return;
+
             if (result === 'granted') {
               setPermissionState('granted');
+              // Only start the existing GPS acquisition after permission is granted!
               requestLocation(false);
             } else {
               setPermissionState('denied');
@@ -1726,17 +1762,15 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             // Web browser prompt
             requestLocation(false);
           }
-        } else {
-          setGpsStatus('prompt');
         }
       }
     };
 
     initLocationFlow();
 
-    // Listen to permission changes if supported
+    // Listen to permission changes if supported (Web browser only; on native Android, resume listener handles Settings changes)
     let permissionObj: PermissionStatus | null = null;
-    if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+    if (!Capacitor.isNativePlatform() && typeof navigator !== 'undefined' && navigator.permissions?.query) {
       navigator.permissions
         .query({ name: 'geolocation' as PermissionName })
         .then((status) => {
