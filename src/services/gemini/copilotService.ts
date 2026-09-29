@@ -4,7 +4,7 @@ export interface CopilotResponse {
   parameters?: Record<string, any>;
 }
 
-const PRODUCTION_BACKEND_URL = 'https://ais-pre-sko4oskwxy2u2kvbkptz37-300412495421.asia-southeast1.run.app';
+const PRODUCTION_BACKEND_URL = 'https://ais-dev-sko4oskwxy2u2kvbkptz37-300412495421.asia-southeast1.run.app';
 
 /**
  * Resolves the Copilot API endpoint with support for runtime/environment overrides.
