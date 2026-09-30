@@ -41,7 +41,8 @@ try {
 } catch (e) {
 }
 var app = (0, import_express.default)();
-var PORT = 3e3;
+var isAiStudioContainer = Boolean(process.env.CONTROL_PLANE_PORT || process.env.APPLET_ID);
+var PORT = isAiStudioContainer ? Number(process.env.DEFAULT_APP_PORT) || 3e3 : Number(process.env.PORT) || 3e3;
 app.use(import_express.default.json());
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
@@ -165,6 +166,9 @@ function classifyGeminiError(error) {
     status: typeof status === "number" && status >= 400 && status < 600 ? status : 500
   };
 }
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });

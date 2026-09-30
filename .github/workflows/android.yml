@@ -26,7 +26,7 @@ jobs:
 
       - name: Build web application
         env:
-          VITE_COPILOT_API_URL: https://ais-dev-sko4oskwxy2u2kvbkptz37-300412495421.asia-southeast1.run.app/api/ai
+          VITE_COPILOT_API_URL: https://eclipse-copilot-backend.onrender.com/api/ai
         run: npm run build
 
       - name: Sync Capacitor Android
