@@ -171,42 +171,73 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = React.memo(() =>
       }
     };
 
-    try {
-      setOptions({
-        key: apiKey,
-        v: 'weekly',
-        libraries: ['maps', 'marker', 'places', 'geometry', 'routes'],
-        mapIds: mapId ? [mapId] : [],
-      });
+    let isMounted = true;
 
-      // Import core libraries to trigger script load
-      Promise.all([
-        importLibrary('maps'),
-        importLibrary('marker'),
-      ])
-        .then(() => {
+    // Helper to attempt dynamic import with resilient fallback
+    const attemptLoad = async () => {
+      try {
+        const loaderOptions: any = {
+          key: apiKey,
+          v: 'weekly',
+        };
+        if (mapId) {
+          loaderOptions.mapIds = [mapId];
+        }
+        setOptions(loaderOptions);
+
+        // Import core libraries to trigger script load
+        await Promise.all([
+          importLibrary('maps'),
+          importLibrary('marker'),
+        ]);
+
+        if (isMounted) {
           setGoogleLoaded(true);
           setLoadError(null);
           setAuthError(false);
-        })
-        .catch((err: any) => {
-          if ((window as any).google?.maps?.Map) {
-            setGoogleLoaded(true);
-          } else {
-            console.error('Google Maps SDK loading failed:', err);
-            setLoadError('Failed to load Google Maps SDK.');
-          }
-        });
-    } catch (err: any) {
-      if ((window as any).google?.maps?.Map) {
-        setGoogleLoaded(true);
-      } else {
-        console.error('Error configuring Google Maps SDK Loader:', err);
-        setLoadError('Failed to load Google Maps SDK.');
+        }
+      } catch (err: any) {
+        if (!isMounted) return;
+
+        // If google maps is already loaded on window despite loader error, succeed
+        if ((window as any).google?.maps?.Map) {
+          setGoogleLoaded(true);
+          setLoadError(null);
+          return;
+        }
+
+        // Secondary fallback: Try loading via standard script element if dynamic import failed
+        const existingScript = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
+        if (!existingScript) {
+          const script = document.createElement('script');
+          script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=places,geometry,marker${mapId ? `&map_ids=${encodeURIComponent(mapId)}` : ''}`;
+          script.async = true;
+          script.defer = true;
+          script.onload = () => {
+            if (isMounted && (window as any).google?.maps?.Map) {
+              setGoogleLoaded(true);
+              setLoadError(null);
+              setAuthError(false);
+            }
+          };
+          script.onerror = () => {
+            if (isMounted) {
+              console.warn('Google Maps JavaScript API could not load in current environment. Gracefully falling back to Leaflet map engine.');
+              setMapProvider('leaflet');
+            }
+          };
+          document.head.appendChild(script);
+        } else {
+          console.warn('Google Maps JavaScript API could not load. Gracefully falling back to Leaflet map engine:', err?.message || err);
+          setMapProvider('leaflet');
+        }
       }
-    }
+    };
+
+    attemptLoad();
 
     return () => {
+      isMounted = false;
       (window as any).gm_authFailure = originalAuthFailure;
     };
   }, [apiKey, mapId]);
@@ -226,7 +257,7 @@ export const GoogleMapView: React.FC<{ isVisible?: boolean }> = React.memo(() =>
         minZoom: 3,
         maxZoom: 21,
         mapTypeId: initialMapTypeId,
-        mapId: mapId,
+        ...(mapId ? { mapId } : {}),
         tilt: mapStyle === '3d' ? 55 : 0,
         heading: 0,
         disableDefaultUI: true, // Custom HUD overlays

@@ -55,16 +55,20 @@ export const getGoogleMapsApiKey = (): string => {
 
 /**
  * Resolves the Google Maps Vector Map ID across environments.
+ * Returns an empty string if no valid Map ID is configured, avoiding
+ * invalid cloud configuration fetch errors like 'DEMO_MAP_ID'.
  */
 export const getGoogleMapsMapId = (): string => {
   if (typeof window !== 'undefined') {
     const win = window as any;
     const winMapId = cleanValue(win.GOOGLE_MAPS_MAP_ID || win.VITE_GOOGLE_MAPS_MAP_ID);
-    if (winMapId) return winMapId;
+    if (winMapId && winMapId !== 'DEMO_MAP_ID') return winMapId;
   }
 
   const envMapId = cleanValue(import.meta.env.VITE_GOOGLE_MAPS_MAP_ID);
-  return envMapId || 'DEMO_MAP_ID';
+  if (envMapId && envMapId !== 'DEMO_MAP_ID') return envMapId;
+
+  return '';
 };
 
 /**

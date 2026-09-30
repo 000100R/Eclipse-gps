@@ -21,7 +21,12 @@ try {
 } catch (e) {}
 
 const app = express();
-const PORT = 3000;
+// Listen on process.env.PORT with 3000 as fallback.
+// In AI Studio container where Nginx proxy occupies PORT (8080), fallback to DEFAULT_APP_PORT (3000).
+const isAiStudioContainer = Boolean(process.env.CONTROL_PLANE_PORT || process.env.APPLET_ID);
+const PORT = isAiStudioContainer
+  ? (Number(process.env.DEFAULT_APP_PORT) || 3000)
+  : (Number(process.env.PORT) || 3000);
 
 app.use(express.json());
 
@@ -181,7 +186,11 @@ function classifyGeminiError(error: any): { message: string; type: string; statu
   };
 }
 
-// Health check endpoint
+// Health check endpoints
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
