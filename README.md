@@ -184,3 +184,14 @@ Install dependencies:
 
 ```bash
 npm install
+---
+
+## 👤 Creator
+
+**RISHIGATO**
+
+### উমা এলো
+
+**Kolkata Puja Explorer**
+
+**পুজো হোক, পথ চলা হোক।**
