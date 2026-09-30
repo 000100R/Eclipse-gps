@@ -22,6 +22,7 @@ import { smartPujaRoutePlannerService } from '../services/routing/smartPujaRoute
 import { travelDistanceService } from '../services/gps/travelDistanceService';
 import { hasValidGoogleMapsKey } from '../services/map/mapsConfig';
 import { resolveCopilotEndpoint } from '../services/gemini/copilotService';
+import { speechService } from '../services/voice/speechService';
 import { Capacitor } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
 import { ref, set, remove, onDisconnect, serverTimestamp, onValue, off } from 'firebase/database';
@@ -2379,9 +2380,8 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     // Starting a new destination cleanly resets previous speech and puja route session
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    speechService.cancel();
+    speechService.warmUp();
     setPujaRouteSession(null);
 
     isCalculatingRouteRef.current = true;
@@ -2595,9 +2595,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setCurrentStepIndex(0);
     setSelectedItem(null);
     setActiveTab('home');
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    speechService.cancel();
   }, []);
 
   // End Puja Route navigation

@@ -24,6 +24,7 @@ import {
 import { useAppState } from '../../hooks/AppStateProvider';
 import { GlassPanel } from '../../components/ui/GlassPanel';
 import { Location } from '../../types';
+import { speechService } from '../../services/voice/speechService';
 
 function getHaversineDistanceMeters(p1: Location, p2: Location): number {
   if (!p1 || !p2) return 0;
@@ -237,38 +238,29 @@ export const LiveNavigationHUD: React.FC<LiveNavigationHUDProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Voice Navigation State (Browser / Device Speech Synthesis)
+  // Voice Navigation State (Browser / Device Speech Synthesis via robust speechService)
   const [isMuted, setIsMuted] = useState(false);
   const lastSpokenInstructionRef = useRef<string>('');
   const hasArrivedAnnouncedRef = useRef<boolean>(false);
 
   // Helper to safely speak voice announcements
   const speakVoiceAnnouncement = (text: string) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      window.speechSynthesis.speak(utterance);
-    } catch (err) {
-      console.warn('Speech synthesis utterance error:', err);
-    }
+    if (isMuted) return;
+    speechService.speak(text);
   };
 
   // Immediate cancellation if user toggles Mute
   useEffect(() => {
-    if (isMuted && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+    if (isMuted) {
+      speechService.cancel();
     }
   }, [isMuted]);
 
-  // Clean up any ongoing speech synthesis when component unmounts
+  // Warm up and prime speech engine on mount, clean up on unmount
   useEffect(() => {
+    speechService.warmUp();
     return () => {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
+      speechService.cancel();
     };
   }, []);
 

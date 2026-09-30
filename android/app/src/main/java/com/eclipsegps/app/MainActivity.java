@@ -26,6 +26,7 @@ public class MainActivity extends BridgeActivity {
                 settings.setDomStorageEnabled(true);
                 settings.setDatabaseEnabled(true);
                 settings.setGeolocationEnabled(true);
+                settings.setMediaPlaybackRequiresUserGesture(false);
 
                 webView.addJavascriptInterface(new Object() {
                     @JavascriptInterface
